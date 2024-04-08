@@ -1,7 +1,7 @@
 from pickle import NONE
 import sys
 from PySide6.QtWidgets import QApplication, QMainWindow, QDialog, QHeaderView, QAbstractItemView, QMessageBox, QSystemTrayIcon, QMenu
-from PySide6.QtCore import QFile, QAbstractTableModel
+from PySide6.QtCore import QFile, QAbstractTableModel, QSortFilterProxyModel
 from PySide6 import QtGui
 from PySide6 import QtCore
 from PySide6.QtGui import QFont, QIcon, QAction
@@ -35,14 +35,14 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
 
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
-    def __init__(self, deice_list, header):
+    def __init__(self, device_list, header):
         super(DeviceTableModel, self).__init__()
 
-        self.mylist = deice_list
+        self.device_list = device_list
         self.header = header
 
     def rowCount(self, parent):
-        return len(self.mylist)
+        return len(self.device_list)
 
     def columnCount(self, parent):
         return len(self.header)
@@ -53,24 +53,28 @@ class DeviceTableModel(QtCore.QAbstractTableModel):
         elif role != QtCore.Qt.DisplayRole:
             return None
 
-        return self.mylist[index.row()][index.column()]
+        return self.device_list[index.row()][index.column()]
 
         return None
-
     def headerData(self, col, orientation, role):
         if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
             return self.header[col]
         return None
 
 
-class DeviceSeleteDialog(QDialog):
+class DeviceSelectDialog(QDialog):
     def __init__(self):
-        super(DeviceSeleteDialog, self).__init__()
+        super(DeviceSelectDialog, self).__init__()
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/swap_horiz_16px.ico"))
-
+        
+		#创建筛选模型
+        self.proxy_model = QSortFilterProxyModel()
+		#连接文本框设置筛选条件
+        self.ui.lineEdit_filter.textChanged.connect(self.set_filter)
+        
         self._target = None
 
         filepath = self.get_jlink_devices_list_file()
@@ -78,14 +82,14 @@ class DeviceSeleteDialog(QDialog):
             self.devices_list = self.parse_jlink_devices_list_file(filepath)
 
         if len(self.devices_list):
-            # 从headdata中取出数据，放入到模型中
-            headdata = ["Manufacturer", "Device", "Core",
-                        "NumCores", "Flash Size", "RAM Size"]
+            # 从 header_data 中取出数据，放入到模型中
+            header_data = ["Manufacturer", "Device", "Core",
+                           "NumCores", "Flash Size", "RAM Size"]
+            model = DeviceTableModel(self.devices_list, header_data)
 
-            # 生成一个模型，用来给tableview
-            model = DeviceTableModel(self.devices_list, headdata)
-
-            self.ui.tableView.setModel(model)
+            self.proxy_model.setSourceModel(model)
+            self.ui.tableView.setModel(self.proxy_model)
+            #self.ui.tableView.setSortingEnabled(True)  # 开启排序
             # set font
             # font = QFont("Courier New", 9)
             # self.ui.tableView.setFont(font)
@@ -93,7 +97,7 @@ class DeviceSeleteDialog(QDialog):
             # Disable auto-resizing
             self.ui.tableView.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
             self.ui.tableView.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
-
+			
             # Set fixed column widths (adjust the values based on your needs)
             self.ui.tableView.setColumnWidth(0, 100)  # Manufacturer
             self.ui.tableView.setColumnWidth(1, 280)  # Device
@@ -104,8 +108,10 @@ class DeviceSeleteDialog(QDialog):
             self.ui.tableView.setSelectionBehavior(
                 QAbstractItemView.SelectRows)
 
-            self.ui.tableView.clicked.connect(self.reflash_selete_device)
-
+            self.ui.tableView.clicked.connect(self.refresh_selected_device)
+            # 在设备选择对话框中连接到双击事件
+            self.ui.tableView.doubleClicked.connect(self.accept)
+            
     def get_jlink_devices_list_file(self):
         if os.path.exists(r'JLinkDevicesBuildIn.xml') == True:
             return os.path.abspath('JLinkDevicesBuildIn.xml')
@@ -157,14 +163,24 @@ class DeviceSeleteDialog(QDialog):
 
         return jlink_devices_list
 
-    def reflash_selete_device(self):
-        index = self.ui.tableView.currentIndex()
-        self._target = self.devices_list[index.row()][1]
+    def refresh_selected_device(self):
+        proxy_index = self.ui.tableView.currentIndex()
+        source_index = self.proxy_model.mapToSource(proxy_index)
+        self._target = self.devices_list[source_index.row()][1]
         self.ui.label_sel_dev.setText(self._target)
+
 
     def get_target_device(self):
         return self._target
 
+    def set_filter(self, text):
+        self.proxy_model.setFilterKeyColumn(1) #只对 Device 列进行筛选
+        self.proxy_model.setFilterFixedString(text) #设置筛选的文本
+
+    # 在设备选择对话框类中添加一个方法来处理确定按钮的操作
+    def accept(self):
+        self.refresh_selected_device()
+        self.close()
 
 class MainWindow(QDialog):
     def __init__(self):
@@ -383,16 +399,21 @@ class MainWindow(QDialog):
                 pass
 
     def target_device_selete(self):
-        device_ui = DeviceSeleteDialog()
+        device_ui = DeviceSelectDialog()
         device_ui.exec()
         self.target_device = device_ui.get_target_device()
 
         if self.target_device not in self.settings['device']:
             self.settings['device'].append(self.target_device)
             self.ui.comboBox_Device.addItem(self.target_device)
-            self.ui.comboBox_Device.setCurrentIndex(
-                len(self.settings['device']) - 1)
-
+        
+        # 选择新添加的项目
+        index = self.ui.comboBox_Device.findText(self.target_device)
+        if index != -1:
+            self.ui.comboBox_Device.setCurrentIndex(index)
+        # 刷新显示
+        self.ui.comboBox_Device.update()
+        
     def device_change_slot(self, index):
         self.settings['device_index'] = index
         self.target_device = self.ui.comboBox_Device.currentText()
