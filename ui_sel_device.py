@@ -16,8 +16,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QDialog, QDialogButtonBox,
-    QFrame, QHeaderView, QLabel, QSizePolicy,
-    QTableView, QWidget)
+    QFrame, QHeaderView, QLabel, QLineEdit,
+    QSizePolicy, QTableView, QWidget)
 
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
@@ -45,6 +45,9 @@ class Ui_Dialog(object):
         self.line.setGeometry(QRect(10, 340, 761, 16))
         self.line.setFrameShape(QFrame.HLine)
         self.line.setFrameShadow(QFrame.Sunken)
+        self.lineEdit_filter = QLineEdit(Dialog)
+        self.lineEdit_filter.setObjectName(u"lineEdit_filter")
+        self.lineEdit_filter.setGeometry(QRect(240, 6, 113, 21))
 
         self.retranslateUi(Dialog)
         self.buttonBox.accepted.connect(Dialog.accept)
@@ -57,5 +60,6 @@ class Ui_Dialog(object):
         Dialog.setWindowTitle(QCoreApplication.translate("Dialog", u"Target Device Settings", None))
         self.label.setText(QCoreApplication.translate("Dialog", u"Seleted Device:", None))
         self.label_sel_dev.setText("")
+        self.lineEdit_filter.setPlaceholderText(QCoreApplication.translate("Dialog", u"Filter", None))
     # retranslateUi
 

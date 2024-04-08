@@ -90,6 +90,19 @@
     <enum>Qt::Horizontal</enum>
    </property>
   </widget>
+  <widget class="QLineEdit" name="lineEdit_filter">
+   <property name="geometry">
+    <rect>
+     <x>240</x>
+     <y>6</y>
+     <width>113</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <property name="placeholderText">
+    <string>Filter</string>
+   </property>
+  </widget>
  </widget>
  <resources/>
  <connections>
