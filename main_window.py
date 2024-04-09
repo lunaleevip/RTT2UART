@@ -1,13 +1,16 @@
 from pickle import NONE
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QDialog, QHeaderView, QAbstractItemView, QMessageBox, QSystemTrayIcon, QMenu
-from PySide6.QtCore import QFile, QAbstractTableModel, QSortFilterProxyModel
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
+from PySide6.QtCore import *
 from PySide6 import QtGui
 from PySide6 import QtCore
 from PySide6.QtGui import QFont, QIcon, QAction
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 from ui_rtt2uart import Ui_dialog
 from ui_sel_device import Ui_Dialog
+from ui_xexunrtt import Ui_xexun_rtt
 import rc_icons
 
 import serial.tools.list_ports
@@ -20,6 +23,7 @@ import logging
 import pickle
 import os
 import subprocess
+import threading
 
 logging.basicConfig(level=logging.NOTSET,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
@@ -182,6 +186,65 @@ class DeviceSelectDialog(QDialog):
         self.refresh_selected_device()
         self.close()
 
+
+
+class XexunRTTWindow(QWidget):
+    def __init__(self, main):
+        super(XexunRTTWindow, self).__init__()
+        self.main = main
+        self.ui = Ui_xexun_rtt()
+        self.ui.setupUi(self)
+        
+        # 设置窗口标志以显示最大化按钮
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        # 向 tabWidget 中添加页面并连接信号
+        self.ui.tem_switch.clear()
+        
+        for i in range(16):
+            page = QWidget()
+            text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
+            text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
+            text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
+            text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
+            font = QFont("新宋体", 9)  # 设置字体为 新宋体，9号
+            text_edit.setFont(font)
+            layout = QVBoxLayout(page)  # 创建布局管理器
+            layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
+            self.ui.tem_switch.addTab(page, '{}'.format(i))  # 将页面添加到 tabWidget 中
+        self.ui.tem_switch.currentChanged.connect(self.switchPage)
+        self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
+    
+    def resizeEvent(self, event):
+        # 当窗口大小变化时更新布局大小
+        self.ui.widget.setGeometry(QRect(0, 0, self.width(), self.height()))
+
+    def closeEvent(self, e):
+        if self.main.rtt2uart is not None and self.main.start_state == True:
+            self.main.start()
+
+    @Slot(int)
+    def switchPage(self, index):
+        self.main.switchPage(index)
+
+
+    @Slot()
+    def handleBufferUpdate(self):
+        # 获取当前选定的页面索引
+        index = self.ui.tem_switch.currentIndex()
+        # 刷新文本框
+        self.switchPage(index)
+        
+    def on_pushButton_clicked(self):
+        utf8_data = self.ui.cmd_buffer.currentText()
+        utf8_data += '\n'
+        
+        gbk_data = utf8_data.encode('gbk', errors='ignore')
+        
+        bytes_written = self.main.jlink.rtt_write(0, gbk_data)
+        self.write_bytes0 += bytes_written
+        if(bytes_written == len(gbk_data)):
+            self.ui.cmd_buffer.clearEditText()
+            
 class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -217,6 +280,15 @@ class MainWindow(QDialog):
 
         self.settings = {'device': [], 'device_index': 0, 'interface': 0,
                          'speed': 0, 'port': 0, 'buadrate': 0}
+
+        self.xexunrtt = XexunRTTWindow(self)
+        self.worker = Worker()
+        self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
+
+        # 连接信号和槽
+        self.worker.finished.connect(self.handleBufferUpdate)
+        self.ui.addToBuffer = self.worker.addToBuffer
+        
 
         # 检查是否存在上次配置，存在则加载
         if os.path.exists(self.setting_file_path) == True:
@@ -309,7 +381,14 @@ class MainWindow(QDialog):
             pickle.dump(self.settings, f)
 
         f.close()
-
+        
+        # 等待其他线程结束
+        for thread in threading.enumerate():
+            if thread != threading.current_thread():
+                if not is_dummy_thread(thread):
+                    thread.join()
+        super().closeEvent(e)
+        
         e.accept()
 
     def port_scan(self):
@@ -352,6 +431,8 @@ class MainWindow(QDialog):
                         self.ui.comboBox_Port.setEnabled(False)
                         self.ui.comboBox_baudrate.setEnabled(False)
                         self.ui.pushButton_scan.setEnabled(False)
+                        
+                        self.ui.pushButton.setEnabled(True)
 
                     else:
                         raise Exception("Please selete the target device !")
@@ -365,17 +446,20 @@ class MainWindow(QDialog):
                     connect_para = self.ui.checkBox__auto.isChecked()
                 else:
                     connect_para = None
-
-                self.rtt2uart = rtt_to_serial(self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
+                    
+                self.start_state = True
+                self.ui.pushButton_Start.setText("Stop")
+                
+                self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
 
                 self.rtt2uart.start()
+                
+                self.xexunrtt.show()
 
             except Exception as errors:
                 QMessageBox.critical(self, "Errors", str(errors))
-            else:
-                self.start_state = True
-                self.ui.pushButton_Start.setText("Stop")
+                
         else:
             logger.debug('click stop button')
             try:
@@ -389,6 +473,8 @@ class MainWindow(QDialog):
                     self.ui.comboBox_Port.setEnabled(True)
                     self.ui.comboBox_baudrate.setEnabled(True)
                     self.ui.pushButton_scan.setEnabled(True)
+                    
+                    self.ui.pushButton.setEnabled(False)
 
                 self.rtt2uart.stop()
 
@@ -465,6 +551,60 @@ class MainWindow(QDialog):
         self.ui.checkBox_resettarget.setEnabled(False)
         self.ui.checkBox_resettarget.setChecked(False)
 
+    @Slot(int)
+    def switchPage(self, index):
+        # 获取当前选定的页面索引并显示相应的缓冲区数据
+        buffer_data = self.worker.buffers[index]
+        current_page_widget = self.xexunrtt.ui.tem_switch.widget(index)
+        if isinstance(current_page_widget, QWidget):
+            text_edit = current_page_widget.findChild(QTextEdit)
+            if text_edit:
+                # 记录滚动条位置
+                vscroll = text_edit.verticalScrollBar().value()
+                hscroll = text_edit.horizontalScrollBar().value()
+                # 更新文本并恢复滚动条位置
+                text_edit.setPlainText(buffer_data)
+                text_edit.verticalScrollBar().setValue(vscroll)
+                text_edit.horizontalScrollBar().setValue(hscroll)
+            else:
+                print("No QTextEdit found on page:", index)
+        else:
+            print("Invalid page index or widget type:", index)
+
+    @Slot()
+    def handleBufferUpdate(self):
+        # 获取当前选定的页面索引
+        index = self.xexunrtt.ui.tem_switch.currentIndex()
+        # 刷新文本框
+        self.switchPage(index)
+        
+
+class Worker(QObject):
+    finished = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.buffers = [""] * 16  # 创建16个缓冲区
+        self.buffer_size = 10240
+
+    @Slot(int, str)
+    def addToBuffer(self, index, data):
+        # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
+        buffer = self.buffers[index]
+        if len(buffer) + len(data) > self.buffer_size:
+            # 计算需要删除的字符数量
+            delete_count = len(buffer) + len(data) - self.buffer_size
+            # 删除最早的字符
+            self.buffers[index] = buffer[delete_count:] + data
+        else:
+            self.buffers[index] += data
+        
+        # 在主线程中执行操作
+        self.finished.emit()
+
+
+def is_dummy_thread(thread):
+    return thread.name.startswith('Dummy')
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

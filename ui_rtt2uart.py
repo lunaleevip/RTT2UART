@@ -17,19 +17,21 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
     QFrame, QGroupBox, QLabel, QLineEdit,
-    QPushButton, QRadioButton, QSizePolicy, QWidget)
+    QPushButton, QRadioButton, QSizePolicy, QTabWidget,
+    QWidget)
 
 class Ui_dialog(object):
     def setupUi(self, dialog):
         if not dialog.objectName():
             dialog.setObjectName(u"dialog")
-        dialog.resize(402, 345)
-        dialog.setMinimumSize(QSize(402, 300))
-        dialog.setMaximumSize(QSize(402, 345))
+        dialog.setWindowModality(Qt.NonModal)
+        dialog.resize(397, 346)
+        dialog.setMinimumSize(QSize(0, 0))
+        dialog.setMaximumSize(QSize(2560, 1600))
         dialog.setSizeGripEnabled(False)
         self.pushButton_Start = QPushButton(dialog)
         self.pushButton_Start.setObjectName(u"pushButton_Start")
-        self.pushButton_Start.setGeometry(QRect(160, 300, 81, 41))
+        self.pushButton_Start.setGeometry(QRect(100, 300, 181, 41))
         font = QFont()
         font.setFamilies([u"\u5fae\u8f6f\u96c5\u9ed1"])
         font.setPointSize(13)
@@ -39,6 +41,7 @@ class Ui_dialog(object):
         self.pushButton_Start.setFont(font)
         self.pushButton_Start.setCheckable(True)
         self.pushButton_Start.setAutoRepeat(True)
+        self.pushButton_Start.setAutoDefault(True)
         self.line = QFrame(dialog)
         self.line.setObjectName(u"line")
         self.line.setEnabled(True)
@@ -92,6 +95,7 @@ class Ui_dialog(object):
         self.radioButton_usb.setGeometry(QRect(10, 20, 89, 16))
         self.radioButton_existing = QRadioButton(self.groupBox_3)
         self.radioButton_existing.setObjectName(u"radioButton_existing")
+        self.radioButton_existing.setEnabled(False)
         self.radioButton_existing.setGeometry(QRect(10, 60, 121, 16))
         self.radioButton_tcpip = QRadioButton(self.groupBox_3)
         self.radioButton_tcpip.setObjectName(u"radioButton_tcpip")
@@ -109,9 +113,41 @@ class Ui_dialog(object):
         self.lineEdit_ip.setGeometry(QRect(150, 40, 221, 20))
         self.checkBox__auto = QCheckBox(self.groupBox_3)
         self.checkBox__auto.setObjectName(u"checkBox__auto")
+        self.checkBox__auto.setEnabled(False)
         self.checkBox__auto.setGeometry(QRect(150, 60, 111, 16))
+        self.pushButton = QPushButton(dialog)
+        self.pushButton.setObjectName(u"pushButton")
+        self.pushButton.setEnabled(False)
+        self.pushButton.setGeometry(QRect(940, 310, 75, 31))
+        self.cmd_buffer = QComboBox(dialog)
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.addItem("")
+        self.cmd_buffer.setObjectName(u"cmd_buffer")
+        self.cmd_buffer.setGeometry(QRect(400, 310, 531, 30))
+        font1 = QFont()
+        font1.setFamilies([u"\u65b0\u5b8b\u4f53"])
+        self.cmd_buffer.setFont(font1)
+        self.cmd_buffer.setEditable(True)
+        self.status = QLabel(dialog)
+        self.status.setObjectName(u"status")
+        self.status.setGeometry(QRect(290, 300, 91, 31))
+        self.tem_switch = QTabWidget(dialog)
+        self.tem_switch.setObjectName(u"tem_switch")
+        self.tem_switch.setGeometry(QRect(404, 10, 611, 291))
 
         self.retranslateUi(dialog)
+
+        self.pushButton.setDefault(True)
+        self.tem_switch.setCurrentIndex(-1)
+
 
         QMetaObject.connectSlotsByName(dialog)
     # setupUi
@@ -134,5 +170,18 @@ class Ui_dialog(object):
         self.radioButton_tcpip.setText(QCoreApplication.translate("dialog", u"TCP/IP", None))
         self.checkBox_serialno.setText(QCoreApplication.translate("dialog", u"Serial NO", None))
         self.checkBox__auto.setText(QCoreApplication.translate("dialog", u"Auto Reconnect", None))
+        self.pushButton.setText(QCoreApplication.translate("dialog", u"Enter", None))
+        self.cmd_buffer.setItemText(0, "")
+        self.cmd_buffer.setItemText(1, QCoreApplication.translate("dialog", u"ver?", None))
+        self.cmd_buffer.setItemText(2, QCoreApplication.translate("dialog", u"all?", None))
+        self.cmd_buffer.setItemText(3, QCoreApplication.translate("dialog", u"tof rf?", None))
+        self.cmd_buffer.setItemText(4, QCoreApplication.translate("dialog", u"bf=99,1", None))
+        self.cmd_buffer.setItemText(5, QCoreApplication.translate("dialog", u"gsensor=1,1,1,30,5,20#mock gsensor=1,40", None))
+        self.cmd_buffer.setItemText(6, QCoreApplication.translate("dialog", u"tof rf=90,8,2,30.5,4,3,0,0,24,0,3,1,120,0,2,3;3,2,1,3,71,65,72;2,30,40,5,20;4,7,2,90,40,3,4,66;", None))
+        self.cmd_buffer.setItemText(7, QCoreApplication.translate("dialog", u"prfm=ffff", None))
+        self.cmd_buffer.setItemText(8, QCoreApplication.translate("dialog", u"of=1", None))
+        self.cmd_buffer.setItemText(9, QCoreApplication.translate("dialog", u"mg=\u4e2d\u6587\u6d4b\u8bd5", None))
+
+        self.status.setText("")
     # retranslateUi
 

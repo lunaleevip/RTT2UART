@@ -4,6 +4,11 @@ import time
 import serial
 import threading
 import socket
+import os
+import datetime
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *
 
 logging.basicConfig(level=logging.NOTSET,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
@@ -11,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class rtt_to_serial():
-    def __init__(self, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False):
+    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False):
         # jlink接入方式
         self._connect_inf = connect_inf
         # jlink接入参数
@@ -24,12 +29,18 @@ class rtt_to_serial():
         self._speed = speed
         # 复位标志
         self._reset = reset
-
+        
+        self.main = main
+        
         # 串口参数
         self.port = port
         self.baudrate = baudrate
 
         self.jlink = jlink
+        
+        self.read_bytes0 = 0
+        self.read_bytes1 = 0
+        self.write_bytes0 = 0
 
         # 线程
         self._write_lock = threading.Lock()
@@ -40,10 +51,22 @@ class rtt_to_serial():
             logger.error('Creat serial object failed', exc_info=True)
             raise
 
-        self.socket = None
-        self.timer = None
-        self.rtt2uart = None
-        self.uart2rtt = None
+        self.rtt_thread = None
+        
+        self.tem = '0'
+        
+        # 设置日志文件名
+        log_directory=None
+        
+        if log_directory is None:
+            now = datetime.datetime.now()
+            log_directory = str(device) + now.strftime("_%Y%m%d%H%M%S")
+        if not os.path.exists(log_directory):
+            os.makedirs(log_directory)
+        self.log_directory = log_directory
+        self.rtt_log_filename = os.path.join(log_directory, "rtt_log.log")
+        self.rtt_data_filename = os.path.join(log_directory, "rtt_data.log")
+
 
     def __del__(self):
         logger.debug('close app')
@@ -76,6 +99,9 @@ class rtt_to_serial():
 
                     # 连接目标芯片
                     self.jlink.connect(self.device)
+                    # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
+                    self.jlink.rtt_start()
+
                 except pylink.errors.JLinkException:
                     logger.error('Connect target failed', exc_info=True)
                     raise
@@ -94,34 +120,22 @@ class rtt_to_serial():
         except:
             logger.error('Open serial failed', exc_info=True)
             raise
+        
+        self.thread_switch = True
+        self.rtt_thread = threading.Thread(target=self.rtt_thread_exec)
+        self.rtt_thread.setDaemon(True)
+        self.rtt_thread.name = 'rtt_thread'
+        self.rtt_thread.start()
+        
 
-        self.socket = self.doConnect('localhost', 19021)
-        if self.socket:
-            self.thread_switch = True
-
-            self.rtt2uart = threading.Thread(target=self.rtt_to_uart)
-            self.rtt2uart.setDaemon(True)
-            self.rtt2uart.name = 'rtt->serial'
-            self.rtt2uart.start()
-
-            self.uart2rtt = threading.Thread(target=self.uart_to_rtt)
-            self.uart2rtt.setDaemon(True)
-            self.uart2rtt.name = 'serial->rtt'
-            self.uart2rtt.start()
-        else:
-            raise Exception("Connect or config RTT server failed")
-
+        
     def stop(self):
         logger.debug('stop rtt2uart')
-        if self.timer:
-            self.timer.cancel()
 
         self.thread_switch = False
-        if self.rtt2uart:
-            self.rtt2uart.join(0.5)
-        if self.uart2rtt:
-            self.uart2rtt.join(0.5)
-
+        if self.rtt_thread:
+            self.rtt_thread.join(0.5)
+            
         if self._connect_inf == 'USB':
             try:
                 if self.jlink.connected() == True:
@@ -140,83 +154,70 @@ class rtt_to_serial():
             logger.error('Close serial failed', exc_info=True)
             pass
 
-        if self.socket:
-            self.socket.close()
 
-    def rtt_to_uart(self):
-        while self.thread_switch == True:
-            try:
-                rtt_recv = self.socket.recv(1024)
+    def rtt_thread_exec(self):
+        # 打开日志文件，如果不存在将自动创建
+        with open(self.rtt_log_filename, 'ab') as log_file, open(self.rtt_data_filename, 'ab') as data_file:
+            while self.thread_switch:
+                rtt_recv_log = self.jlink.rtt_read(0, 1024)
+                rtt_recv_data = self.jlink.rtt_read(1, 1024)
+                self.read_bytes0 += len(rtt_recv_log)
+                self.read_bytes1 += len(rtt_recv_data)
 
-                if self._connect_para == True and rtt_recv == b'':
-                    logger.debug('telnel server close')
-                    self.thread_switch = False
-                    self.socket.close()
-                    # telnet服务器已经关闭，开启定时查询服务器状态
-                    self.timer = threading.Timer(0.5, self.check_socket_status)
-                    self.timer.start()
+                #self.main.status.setText("读取:" + str(self.read_bytes0) + "\t" + str(self.read_bytes1) + "\n写入:" + str(self.write_bytes0))
+                
+                rtt_log_len = len(rtt_recv_log)
+                
+                
+                if rtt_log_len:
+                    # 将接收到的数据写入日志文件
+                    log_bytes = bytearray(rtt_recv_log);
+                    log_file.write(log_bytes)
 
-            except socket.error as msg:
-                logger.error(msg, exc_info=True)
-                # probably got disconnected
-                raise Exception("Jlink rtt read error")
+                    skip_next_byte = False
+                    temp_buff = bytearray()
+                    
+                    for i in range(rtt_log_len):
+                        if skip_next_byte:
+                            self.tem = chr(log_bytes[i])
+                            skip_next_byte = False
+                            continue
+                        
+                        if log_bytes[i] == 255:
+                            skip_next_byte = True
+                            self.insert_char(self.tem, temp_buff)
+                            temp_buff.clear()
+                            continue
+                        
+                        temp_buff.append(log_bytes[i])
+                        
+                    if len(temp_buff):
+                        self.insert_char(self.tem, temp_buff)
+                    
+                if len(rtt_recv_data):
+                    # 将接收到的数据写入数据文件
+                    data_file.write(bytes(rtt_recv_data))
+                    self.serial.write(bytes(rtt_recv_data))
+                # 同时将数据写入串口
+                #self.serial.write(bytes(rtt_recv_log))
 
-            try:
-                if rtt_recv:
-                    self.serial.write(rtt_recv)
-            except:
-                raise Exception("Serial write error")
-
-    def uart_to_rtt(self):
-        while self.thread_switch == True:
-            try:
-                data = self.serial.read(self.serial.in_waiting or 1)
-
-                if data:
-                    with self._write_lock:
-                        self.socket.sendall(data)
-            except socket.error as msg:
-                logger.error(msg, exc_info=True)
-                # probably got disconnected
-                raise Exception("Jlink rtt write error")
-
-    def doConnect(self, host, port):
-        socketlocal = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            socketlocal.connect((host, port))
-        except socket.error:
-            socketlocal.close()
-            socketlocal = None
-            pass
-        return socketlocal
-
-    def check_socket_status(self):
-        self.timer = threading.Timer(1, self.check_socket_status)
-
-        # 连接到RTT Telnet Server
-        self.socket = self.doConnect('localhost', 19021)
-        if self.socket:
-            logger.debug('reconnect success')
-            self.rtt2uart.join(0.5)
-            self.uart2rtt.join(0.5)
-            # 连接成功，重建线程
-            self.thread_switch = True
-
-            self.rtt2uart = threading.Thread(target=self.rtt_to_uart)
-            self.rtt2uart.setDaemon(True)
-            self.rtt2uart.name = 'rtt->serial'
-            self.rtt2uart.start()
-
-            self.uart2rtt = threading.Thread(target=self.uart_to_rtt)
-            self.uart2rtt.setDaemon(True)
-            self.uart2rtt.name = 'serial->rtt'
-            self.uart2rtt.start()
-
-            self.timer.cancel()
+    def insert_char(self, tem, string, new_line=False):
+        if '0' <= tem <= '9':
+            tem_num = int(tem)
+        elif 'A' <= tem <= 'F':
+            tem_num = ord(tem) - ord('A') + 10
         else:
-            # 连接失败，继续尝试连接
-            self.timer.start()
-            logger.debug("try to reconnect")
+            # 处理非法输入的情况
+            tem_num = 0
+            
+        self.main.addToBuffer(tem_num, string.decode('gbk'));
+
+        # if tem == ord('1'):
+        #     cursor = self.ui.textEdit.textCursor()
+        #     cursor.movePosition(QTextCursor.End)
+        #     if new_line:
+        #         cursor.insertText('\n')
+        #     cursor.insertText(string.decode('gbk'))
 
 
 if __name__ == "__main__":
@@ -225,5 +226,5 @@ if __name__ == "__main__":
     if '' == serial_name:
         serial_name = 'COM26'
 
-    test = rtt_to_serial('AMAPH1KK-KBR', serial_name, 115200)
+    test = rtt_to_serial(0, 'AMAPH1KK-KBR', serial_name, 115200)
     test.start()
