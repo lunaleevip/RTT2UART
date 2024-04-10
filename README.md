@@ -39,3 +39,9 @@ execute the following command in a terminal
 ```
 pyside6-rcc .\icons.qrc -o .\rc_icons.py
 ```
+
+### create resource
+```
+pylupdate5 .\rtt2uart.ui .\xexunrtt.ui .\sel_device.ui .\main_window.py .\rtt2uart.py -ts xexunrtt.ts
+lrelease .\xexunrtt.ts .\xexunrtt.qm
+```
