@@ -206,13 +206,12 @@ class XexunRTTWindow(QWidget):
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
-            font = QFont("新宋体", 9)  # 设置字体为 新宋体，9号
-            text_edit.setFont(font)
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
             self.ui.tem_switch.addTab(page, '{}'.format(i))  # 将页面添加到 tabWidget 中
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
+        self.ui.LockH_checkBox.setChecked(True)
     
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
@@ -558,14 +557,25 @@ class MainWindow(QDialog):
         current_page_widget = self.xexunrtt.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
             text_edit = current_page_widget.findChild(QTextEdit)
+            font = QFont("新宋体", self.xexunrtt.ui.fontsize_box.value())  # 设置字体
             if text_edit:
+                text_edit.setFont(font)
                 # 记录滚动条位置
                 vscroll = text_edit.verticalScrollBar().value()
                 hscroll = text_edit.horizontalScrollBar().value()
                 # 更新文本并恢复滚动条位置
                 text_edit.setPlainText(buffer_data)
-                text_edit.verticalScrollBar().setValue(vscroll)
-                text_edit.horizontalScrollBar().setValue(hscroll)
+
+                cursor = text_edit.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                text_edit.setTextCursor(cursor)
+                text_edit.setCursorWidth(0)
+                        # 恢复滚动条的值
+                if self.xexunrtt.ui.LockV_checkBox.isChecked():
+                    text_edit.verticalScrollBar().setValue(vscroll)
+
+                if self.xexunrtt.ui.LockH_checkBox.isChecked():
+                    text_edit.horizontalScrollBar().setValue(hscroll)
             else:
                 print("No QTextEdit found on page:", index)
         else:
@@ -577,7 +587,7 @@ class MainWindow(QDialog):
         index = self.xexunrtt.ui.tem_switch.currentIndex()
         # 刷新文本框
         self.switchPage(index)
-        
+   
 
 class Worker(QObject):
     finished = Signal()
