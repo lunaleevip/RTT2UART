@@ -6,6 +6,9 @@ import threading
 import socket
 import os
 import datetime
+import zipfile
+from pathlib import Path
+
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
@@ -13,6 +16,13 @@ from PySide6.QtWidgets import *
 logging.basicConfig(level=logging.NOTSET,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
+
+def zip_folder(folder_path, zip_file_path):
+    with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                zipf.write(file_path, os.path.relpath(file_path, folder_path))
 
 
 class rtt_to_serial():
@@ -59,10 +69,13 @@ class rtt_to_serial():
         log_directory=None
         
         if log_directory is None:
-            now = datetime.datetime.now()
-            log_directory = str(device) + now.strftime("_%Y%m%d%H%M%S")
-        if not os.path.exists(log_directory):
-            os.makedirs(log_directory)
+            # 获取桌面路径
+            desktop_path = Path.home() / "Desktop"
+            # 设置日志文件名
+            log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
+            # 确保日志文件夹存在，如果不存在则创建
+            log_directory.mkdir(parents=True, exist_ok=True)
+            
         self.log_directory = log_directory
         self.rtt_log_filename = os.path.join(log_directory, "rtt_log.log")
         self.rtt_data_filename = os.path.join(log_directory, "rtt_data.log")
@@ -154,13 +167,30 @@ class rtt_to_serial():
             logger.error('Close serial failed', exc_info=True)
             pass
 
+        zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
+
 
     def rtt_thread_exec(self):
         # 打开日志文件，如果不存在将自动创建
         with open(self.rtt_log_filename, 'ab') as log_file, open(self.rtt_data_filename, 'ab') as data_file:
             while self.thread_switch:
-                rtt_recv_log = self.jlink.rtt_read(0, 1024)
-                rtt_recv_data = self.jlink.rtt_read(1, 1024)
+                rtt_recv_log = []
+                rtt_recv_data =[]
+                
+                while True:
+                    recv_log = self.jlink.rtt_read(0, 1024)
+                    if not recv_log:
+                        break
+                    else:
+                        rtt_recv_log += recv_log
+
+                while True:
+                    recv_data = self.jlink.rtt_read(1, 1024)
+                    if not recv_data:
+                        break
+                    else:
+                        rtt_recv_data += recv_data
+                        
                 self.read_bytes0 += len(rtt_recv_log)
                 self.read_bytes1 += len(rtt_recv_data)
 
@@ -210,7 +240,7 @@ class rtt_to_serial():
             # 处理非法输入的情况
             tem_num = 0
             
-        self.main.addToBuffer(tem_num, string.decode('gbk'));
+        self.main.addToBuffer(tem_num, string);
 
         # if tem == ord('1'):
         #     cursor = self.ui.textEdit.textCursor()

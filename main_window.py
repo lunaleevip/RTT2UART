@@ -6,8 +6,10 @@ from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6 import QtGui
 from PySide6 import QtCore
+from PySide6.QtCore import QObject
 from PySide6.QtGui import QFont, QIcon, QAction
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
+import qdarkstyle
 from ui_rtt2uart import Ui_dialog
 from ui_sel_device import Ui_Dialog
 from ui_xexunrtt import Ui_xexun_rtt
@@ -37,6 +39,8 @@ speed_list = [5, 10, 20, 30, 50, 100, 200, 300, 400, 500, 600, 750,
 baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
+MAX_TAB_SIZE = 24
+MAX_BUFFER_SIZE = 102400
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -186,7 +190,14 @@ class DeviceSelectDialog(QDialog):
         self.refresh_selected_device()
         self.close()
 
-
+class EditableTabBar(QTabBar):
+    def mouseDoubleClickEvent(self, event):
+        index = self.tabAt(event.pos())
+        if index > 16:
+            old_text = self.tabText(index)
+            new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("Edit Filter Text", "Edit Filter Text"), QCoreApplication.translate("Enter new text:", "Enter new text:"), QLineEdit.Normal, old_text)
+            if ok and new_text:
+                self.setTabText(index, new_text)
 
 class XexunRTTWindow(QWidget):
     def __init__(self, main):
@@ -198,9 +209,12 @@ class XexunRTTWindow(QWidget):
         # 设置窗口标志以显示最大化按钮
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         # 向 tabWidget 中添加页面并连接信号
-        self.ui.tem_switch.clear()
         
-        for i in range(16):
+        self.ui.tem_switch.clear()
+
+        self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
+        
+        for i in range(MAX_TAB_SIZE):
             page = QWidget()
             text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
@@ -208,11 +222,26 @@ class XexunRTTWindow(QWidget):
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
-            self.ui.tem_switch.addTab(page, '{}'.format(i))  # 将页面添加到 tabWidget 中
+            
+            if i == 0:
+                self.ui.tem_switch.addTab(page, QCoreApplication.translate("All", "All"))  # 将页面添加到 tabWidget 中
+            elif i <= 16:
+                self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
+            else:
+                self.ui.tem_switch.addTab(page, QCoreApplication.translate("filter", "filter"))
+                
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
         self.ui.LockH_checkBox.setChecked(True)
-    
+        self.populateComboBox()
+
+        # 设置默认样式
+        self.light_stylesheet = ""
+        self.dark_stylesheet = qdarkstyle.load_stylesheet()
+        
+        self.ui.light_checkbox.stateChanged.connect(self.set_style)
+        self.set_style()
+        
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
         self.ui.widget.setGeometry(QRect(0, 0, self.width(), self.height()))
@@ -243,7 +272,18 @@ class XexunRTTWindow(QWidget):
         self.write_bytes0 += bytes_written
         if(bytes_written == len(gbk_data)):
             self.ui.cmd_buffer.clearEditText()
-            
+
+    def populateComboBox(self):
+        # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
+        with open('cmd.txt', 'r', encoding='gbk') as file:
+            for line in file:
+                self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+
+    def set_style(self):
+        # 根据复选框状态设置样式
+        stylesheet = self.light_stylesheet if self.ui.light_checkbox.isChecked() else self.dark_stylesheet
+        self.setStyleSheet(stylesheet)                
+
 class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -281,7 +321,7 @@ class MainWindow(QDialog):
                          'speed': 0, 'port': 0, 'buadrate': 0}
 
         self.xexunrtt = XexunRTTWindow(self)
-        self.worker = Worker()
+        self.worker = Worker(self)
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
 
         # 连接信号和槽
@@ -447,7 +487,7 @@ class MainWindow(QDialog):
                     connect_para = None
                     
                 self.start_state = True
-                self.ui.pushButton_Start.setText("Stop")
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("Stop", "Stop"))
                 
                 self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
@@ -478,7 +518,7 @@ class MainWindow(QDialog):
                 self.rtt2uart.stop()
 
                 self.start_state = False
-                self.ui.pushButton_Start.setText("Start")
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("Start", "Start"))
             except:
                 logger.error('Stop rtt2uart failed', exc_info=True)
                 pass
@@ -570,7 +610,8 @@ class MainWindow(QDialog):
                 cursor.movePosition(QTextCursor.End)
                 text_edit.setTextCursor(cursor)
                 text_edit.setCursorWidth(0)
-                        # 恢复滚动条的值
+                
+                # 恢复滚动条的值
                 if self.xexunrtt.ui.LockV_checkBox.isChecked():
                     text_edit.verticalScrollBar().setValue(vscroll)
 
@@ -594,22 +635,57 @@ class Worker(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.buffers = [""] * 16  # 创建16个缓冲区
-        self.buffer_size = 10240
+        self.parent = parent
+        self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
+        self.buffer_size = MAX_BUFFER_SIZE
 
     @Slot(int, str)
-    def addToBuffer(self, index, data):
+    def addToBuffer(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
-        buffer = self.buffers[index]
+        data = string.decode('gbk')
+        buffer = self.buffers[index+1]
+        
+        buffer0 = self.buffers[0]
         if len(buffer) + len(data) > self.buffer_size:
             # 计算需要删除的字符数量
             delete_count = len(buffer) + len(data) - self.buffer_size
             # 删除最早的字符
-            self.buffers[index] = buffer[delete_count:] + data
+            self.buffers[index+1] = buffer[delete_count:] + data
         else:
-            self.buffers[index] += data
-        
+            self.buffers[index+1] += data
+
+        if len(buffer0) + len(data) > self.buffer_size:
+            # 计算需要删除的字符数量
+            delete_count = len(buffer0) + len(data) - self.buffer_size
+            # 删除最早的字符
+            self.buffers[0] = buffer0[delete_count:] + data
+        else:
+            self.buffers[0] += data
         # 在主线程中执行操作
+
+        with open(self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log', 'a') as page_log_file:
+            page_log_file.write(data);
+
+        # 将buffer分割成行
+        lines = data.split('\n')
+
+        for line in lines:
+            for i in range(17 , MAX_TAB_SIZE):
+                tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
+                search_word = tagText
+                buffer = self.buffers[i]
+                if search_word != QCoreApplication.translate("filter", "filter") and search_word in line:
+                    # 计算需要删除的字符数量
+                    with open(self.parent.rtt2uart.rtt_log_filename + '_' + search_word + '.log', 'a') as search_log_file:
+                        search_log_file.write(line + '\n');
+
+                    delete_count = len(buffer) + len(line) - self.buffer_size
+                    # 如果缓冲区超过了最大大小，则删除最早的字符
+                    if delete_count > 0:
+                        self.buffers[i] = buffer[delete_count:] + line + '\n'
+                    else:
+                        self.buffers[i] += line + '\n'
+
         self.finished.emit()
 
 
@@ -618,23 +694,14 @@ def is_dummy_thread(thread):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # 加载并安装翻译文件
+    translator = QTranslator()
+    translator.load("xexunrtt.qm")  # 加载英语翻译文件
+    app.installTranslator(translator)
+    
+    window = MainWindow()
+    window.setWindowTitle("RTT2UART Control Panel V2.0.0")
+    window.show()
 
-    serverName = 'myuniqueservername'
-    lsocket = QLocalSocket()
-    lsocket.connectToServer(serverName)
-
-    # 如果连接成功，表明server已经存在，当前已有实例在运行
-    if lsocket.waitForConnected(200) == False:
-
-        # 没有实例运行，创建服务器
-        localServer = QLocalServer()
-        localServer.listen(serverName)
-
-        try:
-            window = MainWindow()
-            window.setWindowTitle("RTT2UART Control Panel V2.0.0")
-            window.show()
-
-            sys.exit(app.exec())
-        finally:
-            localServer.close()
+    sys.exit(app.exec())
