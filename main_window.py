@@ -13,7 +13,7 @@ import qdarkstyle
 from ui_rtt2uart import Ui_dialog
 from ui_sel_device import Ui_Dialog
 from ui_xexunrtt import Ui_xexun_rtt
-import rc_icons
+import resources_rc
 
 import serial.tools.list_ports
 import serial
@@ -40,7 +40,6 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
-MAX_BUFFER_SIZE = 102400
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -91,8 +90,15 @@ class DeviceSelectDialog(QDialog):
 
         if len(self.devices_list):
             # 从 header_data 中取出数据，放入到模型中
-            header_data = ["Manufacturer", "Device", "Core",
-                           "NumCores", "Flash Size", "RAM Size"]
+            header_data = [
+                QCoreApplication.translate("main_window", "Manufacturer"),
+                QCoreApplication.translate("main_window", "Device"),
+                QCoreApplication.translate("main_window", "Core"),
+                QCoreApplication.translate("main_window", "NumCores"),
+                QCoreApplication.translate("main_window", "Flash Size"),
+                QCoreApplication.translate("main_window", "RAM Size")
+            ]
+
             model = DeviceTableModel(self.devices_list, header_data)
 
             self.proxy_model.setSourceModel(model)
@@ -124,7 +130,7 @@ class DeviceSelectDialog(QDialog):
         if os.path.exists(r'JLinkDevicesBuildIn.xml') == True:
             return os.path.abspath('JLinkDevicesBuildIn.xml')
         else:
-            raise Exception("Can not find device database !")
+            raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
 
     def parse_jlink_devices_list_file(self, path):
         parsefile = open(path, 'r')
@@ -195,7 +201,7 @@ class EditableTabBar(QTabBar):
         index = self.tabAt(event.pos())
         if index > 16:
             old_text = self.tabText(index)
-            new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("Edit Filter Text", "Edit Filter Text"), QCoreApplication.translate("Enter new text:", "Enter new text:"), QLineEdit.Normal, old_text)
+            new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("main_window", "Edit Filter Text"), QCoreApplication.translate("main_window", "Enter new text:"), QLineEdit.Normal, old_text)
             if ok and new_text:
                 self.setTabText(index, new_text)
 
@@ -217,6 +223,7 @@ class XexunRTTWindow(QWidget):
         for i in range(MAX_TAB_SIZE):
             page = QWidget()
             text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
+            text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
@@ -224,17 +231,18 @@ class XexunRTTWindow(QWidget):
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
             
             if i == 0:
-                self.ui.tem_switch.addTab(page, QCoreApplication.translate("All", "All"))  # 将页面添加到 tabWidget 中
+                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
             elif i <= 16:
                 self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
             else:
-                self.ui.tem_switch.addTab(page, QCoreApplication.translate("filter", "filter"))
+                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "filter"))
                 
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
-
+        # 连接 QComboBox 的 activated 信号到槽函数
+        self.ui.cmd_buffer.activated.connect(self.on_cmd_buffer_activated)
         # 设置默认样式
         self.light_stylesheet = ""
         self.dark_stylesheet = qdarkstyle.load_stylesheet()
@@ -244,11 +252,18 @@ class XexunRTTWindow(QWidget):
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
-        self.ui.widget.setGeometry(QRect(0, 0, self.width(), self.height()))
+        self.ui.layoutWidget.setGeometry(QRect(0, 0, self.width(), self.height()))
 
     def closeEvent(self, e):
         if self.main.rtt2uart is not None and self.main.start_state == True:
             self.main.start()
+
+        for i in range(MAX_TAB_SIZE):
+            current_page_widget = self.ui.tem_switch.widget(i)
+            if isinstance(current_page_widget, QWidget):
+                text_edit = current_page_widget.findChild(QTextEdit)
+                if text_edit:
+                    text_edit.clear()
 
     @Slot(int)
     def switchPage(self, index):
@@ -269,21 +284,30 @@ class XexunRTTWindow(QWidget):
         gbk_data = utf8_data.encode('gbk', errors='ignore')
         
         bytes_written = self.main.jlink.rtt_write(0, gbk_data)
-        self.write_bytes0 += bytes_written
         if(bytes_written == len(gbk_data)):
             self.ui.cmd_buffer.clearEditText()
 
     def populateComboBox(self):
         # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
-        with open('cmd.txt', 'r', encoding='gbk') as file:
-            for line in file:
-                self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+        try:
+            with open('cmd.txt', 'r', encoding='gbk') as file:
+                for line in file:
+                    self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+        except FileNotFoundError:
+            print("File 'cmd.txt' not found.")
+        except Exception as e:
+            print("An error occurred while reading 'cmd.txt':", e)
 
     def set_style(self):
         # 根据复选框状态设置样式
         stylesheet = self.light_stylesheet if self.ui.light_checkbox.isChecked() else self.dark_stylesheet
         self.setStyleSheet(stylesheet)                
 
+    def on_cmd_buffer_activated(self, index):
+        text = self.ui.cmd_buffer.currentText()
+        if text:  # 如果文本不为空
+            self.ui.pushButton.click()  # 触发 QPushButton 的点击事件
+            
 class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -382,7 +406,7 @@ class MainWindow(QDialog):
             self.jlink = pylink.JLink()
         except:
             logger.error('Find jlink dll failed', exc_info=True)
-            raise Exception("Find jlink dll failed !")
+            raise Exception(QCoreApplication.translate("main_window", "Find jlink dll failed !"))
 
         try:
             # 导出器件列表文件
@@ -470,12 +494,11 @@ class MainWindow(QDialog):
                         self.ui.comboBox_Port.setEnabled(False)
                         self.ui.comboBox_baudrate.setEnabled(False)
                         self.ui.pushButton_scan.setEnabled(False)
-                        
-                        self.ui.pushButton.setEnabled(True)
+                       
 
                     else:
-                        raise Exception("Please selete the target device !")
-
+                        raise Exception(QCoreApplication.translate("main_window", "Please selete the target device !"))
+                    
                 # 获取接入方式的参数
                 if self.ui.radioButton_usb.isChecked() and self.ui.checkBox_serialno.isChecked():
                     connect_para = self.ui.lineEdit_serialno.text()
@@ -487,13 +510,14 @@ class MainWindow(QDialog):
                     connect_para = None
                     
                 self.start_state = True
-                self.ui.pushButton_Start.setText(QCoreApplication.translate("Stop", "Stop"))
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Stop"))
                 
                 self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
 
                 self.rtt2uart.start()
                 
+                self.hide()
                 self.xexunrtt.show()
 
             except Exception as errors:
@@ -513,12 +537,12 @@ class MainWindow(QDialog):
                     self.ui.comboBox_baudrate.setEnabled(True)
                     self.ui.pushButton_scan.setEnabled(True)
                     
-                    self.ui.pushButton.setEnabled(False)
 
                 self.rtt2uart.stop()
+                self.show()
 
                 self.start_state = False
-                self.ui.pushButton_Start.setText(QCoreApplication.translate("Start", "Start"))
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
             except:
                 logger.error('Stop rtt2uart failed', exc_info=True)
                 pass
@@ -593,7 +617,9 @@ class MainWindow(QDialog):
     @Slot(int)
     def switchPage(self, index):
         # 获取当前选定的页面索引并显示相应的缓冲区数据
-        buffer_data = self.worker.buffers[index]
+        if len(self.worker.buffers[index]) <= 0:
+            return
+        
         current_page_widget = self.xexunrtt.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
             text_edit = current_page_widget.findChild(QTextEdit)
@@ -604,12 +630,14 @@ class MainWindow(QDialog):
                 vscroll = text_edit.verticalScrollBar().value()
                 hscroll = text_edit.horizontalScrollBar().value()
                 # 更新文本并恢复滚动条位置
-                text_edit.setPlainText(buffer_data)
-
                 cursor = text_edit.textCursor()
                 cursor.movePosition(QTextCursor.End)
                 text_edit.setTextCursor(cursor)
                 text_edit.setCursorWidth(0)
+
+                text_edit.insertPlainText(self.worker.buffers[index])
+                self.worker.buffers[index] = ""
+
                 
                 # 恢复滚动条的值
                 if self.xexunrtt.ui.LockV_checkBox.isChecked():
@@ -621,6 +649,7 @@ class MainWindow(QDialog):
                 print("No QTextEdit found on page:", index)
         else:
             print("Invalid page index or widget type:", index)
+
 
     @Slot()
     def handleBufferUpdate(self):
@@ -637,30 +666,17 @@ class Worker(QObject):
         super().__init__(parent)
         self.parent = parent
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
-        self.buffer_size = MAX_BUFFER_SIZE
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
-        data = string.decode('gbk')
+        data = string.decode('gbk', errors='ignore')
         buffer = self.buffers[index+1]
-        
         buffer0 = self.buffers[0]
-        if len(buffer) + len(data) > self.buffer_size:
-            # 计算需要删除的字符数量
-            delete_count = len(buffer) + len(data) - self.buffer_size
-            # 删除最早的字符
-            self.buffers[index+1] = buffer[delete_count:] + data
-        else:
-            self.buffers[index+1] += data
+        
+        self.buffers[index+1] += data
 
-        if len(buffer0) + len(data) > self.buffer_size:
-            # 计算需要删除的字符数量
-            delete_count = len(buffer0) + len(data) - self.buffer_size
-            # 删除最早的字符
-            self.buffers[0] = buffer0[delete_count:] + data
-        else:
-            self.buffers[0] += data
+        self.buffers[0] += data
         # 在主线程中执行操作
 
         with open(self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log', 'a') as page_log_file:
@@ -674,16 +690,9 @@ class Worker(QObject):
                 tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
                 search_word = tagText
                 buffer = self.buffers[i]
-                if search_word != QCoreApplication.translate("filter", "filter") and search_word in line:
-                    # 计算需要删除的字符数量
+                if search_word != QCoreApplication.translate("main_window", "filter") and search_word in line:
                     with open(self.parent.rtt2uart.rtt_log_filename + '_' + search_word + '.log', 'a') as search_log_file:
                         search_log_file.write(line + '\n');
-
-                    delete_count = len(buffer) + len(line) - self.buffer_size
-                    # 如果缓冲区超过了最大大小，则删除最早的字符
-                    if delete_count > 0:
-                        self.buffers[i] = buffer[delete_count:] + line + '\n'
-                    else:
                         self.buffers[i] += line + '\n'
 
         self.finished.emit()
@@ -697,11 +706,23 @@ if __name__ == "__main__":
     
     # 加载并安装翻译文件
     translator = QTranslator()
-    translator.load("xexunrtt.qm")  # 加载英语翻译文件
-    app.installTranslator(translator)
+    # 加载内置翻译文件
+    if translator.load(QLocale.system(), ":/xexunrtt.qm"):
+        # 如果成功加载翻译文件，则安装翻译器
+        QCoreApplication.installTranslator(translator)
+    else:
+        # 加载失败时进行错误处理
+        print("Failed to load translation file.")
+
+    # 加载 Qt 内置翻译文件
+    qt_translator = QTranslator()
+    if qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
+        QCoreApplication.installTranslator(qt_translator)
+    else:
+        print("Failed to load Qt translation file.")
     
     window = MainWindow()
-    window.setWindowTitle("RTT2UART Control Panel V2.0.0")
+    #window.setWindowTitle("RTT2UART Control Panel V2.0.0")
     window.show()
 
     sys.exit(app.exec())

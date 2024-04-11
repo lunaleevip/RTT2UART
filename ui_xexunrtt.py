@@ -24,10 +24,10 @@ class Ui_xexun_rtt(object):
         if not xexun_rtt.objectName():
             xexun_rtt.setObjectName(u"xexun_rtt")
         xexun_rtt.resize(924, 508)
-        self.widget = QWidget(xexun_rtt)
-        self.widget.setObjectName(u"widget")
-        self.widget.setGeometry(QRect(60, 0, 517, 276))
-        self.gridLayout = QGridLayout(self.widget)
+        self.layoutWidget = QWidget(xexun_rtt)
+        self.layoutWidget.setObjectName(u"layoutWidget")
+        self.layoutWidget.setGeometry(QRect(60, 0, 517, 276))
+        self.gridLayout = QGridLayout(self.layoutWidget)
         self.gridLayout.setObjectName(u"gridLayout")
         self.gridLayout.setContentsMargins(0, 0, 0, 0)
         self.horizontalSpacer_6 = QSpacerItem(13, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
@@ -38,7 +38,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_2, 2, 0, 1, 1)
 
-        self.light_checkbox = QCheckBox(self.widget)
+        self.light_checkbox = QCheckBox(self.layoutWidget)
         self.light_checkbox.setObjectName(u"light_checkbox")
 
         self.gridLayout.addWidget(self.light_checkbox, 2, 1, 1, 1)
@@ -47,7 +47,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_4, 2, 2, 1, 1)
 
-        self.label = QLabel(self.widget)
+        self.label = QLabel(self.layoutWidget)
         self.label.setObjectName(u"label")
         sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
@@ -58,7 +58,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.label, 2, 3, 1, 1)
 
-        self.fontsize_box = QSpinBox(self.widget)
+        self.fontsize_box = QSpinBox(self.layoutWidget)
         self.fontsize_box.setObjectName(u"fontsize_box")
         sizePolicy.setHeightForWidth(self.fontsize_box.sizePolicy().hasHeightForWidth())
         self.fontsize_box.setSizePolicy(sizePolicy)
@@ -72,12 +72,12 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_5, 2, 5, 1, 1)
 
-        self.LockV_checkBox = QCheckBox(self.widget)
+        self.LockV_checkBox = QCheckBox(self.layoutWidget)
         self.LockV_checkBox.setObjectName(u"LockV_checkBox")
 
         self.gridLayout.addWidget(self.LockV_checkBox, 2, 6, 1, 1)
 
-        self.LockH_checkBox = QCheckBox(self.widget)
+        self.LockH_checkBox = QCheckBox(self.layoutWidget)
         self.LockH_checkBox.setObjectName(u"LockH_checkBox")
 
         self.gridLayout.addWidget(self.LockH_checkBox, 2, 7, 1, 2)
@@ -90,7 +90,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.verticalSpacer, 3, 5, 1, 1)
 
-        self.tem_switch = QTabWidget(self.widget)
+        self.tem_switch = QTabWidget(self.layoutWidget)
         self.tem_switch.setObjectName(u"tem_switch")
         self.tem_switch.setMinimumSize(QSize(100, 200))
         self.tab = QWidget()
@@ -106,14 +106,15 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer, 1, 9, 1, 1)
 
-        self.pushButton = QPushButton(self.widget)
+        self.pushButton = QPushButton(self.layoutWidget)
         self.pushButton.setObjectName(u"pushButton")
         self.pushButton.setEnabled(True)
         self.pushButton.setMaximumSize(QSize(80, 26))
+        self.pushButton.setAutoDefault(True)
 
         self.gridLayout.addWidget(self.pushButton, 1, 8, 1, 1)
 
-        self.cmd_buffer = QComboBox(self.widget)
+        self.cmd_buffer = QComboBox(self.layoutWidget)
         self.cmd_buffer.setObjectName(u"cmd_buffer")
         sizePolicy1 = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         sizePolicy1.setHorizontalStretch(0)

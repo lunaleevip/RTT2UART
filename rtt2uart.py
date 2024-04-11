@@ -8,6 +8,7 @@ import os
 import datetime
 import zipfile
 from pathlib import Path
+import shutil
 
 from PySide6.QtCore import *
 from PySide6.QtGui import *
@@ -70,7 +71,7 @@ class rtt_to_serial():
         
         if log_directory is None:
             # 获取桌面路径
-            desktop_path = Path.home() / "Desktop"
+            desktop_path = Path.home() / "Desktop/XexunRTT_Log"
             # 设置日志文件名
             log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
             # 确保日志文件夹存在，如果不存在则创建
@@ -168,6 +169,7 @@ class rtt_to_serial():
             pass
 
         zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
+        shutil.rmtree(self.log_directory)
 
 
     def rtt_thread_exec(self):
