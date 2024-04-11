@@ -6,7 +6,7 @@
     <message>
         <location filename="main_window.py" line="227"/>
         <source>All</source>
-        <translation>全部</translation>
+        <translation type="obsolete">全部</translation>
     </message>
 </context>
 <context>
@@ -33,7 +33,7 @@
     <message>
         <location filename="main_window.py" line="198"/>
         <source>Edit Filter Text</source>
-        <translation>编辑筛选文本</translation>
+        <translation type="obsolete">编辑筛选文本</translation>
     </message>
 </context>
 <context>
@@ -41,23 +41,23 @@
     <message>
         <location filename="main_window.py" line="198"/>
         <source>Enter new text:</source>
-        <translation>输入新的文本：</translation>
+        <translation type="obsolete">输入新的文本：</translation>
     </message>
 </context>
 <context>
     <name>Start</name>
     <message>
-        <location filename="main_window.py" line="521"/>
+        <location filename="main_window.py" line="524"/>
         <source>Start</source>
-        <translation>开始</translation>
+        <translation type="obsolete">开始</translation>
     </message>
 </context>
 <context>
     <name>Stop</name>
     <message>
-        <location filename="main_window.py" line="490"/>
+        <location filename="main_window.py" line="494"/>
         <source>Stop</source>
-        <translation>停止</translation>
+        <translation type="obsolete">停止</translation>
     </message>
 </context>
 <context>
@@ -125,13 +125,12 @@
     <message>
         <location filename="rtt2uart.ui" line="362"/>
         <source>Enter</source>
-        <translation>输入指令</translation>
+        <translation type="obsolete">输入指令</translation>
     </message>
     <message>
         <location filename="rtt2uart.ui" line="29"/>
         <source>RTT2UART Control Panel</source>
-        <translatorcomment>喜讯RTT日志工具</translatorcomment>
-        <translation>RTT2UART Control Panel</translation>
+        <translation>喜讯 RTT 日志工具</translation>
     </message>
     <message>
         <location filename="rtt2uart.ui" line="150"/>
@@ -148,58 +147,91 @@
         <source>TCP/IP</source>
         <translation>TCP/IP</translation>
     </message>
-    <message>
-        <location filename="rtt2uart.ui" line="392"/>
-        <source>ver?</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="397"/>
-        <source>all?</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="402"/>
-        <source>tof rf?</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="407"/>
-        <source>bf=99,1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="412"/>
-        <source>gsensor=1,1,1,30,5,20#mock gsensor=1,40</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="417"/>
-        <source>tof rf=90,8,2,30.5,4,3,0,0,24,0,3,1,120,0,2,3;3,2,1,3,71,65,72;2,30,40,5,20;4,7,2,90,40,3,4,66;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="422"/>
-        <source>prfm=ffff</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="427"/>
-        <source>of=1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="rtt2uart.ui" line="432"/>
-        <source>mg=中文测试</source>
-        <translation type="unfinished"></translation>
-    </message>
 </context>
 <context>
     <name>filter</name>
     <message>
-        <location filename="main_window.py" line="677"/>
+        <location filename="main_window.py" line="682"/>
+        <source>filter</source>
+        <translation type="obsolete">筛选</translation>
+    </message>
+</context>
+<context>
+    <name>main_window</name>
+    <message>
+        <location filename="main_window.py" line="134"/>
+        <source>Can not find device database !</source>
+        <translation>未找到设备配置数据</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="205"/>
+        <source>Edit Filter Text</source>
+        <translation>编辑筛选文本</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="205"/>
+        <source>Enter new text:</source>
+        <translation>输入新的文本：</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="234"/>
+        <source>All</source>
+        <translation>全部</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="694"/>
         <source>filter</source>
         <translation>筛选</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="402"/>
+        <source>Find jlink dll failed !</source>
+        <translation>无法查找 Jlink.dll！</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="493"/>
+        <source>Please selete the target device !</source>
+        <translation>请选择目标设备！</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="506"/>
+        <source>Stop</source>
+        <translation>停止</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="536"/>
+        <source>Start</source>
+        <translation>开始</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="95"/>
+        <source>Manufacturer</source>
+        <translation>制造商</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="96"/>
+        <source>Device</source>
+        <translation>设备名称</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="97"/>
+        <source>Core</source>
+        <translation>内核</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="98"/>
+        <source>NumCores</source>
+        <translation>核心数</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="99"/>
+        <source>Flash Size</source>
+        <translation>闪存大小</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="100"/>
+        <source>RAM Size</source>
+        <translation>内存大小</translation>
     </message>
 </context>
 <context>
@@ -222,12 +254,12 @@
     <message>
         <location filename="xexunrtt.ui" line="138"/>
         <source>Lock Vertical</source>
-        <translation>锁定纵向</translation>
+        <translation>纵向锁定</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="145"/>
         <source>Lock Horizontal</source>
-        <translation>锁定横向</translation>
+        <translation>横向锁定</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="232"/>
