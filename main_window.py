@@ -27,7 +27,7 @@ import os
 import subprocess
 import threading
 
-logging.basicConfig(level=logging.NOTSET,
+logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
+MAX_TEXT_LENGTH = 8e6 #缓存 8MB 的数据
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -75,7 +76,7 @@ class DeviceSelectDialog(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/swap_horiz_16px.ico"))
+        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
         
 		#创建筛选模型
         self.proxy_model = QSortFilterProxyModel()
@@ -212,6 +213,8 @@ class XexunRTTWindow(QWidget):
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self)
         
+        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
+        
         # 设置窗口标志以显示最大化按钮
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         # 向 tabWidget 中添加页面并连接信号
@@ -239,6 +242,9 @@ class XexunRTTWindow(QWidget):
                 
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
+        self.ui.re_connect.clicked.connect(self.on_re_connect_clicked)
+        self.ui.clear.clicked.connect(self.on_clear_clicked)
+        self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
         # 连接 QComboBox 的 activated 信号到槽函数
@@ -252,7 +258,7 @@ class XexunRTTWindow(QWidget):
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
-        self.ui.layoutWidget.setGeometry(QRect(0, 0, self.width(), self.height()))
+        self.ui.widget.setGeometry(QRect(0, 0, self.width(), self.height()))
 
     def closeEvent(self, e):
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -284,8 +290,23 @@ class XexunRTTWindow(QWidget):
         gbk_data = utf8_data.encode('gbk', errors='ignore')
         
         bytes_written = self.main.jlink.rtt_write(0, gbk_data)
-        if(bytes_written == len(gbk_data)):
-            self.ui.cmd_buffer.clearEditText()
+        #if(bytes_written == len(gbk_data)):
+            #self.ui.cmd_buffer.clearEditText()
+
+    def on_re_connect_clicked(self):
+            self.main.rtt2uart.stop()
+            self.main.rtt2uart.start()
+
+    def on_clear_clicked(self):
+        index = self.ui.tem_switch.currentIndex()
+        current_page_widget = self.ui.tem_switch.widget(index)
+        if isinstance(current_page_widget, QWidget):
+            text_edit = current_page_widget.findChild(QTextEdit)
+            if text_edit:
+                text_edit.clear()
+
+    def on_openfolder_clicked(self):
+        os.startfile(self.main.rtt2uart.log_directory)
 
     def populateComboBox(self):
         # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
@@ -314,7 +335,7 @@ class MainWindow(QDialog):
         self.ui = Ui_dialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/swap_horiz_16px.ico"))
+        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
 
         self.setting_file_path = os.path.join(os.getcwd(), "settings")
 
@@ -442,8 +463,6 @@ class MainWindow(QDialog):
         # 保存当前配置
         with open(self.setting_file_path, 'wb') as f:
             pickle.dump(self.settings, f)
-
-        f.close()
         
         # 等待其他线程结束
         for thread in threading.enumerate():
@@ -522,7 +541,20 @@ class MainWindow(QDialog):
 
             except Exception as errors:
                 QMessageBox.critical(self, "Errors", str(errors))
-                
+                # Existing方式不需要选择配置，继续禁用，不恢复
+                if self.ui.radioButton_existing.isChecked() == False:
+                    # 停止后才能再次配置
+                    self.ui.comboBox_Device.setEnabled(True)
+                    self.ui.pushButton_Selete_Device.setEnabled(True)
+                    self.ui.comboBox_Interface.setEnabled(True)
+                    self.ui.comboBox_Speed.setEnabled(True)
+                    self.ui.comboBox_Port.setEnabled(True)
+                    self.ui.comboBox_baudrate.setEnabled(True)
+                    self.ui.pushButton_scan.setEnabled(True)
+                    
+                self.start_state = False
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+
         else:
             logger.debug('click stop button')
             try:
@@ -629,6 +661,7 @@ class MainWindow(QDialog):
                 # 记录滚动条位置
                 vscroll = text_edit.verticalScrollBar().value()
                 hscroll = text_edit.horizontalScrollBar().value()
+
                 # 更新文本并恢复滚动条位置
                 cursor = text_edit.textCursor()
                 cursor.movePosition(QTextCursor.End)
@@ -638,7 +671,13 @@ class MainWindow(QDialog):
                 text_edit.insertPlainText(self.worker.buffers[index])
                 self.worker.buffers[index] = ""
 
-                
+                text_length = len(text_edit.toPlainText())
+                if text_length > MAX_TEXT_LENGTH:
+                    # 截取文本长度
+                    new_text = text_edit.toPlainText()[20480:]
+                    text_edit.clear()
+                    text_edit.insertPlainText(new_text)
+
                 # 恢复滚动条的值
                 if self.xexunrtt.ui.LockV_checkBox.isChecked():
                     text_edit.verticalScrollBar().setValue(vscroll)
