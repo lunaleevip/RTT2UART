@@ -14,7 +14,7 @@ from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 
-logging.basicConfig(level=logging.NOTSET,
+logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ class rtt_to_serial():
             raise
 
         self.rtt_thread = None
+        self.rtt2uart = None
         
         self.tem = '0'
         
@@ -141,7 +142,11 @@ class rtt_to_serial():
         self.rtt_thread.name = 'rtt_thread'
         self.rtt_thread.start()
         
-
+        self.rtt2uart = threading.Thread(target=self.rtt2uart_exec)
+        self.rtt2uart.setDaemon(True)
+        self.rtt2uart.name = 'rtt2uart'
+        self.rtt2uart.start()
+        
         
     def stop(self):
         logger.debug('stop rtt2uart')
@@ -149,6 +154,9 @@ class rtt_to_serial():
         self.thread_switch = False
         if self.rtt_thread:
             self.rtt_thread.join(0.5)
+
+        if self.rtt2uart:
+            self.rtt2uart.join(0.5)
             
         if self._connect_inf == 'USB':
             try:
@@ -167,71 +175,78 @@ class rtt_to_serial():
         except:
             logger.error('Close serial failed', exc_info=True)
             pass
-
-        zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
-        shutil.rmtree(self.log_directory)
+        # 打包文件为ZIP压缩包
+        #zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
+        # 删除文件夹
+        #shutil.rmtree(self.log_directory)
 
 
     def rtt_thread_exec(self):
         # 打开日志文件，如果不存在将自动创建
-        with open(self.rtt_log_filename, 'ab') as log_file, open(self.rtt_data_filename, 'ab') as data_file:
+        with open(self.rtt_log_filename, 'ab') as log_file:
             while self.thread_switch:
-                rtt_recv_log = []
-                rtt_recv_data =[]
-                
-                while True:
-                    recv_log = self.jlink.rtt_read(0, 1024)
-                    if not recv_log:
-                        break
-                    else:
-                        rtt_recv_log += recv_log
+                try:
+                    rtt_recv_log = []
+                    while True:
+                        recv_log = self.jlink.rtt_read(0, 1024)
+                        if not recv_log:
+                            break
+                        else:
+                            rtt_recv_log += recv_log
 
-                while True:
-                    recv_data = self.jlink.rtt_read(1, 1024)
-                    if not recv_data:
-                        break
-                    else:
-                        rtt_recv_data += recv_data
-                        
-                self.read_bytes0 += len(rtt_recv_log)
-                self.read_bytes1 += len(rtt_recv_data)
+                    self.read_bytes0 += len(rtt_recv_log)
+                    rtt_log_len = len(rtt_recv_log)
+                
+                    if rtt_log_len:
+                        # 将接收到的数据写入日志文件
+                        log_bytes = bytearray(rtt_recv_log);
+                        log_file.write(log_bytes)
 
-                #self.main.status.setText("读取:" + str(self.read_bytes0) + "\t" + str(self.read_bytes1) + "\n写入:" + str(self.write_bytes0))
-                
-                rtt_log_len = len(rtt_recv_log)
-                
-                
-                if rtt_log_len:
-                    # 将接收到的数据写入日志文件
-                    log_bytes = bytearray(rtt_recv_log);
-                    log_file.write(log_bytes)
-
-                    skip_next_byte = False
-                    temp_buff = bytearray()
+                        skip_next_byte = False
+                        temp_buff = bytearray()
                     
-                    for i in range(rtt_log_len):
-                        if skip_next_byte:
-                            self.tem = chr(log_bytes[i])
-                            skip_next_byte = False
-                            continue
+                        for i in range(rtt_log_len):
+                            if skip_next_byte:
+                                self.tem = chr(log_bytes[i])
+                                skip_next_byte = False
+                                continue
                         
-                        if log_bytes[i] == 255:
-                            skip_next_byte = True
+                            if log_bytes[i] == 255:
+                                skip_next_byte = True
+                                self.insert_char(self.tem, temp_buff)
+                                temp_buff.clear()
+                                continue
+                        
+                            temp_buff.append(log_bytes[i])
+                        
+                        if len(temp_buff):
                             self.insert_char(self.tem, temp_buff)
-                            temp_buff.clear()
-                            continue
-                        
-                        temp_buff.append(log_bytes[i])
-                        
-                    if len(temp_buff):
-                        self.insert_char(self.tem, temp_buff)
                     
-                if len(rtt_recv_data):
-                    # 将接收到的数据写入数据文件
-                    data_file.write(bytes(rtt_recv_data))
-                    self.serial.write(bytes(rtt_recv_data))
-                # 同时将数据写入串口
-                #self.serial.write(bytes(rtt_recv_log))
+                except Exception as e:
+                    print("Error:", e)
+                    pass
+
+    def rtt2uart_exec(self):
+        # 打开日志文件，如果不存在将自动创建
+        with open(self.rtt_data_filename, 'ab') as data_file:
+            while self.thread_switch:
+                try:
+                    rtt_recv_data = self.jlink.rtt_read(1, 1024)
+                    self.read_bytes1 += len(rtt_recv_data)
+
+                    if len(rtt_recv_data):
+                        # 将接收到的数据写入数据文件
+                        data_file.write(bytes(rtt_recv_data))
+                        
+                        if self.serial.isOpen():
+                            try:
+                                self.serial.write(bytes(rtt_recv_data))
+                            except Exception as e:
+                                print("Error:", e)
+                                self.serial.close()
+                except Exception as e:
+                    print("Error:", e)
+
 
     def insert_char(self, tem, string, new_line=False):
         if '0' <= tem <= '9':

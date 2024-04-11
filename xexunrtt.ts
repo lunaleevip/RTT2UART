@@ -174,32 +174,32 @@
         <translation>输入新的文本：</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="234"/>
+        <location filename="main_window.py" line="237"/>
         <source>All</source>
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="694"/>
+        <location filename="main_window.py" line="717"/>
         <source>filter</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="402"/>
+        <location filename="main_window.py" line="426"/>
         <source>Find jlink dll failed !</source>
         <translation>无法查找 Jlink.dll！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="493"/>
+        <location filename="main_window.py" line="517"/>
         <source>Please selete the target device !</source>
         <translation>请选择目标设备！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="506"/>
+        <location filename="main_window.py" line="530"/>
         <source>Stop</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="536"/>
+        <location filename="main_window.py" line="562"/>
         <source>Start</source>
         <translation>开始</translation>
     </message>
@@ -242,39 +242,54 @@
         <translation>RTT 主窗口</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="61"/>
+        <location filename="xexunrtt.ui" line="290"/>
         <source>Light Mode</source>
         <translation>亮色模式</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="96"/>
+        <location filename="xexunrtt.ui" line="369"/>
         <source>FontSize</source>
         <translation>字号大小</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="138"/>
+        <location filename="xexunrtt.ui" line="94"/>
         <source>Lock Vertical</source>
         <translation>纵向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="145"/>
+        <location filename="xexunrtt.ui" line="397"/>
         <source>Lock Horizontal</source>
         <translation>横向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="232"/>
+        <location filename="xexunrtt.ui" line="323"/>
         <source>Enter</source>
         <translation>输入指令</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="194"/>
+        <location filename="xexunrtt.ui" line="76"/>
         <source>1</source>
         <translation></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="199"/>
+        <location filename="xexunrtt.ui" line="81"/>
         <source>2</source>
         <translation></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="262"/>
+        <source>ReConnect</source>
+        <translation>重新连接</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="106"/>
+        <source>Clear</source>
+        <translation>清屏</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="302"/>
+        <source>OpenFolder</source>
+        <translation>打开文件夹</translation>
     </message>
 </context>
 </TS>
