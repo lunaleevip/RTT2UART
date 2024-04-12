@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+
 a = Analysis(
     ['main_window.py'],
     pathex=[],
@@ -12,14 +13,6 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
-
-win_extra = [('product_version', '2.0.1'),
-             ('file_version', '2.0.1'),
-             ('comments', 'a jlink_rtt tools'),
-             ('company_name', 'Xexun'),
-             ('product_name', 'xexunrtt'),
-             ('internal_name', 'xexunrtt')]
-
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -42,5 +35,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['jlink_icon.ico'],
-    win_extra=win_extra
 )

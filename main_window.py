@@ -76,7 +76,7 @@ class DeviceSelectDialog(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
+        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         
 		#创建筛选模型
         self.proxy_model = QSortFilterProxyModel()
@@ -213,14 +213,38 @@ class XexunRTTWindow(QWidget):
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self)
         
-        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
+        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         
         # 设置窗口标志以显示最大化按钮
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         # 向 tabWidget 中添加页面并连接信号
-        
-        self.ui.tem_switch.clear()
 
+        # 创建动作并设置快捷键
+        self.action1 = QAction(self)
+        self.action1.setShortcut(QKeySequence("F1"))
+
+        self.action2 = QAction(self)
+        self.action2.setShortcut(QKeySequence("F2"))
+
+        self.action3 = QAction(self)
+        self.action3.setShortcut(QKeySequence("F3"))
+
+        self.action4 = QAction(self)
+        self.action4.setShortcut(QKeySequence("F4"))
+
+        # 将动作添加到主窗口
+        self.addAction(self.action1)
+        self.addAction(self.action2)
+        self.addAction(self.action3)
+        self.addAction(self.action4)
+
+        # 连接动作的触发事件
+        self.action1.triggered.connect(self.on_openfolder_clicked)
+        self.action2.triggered.connect(self.on_re_connect_clicked)
+        self.action3.triggered.connect(self.on_dis_connect_clicked)
+        self.action4.triggered.connect(self.on_clear_clicked)
+
+        self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
         
         for i in range(MAX_TAB_SIZE):
@@ -242,6 +266,7 @@ class XexunRTTWindow(QWidget):
                 
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
+        self.ui.dis_connect.clicked.connect(self.on_dis_connect_clicked)
         self.ui.re_connect.clicked.connect(self.on_re_connect_clicked)
         self.ui.clear.clicked.connect(self.on_clear_clicked)
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
@@ -270,6 +295,7 @@ class XexunRTTWindow(QWidget):
                 text_edit = current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     text_edit.clear()
+        self.main.close()
 
     @Slot(int)
     def switchPage(self, index):
@@ -293,9 +319,15 @@ class XexunRTTWindow(QWidget):
         #if(bytes_written == len(gbk_data)):
             #self.ui.cmd_buffer.clearEditText()
 
+    def on_dis_connect_clicked(self):
+        if self.main.rtt2uart is not None and self.main.start_state == True:
+            self.main.start()
+
     def on_re_connect_clicked(self):
-            self.main.rtt2uart.stop()
-            self.main.rtt2uart.start()
+        if self.main.rtt2uart is not None and self.main.start_state == True:
+            self.main.start()
+            
+        self.main.show()
 
     def on_clear_clicked(self):
         index = self.ui.tem_switch.currentIndex()
@@ -335,7 +367,7 @@ class MainWindow(QDialog):
         self.ui = Ui_dialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/jlink_icon.ico"))
+        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
 
         self.setting_file_path = os.path.join(os.getcwd(), "settings")
 
@@ -366,6 +398,7 @@ class MainWindow(QDialog):
                          'speed': 0, 'port': 0, 'buadrate': 0}
 
         self.xexunrtt = XexunRTTWindow(self)
+        self.xexunrtt.showMaximized()
         self.worker = Worker(self)
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
 
@@ -459,7 +492,8 @@ class MainWindow(QDialog):
     def closeEvent(self, e):
         if self.rtt2uart is not None and self.start_state == True:
             self.rtt2uart.stop()
-
+        if self.xexunrtt is not None:
+            self.xexunrtt.close()
         # 保存当前配置
         with open(self.setting_file_path, 'wb') as f:
             pickle.dump(self.settings, f)
@@ -537,7 +571,7 @@ class MainWindow(QDialog):
                 self.rtt2uart.start()
                 
                 self.hide()
-                self.xexunrtt.show()
+                #self.xexunrtt.show()
 
             except Exception as errors:
                 QMessageBox.critical(self, "Errors", str(errors))
@@ -571,7 +605,7 @@ class MainWindow(QDialog):
                     
 
                 self.rtt2uart.stop()
-                self.show()
+                #self.show()
 
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
@@ -704,37 +738,47 @@ class Worker(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
+        self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
-        data = string.decode('gbk', errors='ignore')
-        buffer = self.buffers[index+1]
-        buffer0 = self.buffers[0]
+        self.byte_buffer[index] += string
+
+        # 找到第一个 '\n' 的索引
+        newline = self.byte_buffer[index].rfind(b'\n')
+        if newline != -1:  # 如果找到了 '\n'
+            # 分割数据
+            new_buffer = self.byte_buffer[index][:newline + 1]
+            self.byte_buffer[index] = self.byte_buffer[index][newline + 1:]
+            data = new_buffer.decode('gbk', errors='ignore')
+
+            buffer = self.buffers[index+1]
+            buffer0 = self.buffers[0]
         
-        self.buffers[index+1] += data
+            self.buffers[index+1] += data
 
-        self.buffers[0] += data
-        # 在主线程中执行操作
+            self.buffers[0] += data
+            # 在主线程中执行操作
 
-        with open(self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log', 'a') as page_log_file:
-            page_log_file.write(data);
+            with open(self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log', 'a') as page_log_file:
+                page_log_file.write(data);
 
-        # 将buffer分割成行
-        lines = data.split('\n')
+            # 将buffer分割成行
+            lines = data.split('\n')
 
-        for line in lines:
-            for i in range(17 , MAX_TAB_SIZE):
-                tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
-                search_word = tagText
-                buffer = self.buffers[i]
-                if search_word != QCoreApplication.translate("main_window", "filter") and search_word in line:
-                    with open(self.parent.rtt2uart.rtt_log_filename + '_' + search_word + '.log', 'a') as search_log_file:
-                        search_log_file.write(line + '\n');
-                        self.buffers[i] += line + '\n'
+            for line in lines:
+                for i in range(17 , MAX_TAB_SIZE):
+                    tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
+                    search_word = tagText
+                    buffer = self.buffers[i]
+                    if search_word != QCoreApplication.translate("main_window", "filter") and search_word in line:
+                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + search_word + '.log', 'a') as search_log_file:
+                            search_log_file.write(line + '\n');
+                            self.buffers[i] += line + '\n'
 
-        self.finished.emit()
+            self.finished.emit()
 
 
 def is_dummy_thread(thread):

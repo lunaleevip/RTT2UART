@@ -179,27 +179,27 @@
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="717"/>
+        <location filename="main_window.py" line="739"/>
         <source>filter</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="426"/>
+        <location filename="main_window.py" line="436"/>
         <source>Find jlink dll failed !</source>
         <translation>无法查找 Jlink.dll！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="517"/>
+        <location filename="main_window.py" line="526"/>
         <source>Please selete the target device !</source>
         <translation>请选择目标设备！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="530"/>
+        <location filename="main_window.py" line="539"/>
         <source>Stop</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="562"/>
+        <location filename="main_window.py" line="584"/>
         <source>Start</source>
         <translation>开始</translation>
     </message>
@@ -242,54 +242,79 @@
         <translation>RTT 主窗口</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="290"/>
+        <location filename="xexunrtt.ui" line="255"/>
         <source>Light Mode</source>
         <translation>亮色模式</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="369"/>
+        <location filename="xexunrtt.ui" line="322"/>
         <source>FontSize</source>
         <translation>字号大小</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="94"/>
+        <location filename="xexunrtt.ui" line="78"/>
         <source>Lock Vertical</source>
         <translation>纵向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="397"/>
+        <location filename="xexunrtt.ui" line="350"/>
         <source>Lock Horizontal</source>
         <translation>横向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="323"/>
+        <location filename="xexunrtt.ui" line="276"/>
         <source>Enter</source>
         <translation>输入指令</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="76"/>
+        <location filename="xexunrtt.ui" line="60"/>
         <source>1</source>
         <translation></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="81"/>
+        <location filename="xexunrtt.ui" line="65"/>
         <source>2</source>
         <translation></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="262"/>
+        <location filename="xexunrtt.ui" line="165"/>
         <source>ReConnect</source>
         <translation>重新连接</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="106"/>
+        <location filename="xexunrtt.ui" line="227"/>
         <source>Clear</source>
         <translation>清屏</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="302"/>
+        <location filename="xexunrtt.ui" line="365"/>
         <source>OpenFolder</source>
         <translation>打开文件夹</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="162"/>
+        <source>F2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="177"/>
+        <source>F3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="180"/>
+        <source>DisConnect</source>
+        <translation>断开连接</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="224"/>
+        <source>F4</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="362"/>
+        <source>F1</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 </TS>

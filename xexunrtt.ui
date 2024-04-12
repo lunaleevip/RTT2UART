@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>924</width>
-    <height>508</height>
+    <width>1055</width>
+    <height>541</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -18,12 +18,12 @@
     <rect>
      <x>30</x>
      <y>20</y>
-     <width>861</width>
-     <height>279</height>
+     <width>916</width>
+     <height>301</height>
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout">
-    <item row="3" column="10">
+    <item row="3" column="12">
      <spacer name="verticalSpacer">
       <property name="orientation">
        <enum>Qt::Vertical</enum>
@@ -39,28 +39,12 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="4">
-     <spacer name="horizontalSpacer_7">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="sizeType">
-       <enum>QSizePolicy::Fixed</enum>
-      </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>13</width>
-        <height>20</height>
-       </size>
-      </property>
-     </spacer>
-    </item>
-    <item row="0" column="0" colspan="17">
+    <item row="0" column="0" colspan="19">
      <widget class="QTabWidget" name="tem_switch">
       <property name="minimumSize">
        <size>
         <width>100</width>
-        <height>200</height>
+        <height>150</height>
        </size>
       </property>
       <property name="font">
@@ -83,7 +67,7 @@
       </widget>
      </widget>
     </item>
-    <item row="2" column="12">
+    <item row="2" column="14">
      <widget class="QCheckBox" name="LockV_checkBox">
       <property name="font">
        <font>
@@ -95,35 +79,7 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="3">
-     <widget class="QPushButton" name="clear">
-      <property name="font">
-       <font>
-        <family>Arial</family>
-       </font>
-      </property>
-      <property name="text">
-       <string>Clear</string>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="0">
-     <spacer name="horizontalSpacer_6">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="sizeType">
-       <enum>QSizePolicy::Fixed</enum>
-      </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>13</width>
-        <height>20</height>
-       </size>
-      </property>
-     </spacer>
-    </item>
-    <item row="2" column="10">
+    <item row="2" column="12">
      <widget class="QSpinBox" name="fontsize_box">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -163,7 +119,7 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="14">
+    <item row="2" column="16">
      <spacer name="horizontalSpacer_4">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -179,7 +135,7 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="16">
+    <item row="2" column="18">
      <spacer name="horizontalSpacer_3">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -196,6 +152,36 @@
      </spacer>
     </item>
     <item row="2" column="2">
+     <widget class="QPushButton" name="re_connect">
+      <property name="font">
+       <font>
+        <family>Arial</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>F2</string>
+      </property>
+      <property name="text">
+       <string>ReConnect</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="3">
+     <widget class="QPushButton" name="dis_connect">
+      <property name="font">
+       <font>
+        <family>Arial</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>F3</string>
+      </property>
+      <property name="text">
+       <string>DisConnect</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="6" colspan="2">
      <spacer name="horizontalSpacer_10">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -211,31 +197,7 @@
       </property>
      </spacer>
     </item>
-    <item row="1" column="1" colspan="14">
-     <widget class="QComboBox" name="cmd_buffer">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>26</height>
-       </size>
-      </property>
-      <property name="font">
-       <font>
-        <family>新宋体</family>
-       </font>
-      </property>
-      <property name="editable">
-       <bool>true</bool>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="8">
+    <item row="2" column="10">
      <spacer name="horizontalSpacer_8">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -251,19 +213,22 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="1">
-     <widget class="QPushButton" name="re_connect">
+    <item row="2" column="4">
+     <widget class="QPushButton" name="clear">
       <property name="font">
        <font>
         <family>Arial</family>
        </font>
       </property>
+      <property name="toolTip">
+       <string>F4</string>
+      </property>
       <property name="text">
-       <string>ReConnect</string>
+       <string>Clear</string>
       </property>
      </widget>
     </item>
-    <item row="2" column="15">
+    <item row="2" column="17">
      <spacer name="horizontalSpacer_5">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -279,7 +244,7 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="7">
+    <item row="2" column="9">
      <widget class="QCheckBox" name="light_checkbox">
       <property name="font">
        <font>
@@ -291,19 +256,7 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="5">
-     <widget class="QPushButton" name="openfolder">
-      <property name="font">
-       <font>
-        <family>Arial</family>
-       </font>
-      </property>
-      <property name="text">
-       <string>OpenFolder</string>
-      </property>
-     </widget>
-    </item>
-    <item row="1" column="15">
+    <item row="1" column="17">
      <widget class="QPushButton" name="pushButton">
       <property name="enabled">
        <bool>true</bool>
@@ -330,7 +283,7 @@
       </property>
      </widget>
     </item>
-    <item row="1" column="16">
+    <item row="1" column="18">
      <spacer name="horizontalSpacer">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -346,7 +299,7 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="9">
+    <item row="2" column="11">
      <widget class="QLabel" name="label">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -370,7 +323,7 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="11">
+    <item row="2" column="13">
      <spacer name="horizontalSpacer_9">
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
@@ -386,7 +339,7 @@
       </property>
      </spacer>
     </item>
-    <item row="2" column="13">
+    <item row="2" column="15">
      <widget class="QCheckBox" name="LockH_checkBox">
       <property name="font">
        <font>
@@ -398,21 +351,44 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="6">
-     <spacer name="horizontalSpacer_11">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
+    <item row="2" column="1">
+     <widget class="QPushButton" name="openfolder">
+      <property name="font">
+       <font>
+        <family>Arial</family>
+       </font>
       </property>
-      <property name="sizeType">
-       <enum>QSizePolicy::Fixed</enum>
+      <property name="toolTip">
+       <string>F1</string>
       </property>
-      <property name="sizeHint" stdset="0">
+      <property name="text">
+       <string>OpenFolder</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0" colspan="17">
+     <widget class="QComboBox" name="cmd_buffer">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="maximumSize">
        <size>
-        <width>13</width>
-        <height>20</height>
+        <width>16777215</width>
+        <height>26</height>
        </size>
       </property>
-     </spacer>
+      <property name="font">
+       <font>
+        <family>新宋体</family>
+       </font>
+      </property>
+      <property name="editable">
+       <bool>true</bool>
+      </property>
+     </widget>
     </item>
    </layout>
   </widget>
