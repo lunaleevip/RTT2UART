@@ -159,79 +159,104 @@
 <context>
     <name>main_window</name>
     <message>
-        <location filename="main_window.py" line="134"/>
+        <location filename="main_window.py" line="135"/>
         <source>Can not find device database !</source>
         <translation>未找到设备配置数据</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="205"/>
+        <location filename="main_window.py" line="206"/>
         <source>Edit Filter Text</source>
         <translation>编辑筛选文本</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="205"/>
+        <location filename="main_window.py" line="206"/>
         <source>Enter new text:</source>
         <translation>输入新的文本：</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="237"/>
+        <location filename="main_window.py" line="267"/>
         <source>All</source>
         <translation>全部</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="739"/>
+        <location filename="main_window.py" line="813"/>
         <source>filter</source>
         <translation>筛选</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="436"/>
+        <location filename="main_window.py" line="500"/>
         <source>Find jlink dll failed !</source>
         <translation>无法查找 Jlink.dll！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="526"/>
+        <location filename="main_window.py" line="590"/>
         <source>Please selete the target device !</source>
         <translation>请选择目标设备！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="539"/>
+        <location filename="main_window.py" line="603"/>
         <source>Stop</source>
         <translation>停止</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="584"/>
+        <location filename="main_window.py" line="648"/>
         <source>Start</source>
         <translation>开始</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="95"/>
+        <location filename="main_window.py" line="96"/>
         <source>Manufacturer</source>
         <translation>制造商</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="96"/>
+        <location filename="main_window.py" line="97"/>
         <source>Device</source>
         <translation>设备名称</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="97"/>
+        <location filename="main_window.py" line="98"/>
         <source>Core</source>
         <translation>内核</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="98"/>
+        <location filename="main_window.py" line="99"/>
         <source>NumCores</source>
         <translation>核心数</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="99"/>
+        <location filename="main_window.py" line="100"/>
         <source>Flash Size</source>
         <translation>闪存大小</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="100"/>
+        <location filename="main_window.py" line="101"/>
         <source>RAM Size</source>
         <translation>内存大小</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="378"/>
+        <source>XexunRTT Main Ver:</source>
+        <translation>XexunRTT 版本：</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="382"/>
+        <source>status:Started</source>
+        <translation>状态：已启动</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="384"/>
+        <source>status:Stoped</source>
+        <translation>状态：已停止</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="394"/>
+        <source>Readed:</source>
+        <translation>已读取：</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="396"/>
+        <source>Writed:</source>
+        <translation>已发送：</translation>
     </message>
 </context>
 <context>
@@ -242,77 +267,87 @@
         <translation>RTT 主窗口</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="255"/>
+        <location filename="xexunrtt.ui" line="273"/>
         <source>Light Mode</source>
         <translation>亮色模式</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="322"/>
+        <location filename="xexunrtt.ui" line="340"/>
         <source>FontSize</source>
         <translation>字号大小</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="78"/>
+        <location filename="xexunrtt.ui" line="81"/>
         <source>Lock Vertical</source>
         <translation>纵向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="350"/>
+        <location filename="xexunrtt.ui" line="368"/>
         <source>Lock Horizontal</source>
         <translation>横向锁定</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="276"/>
+        <location filename="xexunrtt.ui" line="294"/>
         <source>Enter</source>
         <translation>输入指令</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="60"/>
+        <location filename="xexunrtt.ui" line="63"/>
         <source>1</source>
         <translation></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="65"/>
+        <location filename="xexunrtt.ui" line="68"/>
         <source>2</source>
         <translation></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="165"/>
+        <location filename="xexunrtt.ui" line="168"/>
         <source>ReConnect</source>
         <translation>重新连接</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="227"/>
+        <location filename="xexunrtt.ui" line="230"/>
         <source>Clear</source>
         <translation>清屏</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="365"/>
+        <location filename="xexunrtt.ui" line="261"/>
         <source>OpenFolder</source>
         <translation>打开文件夹</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="162"/>
-        <source>F2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="xexunrtt.ui" line="177"/>
-        <source>F3</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="xexunrtt.ui" line="180"/>
+        <location filename="xexunrtt.ui" line="183"/>
         <source>DisConnect</source>
         <translation>断开连接</translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="224"/>
+        <location filename="xexunrtt.ui" line="56"/>
+        <source>double click filter to write filter text</source>
+        <translation>双击筛选可以修改筛选的文本</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="392"/>
+        <source>can read from cmd.txt</source>
+        <translation>命令列表可以从 cmd.txt 读取</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="165"/>
+        <source>F2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="180"/>
+        <source>F3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="227"/>
         <source>F4</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="xexunrtt.ui" line="362"/>
+        <location filename="xexunrtt.ui" line="258"/>
         <source>F1</source>
         <translation type="unfinished"></translation>
     </message>

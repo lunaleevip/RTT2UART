@@ -24,19 +24,19 @@ class Ui_xexun_rtt(object):
         if not xexun_rtt.objectName():
             xexun_rtt.setObjectName(u"xexun_rtt")
         xexun_rtt.resize(1055, 541)
-        self.widget = QWidget(xexun_rtt)
-        self.widget.setObjectName(u"widget")
-        self.widget.setGeometry(QRect(30, 20, 916, 301))
-        self.gridLayout = QGridLayout(self.widget)
+        self.layoutWidget = QWidget(xexun_rtt)
+        self.layoutWidget.setObjectName(u"layoutWidget")
+        self.layoutWidget.setGeometry(QRect(30, 20, 957, 308))
+        self.gridLayout = QGridLayout(self.layoutWidget)
         self.gridLayout.setObjectName(u"gridLayout")
         self.gridLayout.setContentsMargins(0, 0, 0, 0)
         self.verticalSpacer = QSpacerItem(20, 13, QSizePolicy.Minimum, QSizePolicy.Fixed)
 
         self.gridLayout.addItem(self.verticalSpacer, 3, 12, 1, 1)
 
-        self.tem_switch = QTabWidget(self.widget)
+        self.tem_switch = QTabWidget(self.layoutWidget)
         self.tem_switch.setObjectName(u"tem_switch")
-        self.tem_switch.setMinimumSize(QSize(100, 150))
+        self.tem_switch.setMinimumSize(QSize(100, 200))
         font = QFont()
         font.setFamilies([u"Arial"])
         self.tem_switch.setFont(font)
@@ -49,13 +49,13 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.tem_switch, 0, 0, 1, 19)
 
-        self.LockV_checkBox = QCheckBox(self.widget)
+        self.LockV_checkBox = QCheckBox(self.layoutWidget)
         self.LockV_checkBox.setObjectName(u"LockV_checkBox")
         self.LockV_checkBox.setFont(font)
 
         self.gridLayout.addWidget(self.LockV_checkBox, 2, 14, 1, 1)
 
-        self.fontsize_box = QSpinBox(self.widget)
+        self.fontsize_box = QSpinBox(self.layoutWidget)
         self.fontsize_box.setObjectName(u"fontsize_box")
         sizePolicy = QSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
@@ -81,13 +81,13 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_3, 2, 18, 1, 1)
 
-        self.re_connect = QPushButton(self.widget)
+        self.re_connect = QPushButton(self.layoutWidget)
         self.re_connect.setObjectName(u"re_connect")
         self.re_connect.setFont(font)
 
         self.gridLayout.addWidget(self.re_connect, 2, 2, 1, 1)
 
-        self.dis_connect = QPushButton(self.widget)
+        self.dis_connect = QPushButton(self.layoutWidget)
         self.dis_connect.setObjectName(u"dis_connect")
         self.dis_connect.setFont(font)
 
@@ -101,7 +101,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_8, 2, 10, 1, 1)
 
-        self.clear = QPushButton(self.widget)
+        self.clear = QPushButton(self.layoutWidget)
         self.clear.setObjectName(u"clear")
         self.clear.setFont(font)
 
@@ -111,13 +111,19 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_5, 2, 17, 1, 1)
 
-        self.light_checkbox = QCheckBox(self.widget)
+        self.openfolder = QPushButton(self.layoutWidget)
+        self.openfolder.setObjectName(u"openfolder")
+        self.openfolder.setFont(font)
+
+        self.gridLayout.addWidget(self.openfolder, 2, 1, 1, 1)
+
+        self.light_checkbox = QCheckBox(self.layoutWidget)
         self.light_checkbox.setObjectName(u"light_checkbox")
         self.light_checkbox.setFont(font)
 
         self.gridLayout.addWidget(self.light_checkbox, 2, 9, 1, 1)
 
-        self.pushButton = QPushButton(self.widget)
+        self.pushButton = QPushButton(self.layoutWidget)
         self.pushButton.setObjectName(u"pushButton")
         self.pushButton.setEnabled(True)
         self.pushButton.setMaximumSize(QSize(80, 26))
@@ -130,7 +136,7 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer, 1, 18, 1, 1)
 
-        self.label = QLabel(self.widget)
+        self.label = QLabel(self.layoutWidget)
         self.label.setObjectName(u"label")
         sizePolicy.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
         self.label.setSizePolicy(sizePolicy)
@@ -143,19 +149,13 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addItem(self.horizontalSpacer_9, 2, 13, 1, 1)
 
-        self.LockH_checkBox = QCheckBox(self.widget)
+        self.LockH_checkBox = QCheckBox(self.layoutWidget)
         self.LockH_checkBox.setObjectName(u"LockH_checkBox")
         self.LockH_checkBox.setFont(font)
 
         self.gridLayout.addWidget(self.LockH_checkBox, 2, 15, 1, 1)
 
-        self.openfolder = QPushButton(self.widget)
-        self.openfolder.setObjectName(u"openfolder")
-        self.openfolder.setFont(font)
-
-        self.gridLayout.addWidget(self.openfolder, 2, 1, 1, 1)
-
-        self.cmd_buffer = QComboBox(self.widget)
+        self.cmd_buffer = MyComboBox(self.layoutWidget)
         self.cmd_buffer.setObjectName(u"cmd_buffer")
         sizePolicy1 = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         sizePolicy1.setHorizontalStretch(0)
@@ -168,12 +168,16 @@ class Ui_xexun_rtt(object):
         self.cmd_buffer.setFont(font1)
         self.cmd_buffer.setEditable(True)
 
-        self.gridLayout.addWidget(self.cmd_buffer, 1, 0, 1, 17)
+        self.gridLayout.addWidget(self.cmd_buffer, 1, 1, 1, 16)
+
+        self.horizontalSpacer_6 = QSpacerItem(13, 20, QSizePolicy.Fixed, QSizePolicy.Minimum)
+
+        self.gridLayout.addItem(self.horizontalSpacer_6, 1, 0, 1, 1)
 
 
         self.retranslateUi(xexun_rtt)
 
-        self.tem_switch.setCurrentIndex(0)
+        self.tem_switch.setCurrentIndex(1)
         self.pushButton.setDefault(True)
 
 
@@ -182,6 +186,9 @@ class Ui_xexun_rtt(object):
 
     def retranslateUi(self, xexun_rtt):
         xexun_rtt.setWindowTitle(QCoreApplication.translate("xexun_rtt", u"Form", None))
+#if QT_CONFIG(tooltip)
+        self.tem_switch.setToolTip(QCoreApplication.translate("xexun_rtt", u"double click filter to write filter text", None))
+#endif // QT_CONFIG(tooltip)
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab), QCoreApplication.translate("xexun_rtt", u"1", None))
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab_2), QCoreApplication.translate("xexun_rtt", u"2", None))
         self.LockV_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Vertical", None))
@@ -197,13 +204,23 @@ class Ui_xexun_rtt(object):
         self.clear.setToolTip(QCoreApplication.translate("xexun_rtt", u"F4", None))
 #endif // QT_CONFIG(tooltip)
         self.clear.setText(QCoreApplication.translate("xexun_rtt", u"Clear", None))
+#if QT_CONFIG(tooltip)
+        self.openfolder.setToolTip(QCoreApplication.translate("xexun_rtt", u"F1", None))
+#endif // QT_CONFIG(tooltip)
+        self.openfolder.setText(QCoreApplication.translate("xexun_rtt", u"OpenFolder", None))
         self.light_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Light Mode", None))
         self.pushButton.setText(QCoreApplication.translate("xexun_rtt", u"Enter", None))
         self.label.setText(QCoreApplication.translate("xexun_rtt", u"FontSize", None))
         self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
 #if QT_CONFIG(tooltip)
-        self.openfolder.setToolTip(QCoreApplication.translate("xexun_rtt", u"F1", None))
+        self.cmd_buffer.setToolTip(QCoreApplication.translate("xexun_rtt", u"can read from cmd.txt", None))
 #endif // QT_CONFIG(tooltip)
-        self.openfolder.setText(QCoreApplication.translate("xexun_rtt", u"OpenFolder", None))
     # retranslateUi
+
+class MyComboBox(QComboBox):
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            self.action.trigger()  # 触发动作
+        else:
+            super().keyPressEvent(event)  # 其他按键按照默认方式处理
 

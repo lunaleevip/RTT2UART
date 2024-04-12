@@ -41,6 +41,7 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
 
 MAX_TAB_SIZE = 24
 MAX_TEXT_LENGTH = 8e6 #缓存 8MB 的数据
+VERSION = "1.0.0"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -231,18 +232,23 @@ class XexunRTTWindow(QWidget):
 
         self.action4 = QAction(self)
         self.action4.setShortcut(QKeySequence("F4"))
+        
+        self.action5 = QAction(self)
+        self.action5.setShortcut(QKeySequence(Qt.Key_Return))
 
         # 将动作添加到主窗口
         self.addAction(self.action1)
         self.addAction(self.action2)
         self.addAction(self.action3)
         self.addAction(self.action4)
+        self.addAction(self.action5)
 
         # 连接动作的触发事件
         self.action1.triggered.connect(self.on_openfolder_clicked)
         self.action2.triggered.connect(self.on_re_connect_clicked)
         self.action3.triggered.connect(self.on_dis_connect_clicked)
         self.action4.triggered.connect(self.on_clear_clicked)
+        self.action5.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
@@ -273,7 +279,7 @@ class XexunRTTWindow(QWidget):
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
         # 连接 QComboBox 的 activated 信号到槽函数
-        self.ui.cmd_buffer.activated.connect(self.on_cmd_buffer_activated)
+        self.ui.cmd_buffer.addAction(self.action5)
         # 设置默认样式
         self.light_stylesheet = ""
         self.dark_stylesheet = qdarkstyle.load_stylesheet()
@@ -281,9 +287,14 @@ class XexunRTTWindow(QWidget):
         self.ui.light_checkbox.stateChanged.connect(self.set_style)
         self.set_style()
         
+        # 创建定时器并连接到槽函数
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_periodic_task)
+        self.timer.start(100)  # 每100毫秒（0.1秒）执行一次
+        
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
-        self.ui.widget.setGeometry(QRect(0, 0, self.width(), self.height()))
+        self.ui.layoutWidget.setGeometry(QRect(0, 0, self.width(), self.height()))
 
     def closeEvent(self, e):
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -316,6 +327,7 @@ class XexunRTTWindow(QWidget):
         gbk_data = utf8_data.encode('gbk', errors='ignore')
         
         bytes_written = self.main.jlink.rtt_write(0, gbk_data)
+        self.main.rtt2uart.write_bytes0 = bytes_written
         #if(bytes_written == len(gbk_data)):
             #self.ui.cmd_buffer.clearEditText()
 
@@ -360,6 +372,31 @@ class XexunRTTWindow(QWidget):
         text = self.ui.cmd_buffer.currentText()
         if text:  # 如果文本不为空
             self.ui.pushButton.click()  # 触发 QPushButton 的点击事件
+
+    def update_periodic_task(self):
+        
+        title = QCoreApplication.translate("main_window", u"XexunRTT Main Ver:") + VERSION
+        title += "\t"
+        
+        if self.main.rtt2uart is not None and self.main.start_state == True:
+            title += QCoreApplication.translate("main_window", u"status:Started")
+        else:
+            title += QCoreApplication.translate("main_window", u"status:Stoped")
+
+        title += "\t"
+        
+        readed = 0
+        writed = 0
+        if self.main.rtt2uart is not None:
+            readed = self.main.rtt2uart.read_bytes0 + self.main.rtt2uart.read_bytes1
+            writed = self.main.rtt2uart.write_bytes0
+        
+        title += QCoreApplication.translate("main_window", u"Readed:") + "%8u" % readed
+        title += "\t"
+        title += QCoreApplication.translate("main_window", u"Writed:") + "%4u" % writed
+        title += " "
+        
+        self.setWindowTitle(title)
             
 class MainWindow(QDialog):
     def __init__(self):
