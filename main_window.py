@@ -40,8 +40,8 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
-MAX_TEXT_LENGTH = 8e6 #缓存 8MB 的数据
-VERSION = "1.0.0"
+MAX_TEXT_LENGTH = 2e6 #缓存 2MB 的数据
+VERSION = "1.0.1"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -78,6 +78,7 @@ class DeviceSelectDialog(QDialog):
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        self.setWindowModality(Qt.ApplicationModal)
         
 		#创建筛选模型
         self.proxy_model = QSortFilterProxyModel()
@@ -232,9 +233,18 @@ class XexunRTTWindow(QWidget):
 
         self.action4 = QAction(self)
         self.action4.setShortcut(QKeySequence("F4"))
-        
+
         self.action5 = QAction(self)
-        self.action5.setShortcut(QKeySequence(Qt.Key_Return))
+        self.action5.setShortcut(QKeySequence("F5"))
+        
+        self.action6 = QAction(self)
+        self.action6.setShortcut(QKeySequence("F6"))
+
+        self.action7 = QAction(self)
+        self.action7.setShortcut(QKeySequence("F7"))
+                
+        self.actionenter = QAction(self)
+        self.actionenter.setShortcut(QKeySequence(Qt.Key_Return))
 
         # 将动作添加到主窗口
         self.addAction(self.action1)
@@ -242,13 +252,19 @@ class XexunRTTWindow(QWidget):
         self.addAction(self.action3)
         self.addAction(self.action4)
         self.addAction(self.action5)
+        self.addAction(self.action6)
+        self.addAction(self.action7)
+        self.addAction(self.actionenter)
 
         # 连接动作的触发事件
         self.action1.triggered.connect(self.on_openfolder_clicked)
         self.action2.triggered.connect(self.on_re_connect_clicked)
         self.action3.triggered.connect(self.on_dis_connect_clicked)
         self.action4.triggered.connect(self.on_clear_clicked)
-        self.action5.triggered.connect(self.on_pushButton_clicked)
+        self.action5.triggered.connect(self.toggle_lock_v_checkbox)
+        self.action6.triggered.connect(self.toggle_lock_h_checkbox)
+        self.action7.triggered.connect(self.toggle_style_checkbox)
+        self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
@@ -306,6 +322,8 @@ class XexunRTTWindow(QWidget):
                 text_edit = current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     text_edit.clear()
+                    
+        self.on_openfolder_clicked()
         self.main.close()
 
     @Slot(int)
@@ -328,8 +346,10 @@ class XexunRTTWindow(QWidget):
         
         bytes_written = self.main.jlink.rtt_write(0, gbk_data)
         self.main.rtt2uart.write_bytes0 = bytes_written
-        #if(bytes_written == len(gbk_data)):
-            #self.ui.cmd_buffer.clearEditText()
+        if(bytes_written == len(gbk_data)):
+            self.ui.cmd_buffer.clearEditText()
+            sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
+            self.ui.sent.setText(sent_msg)
 
     def on_dis_connect_clicked(self):
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -397,7 +417,15 @@ class XexunRTTWindow(QWidget):
         title += " "
         
         self.setWindowTitle(title)
-            
+
+    def toggle_lock_h_checkbox(self):
+        self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
+    def toggle_lock_v_checkbox(self):
+        self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
+    def toggle_style_checkbox(self):
+        self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
+        self.set_style()
+                                    
 class MainWindow(QDialog):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -405,7 +433,8 @@ class MainWindow(QDialog):
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
-
+        self.setWindowModality(Qt.ApplicationModal)
+        
         self.setting_file_path = os.path.join(os.getcwd(), "settings")
 
         self.start_state = False
@@ -745,7 +774,7 @@ class MainWindow(QDialog):
                 text_length = len(text_edit.toPlainText())
                 if text_length > MAX_TEXT_LENGTH:
                     # 截取文本长度
-                    new_text = text_edit.toPlainText()[20480:]
+                    new_text = text_edit.toPlainText()[MAX_TEXT_LENGTH/2:]
                     text_edit.clear()
                     text_edit.insertPlainText(new_text)
 
