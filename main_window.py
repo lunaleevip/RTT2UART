@@ -26,6 +26,7 @@ import pickle
 import os
 import subprocess
 import threading
+import shutil
 
 logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
@@ -40,7 +41,7 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
-MAX_TEXT_LENGTH = 2e6 #缓存 2MB 的数据
+MAX_TEXT_LENGTH = (int)(2e6) #缓存 2MB 的数据
 VERSION = "1.0.1"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
@@ -243,6 +244,9 @@ class XexunRTTWindow(QWidget):
         self.action7 = QAction(self)
         self.action7.setShortcut(QKeySequence("F7"))
                 
+        self.action9 = QAction(self)
+        self.action9.setShortcut(QKeySequence("F9"))
+                
         self.actionenter = QAction(self)
         self.actionenter.setShortcut(QKeySequence(Qt.Key_Return))
 
@@ -254,6 +258,7 @@ class XexunRTTWindow(QWidget):
         self.addAction(self.action5)
         self.addAction(self.action6)
         self.addAction(self.action7)
+        self.addAction(self.action9)
         self.addAction(self.actionenter)
 
         # 连接动作的触发事件
@@ -264,6 +269,7 @@ class XexunRTTWindow(QWidget):
         self.action5.triggered.connect(self.toggle_lock_v_checkbox)
         self.action6.triggered.connect(self.toggle_lock_h_checkbox)
         self.action7.triggered.connect(self.toggle_style_checkbox)
+        self.action9.triggered.connect(self.device_restart)
         self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
@@ -322,8 +328,13 @@ class XexunRTTWindow(QWidget):
                 text_edit = current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     text_edit.clear()
-                    
-        self.on_openfolder_clicked()
+
+        if self.main.rtt2uart and self.main.rtt2uart.log_directory:
+            log_directory = self.main.rtt2uart.log_directory
+            if log_directory and os.listdir(log_directory):
+                os.startfile(log_directory)
+            else:
+                shutil.rmtree(log_directory)
         self.main.close()
 
     @Slot(int)
@@ -425,6 +436,17 @@ class XexunRTTWindow(QWidget):
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
+        
+    def device_restart(self):
+        return
+        # if self.main.rtt2uart.jlink:
+        #     try:
+        #         jlink = self.main.rtt2uart.jlink
+        #         jlink.open()
+        #         jlink.reset(halt=True) #实测效果不理想
+        #         print("J-Link device start successfully.")
+        #     except pylink.errors.JLinkException as e:
+        #         print("Error resetting J-Link device:", e)
                                     
 class MainWindow(QDialog):
     def __init__(self):
@@ -774,7 +796,7 @@ class MainWindow(QDialog):
                 text_length = len(text_edit.toPlainText())
                 if text_length > MAX_TEXT_LENGTH:
                     # 截取文本长度
-                    new_text = text_edit.toPlainText()[MAX_TEXT_LENGTH/2:]
+                    new_text = text_edit.toPlainText()[(MAX_TEXT_LENGTH/2):]
                     text_edit.clear()
                     text_edit.insertPlainText(new_text)
 
