@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
     QLabel, QPushButton, QSizePolicy, QSpacerItem,
     QSpinBox, QTabWidget, QWidget)
 
+from PySide6.QtCore import Signal, Qt
+
 class Ui_xexun_rtt(object):
     def setupUi(self, xexun_rtt):
         if not xexun_rtt.objectName():
@@ -233,9 +235,11 @@ class Ui_xexun_rtt(object):
     # retranslateUi
 
 class MyComboBox(QComboBox):
+    enter_pressed = Signal()  # 定义一个信号
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
-            self.action.trigger()  # 触发动作
+            self.enter_pressed.emit()  # 按下回车键时发射信号
         else:
             super().keyPressEvent(event)  # 其他按键按照默认方式处理
 

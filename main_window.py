@@ -42,7 +42,7 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
 
 MAX_TAB_SIZE = 24
 MAX_TEXT_LENGTH = (int)(2e6) #缓存 2MB 的数据
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -203,7 +203,7 @@ class DeviceSelectDialog(QDialog):
 class EditableTabBar(QTabBar):
     def mouseDoubleClickEvent(self, event):
         index = self.tabAt(event.pos())
-        if index > 16:
+        if index >= 17:
             old_text = self.tabText(index)
             new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("main_window", "Edit Filter Text"), QCoreApplication.translate("main_window", "Enter new text:"), QLineEdit.Normal, old_text)
             if ok and new_text:
@@ -247,8 +247,8 @@ class XexunRTTWindow(QWidget):
         self.action9 = QAction(self)
         self.action9.setShortcut(QKeySequence("F9"))
                 
-        self.actionenter = QAction(self)
-        self.actionenter.setShortcut(QKeySequence(Qt.Key_Return))
+        #self.actionenter = QAction(self)
+        #self.actionenter.setShortcut(QKeySequence(Qt.Key_Return, Qt.Key_Enter))
 
         # 将动作添加到主窗口
         self.addAction(self.action1)
@@ -259,7 +259,7 @@ class XexunRTTWindow(QWidget):
         self.addAction(self.action6)
         self.addAction(self.action7)
         self.addAction(self.action9)
-        self.addAction(self.actionenter)
+        #self.addAction(self.actionenter)
 
         # 连接动作的触发事件
         self.action1.triggered.connect(self.on_openfolder_clicked)
@@ -270,7 +270,7 @@ class XexunRTTWindow(QWidget):
         self.action6.triggered.connect(self.toggle_lock_h_checkbox)
         self.action7.triggered.connect(self.toggle_style_checkbox)
         self.action9.triggered.connect(self.device_restart)
-        self.actionenter.triggered.connect(self.on_pushButton_clicked)
+        #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
@@ -287,7 +287,7 @@ class XexunRTTWindow(QWidget):
             
             if i == 0:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
-            elif i <= 16:
+            elif i < 17:
                 self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
             else:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "filter"))
@@ -300,8 +300,8 @@ class XexunRTTWindow(QWidget):
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
-        # 连接 QComboBox 的 activated 信号到槽函数
-        self.ui.cmd_buffer.addAction(self.action5)
+        self.ui.cmd_buffer.enter_pressed.connect(self.on_pushButton_clicked)
+
         # 设置默认样式
         self.light_stylesheet = ""
         self.dark_stylesheet = qdarkstyle.load_stylesheet()
@@ -350,7 +350,8 @@ class XexunRTTWindow(QWidget):
         self.switchPage(index)
         
     def on_pushButton_clicked(self):
-        utf8_data = self.ui.cmd_buffer.currentText()
+        current_text = self.ui.cmd_buffer.currentText()
+        utf8_data = current_text
         utf8_data += '\n'
         
         gbk_data = utf8_data.encode('gbk', errors='ignore')
@@ -361,6 +362,11 @@ class XexunRTTWindow(QWidget):
             self.ui.cmd_buffer.clearEditText()
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
             self.ui.sent.setText(sent_msg)
+            # 检查字符串是否在 ComboBox 的列表中
+            if current_text not in [self.ui.cmd_buffer.itemText(i) for i in range(self.ui.cmd_buffer.count())]:
+                # 如果不在列表中，则将字符串添加到 ComboBox 中
+                self.ui.cmd_buffer.addItem(current_text)
+                self.main.settings['cmd'].append(current_text)
 
     def on_dis_connect_clicked(self):
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -397,8 +403,9 @@ class XexunRTTWindow(QWidget):
     def set_style(self):
         # 根据复选框状态设置样式
         stylesheet = self.light_stylesheet if self.ui.light_checkbox.isChecked() else self.dark_stylesheet
-        self.setStyleSheet(stylesheet)                
-
+        self.setStyleSheet(stylesheet)
+        self.main.settings['light_mode'] = self.ui.light_checkbox.isChecked()
+        
     def on_cmd_buffer_activated(self, index):
         text = self.ui.cmd_buffer.currentText()
         if text:  # 如果文本不为空
@@ -428,11 +435,19 @@ class XexunRTTWindow(QWidget):
         title += " "
         
         self.setWindowTitle(title)
+        
+        self.main.settings['fontsize'] = self.ui.fontsize_box.value()
+            
+        for i in range(17 , MAX_TAB_SIZE):
+            tagText = self.ui.tem_switch.tabText(i)
+            self.main.settings['filter'][i-17] = tagText
 
     def toggle_lock_h_checkbox(self):
         self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
+        self.main.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
     def toggle_lock_v_checkbox(self):
         self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
+        self.main.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
@@ -483,7 +498,7 @@ class MainWindow(QDialog):
         self.port_scan()
 
         self.settings = {'device': [], 'device_index': 0, 'interface': 0,
-                         'speed': 0, 'port': 0, 'buadrate': 0}
+                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[]}
 
         self.xexunrtt = XexunRTTWindow(self)
         self.xexunrtt.showMaximized()
@@ -514,6 +529,18 @@ class MainWindow(QDialog):
             self.ui.comboBox_Port.setCurrentIndex(self.settings['port'])
             self.ui.comboBox_baudrate.setCurrentIndex(
                 self.settings['buadrate'])
+            
+            self.xexunrtt.ui.LockH_checkBox.setChecked(self.settings['lock_h'])
+            self.xexunrtt.ui.LockV_checkBox.setChecked(self.settings['lock_v'])
+            self.xexunrtt.ui.light_checkbox.setChecked(self.settings['light_mode'])
+            self.xexunrtt.ui.fontsize_box.setValue(self.settings['fontsize'])
+            self.xexunrtt.ui.cmd_buffer.addItems(self.settings['cmd'])
+            
+            for i in range(17 , MAX_TAB_SIZE):
+                    tagText = self.xexunrtt.ui.tem_switch.tabText(i)
+                    if self.settings['filter'][i-17]:
+                        self.xexunrtt.ui.tem_switch.setTabText(i, self.settings['filter'][i-17])
+
         else:
             logger.info('Setting file not exist', exc_info=True)
             self.ui.comboBox_Interface.setCurrentIndex(1)
@@ -706,7 +733,7 @@ class MainWindow(QDialog):
         device_ui.exec()
         self.target_device = device_ui.get_target_device()
 
-        if self.target_device not in self.settings['device']:
+        if self.target_device and self.target_device not in self.settings['device']:
             self.settings['device'].append(self.target_device)
             self.ui.comboBox_Device.addItem(self.target_device)
         
