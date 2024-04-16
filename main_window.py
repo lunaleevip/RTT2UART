@@ -873,7 +873,8 @@ class Worker(QObject):
             buffer0 = self.buffers[0]
         
             self.buffers[index+1] += data
-
+            
+            self.buffers[0] +=  "%02u> " % index
             self.buffers[0] += data
             # 在主线程中执行操作
 
