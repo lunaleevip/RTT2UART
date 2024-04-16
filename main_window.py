@@ -27,6 +27,7 @@ import os
 import subprocess
 import threading
 import shutil
+import re
 
 logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
@@ -890,12 +891,21 @@ class Worker(QObject):
                     search_word = tagText
                     buffer = self.buffers[i]
                     if search_word != QCoreApplication.translate("main_window", "filter") and search_word in line:
-                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + search_word + '.log', 'a') as search_log_file:
+                        new_path = replace_special_characters(search_word)
+                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
                             search_log_file.write(line + '\n');
                             self.buffers[i] += line + '\n'
 
             self.finished.emit()
 
+def replace_special_characters(path, replacement='_'):
+    # 定义需要替换的特殊字符的正则表达式模式
+    pattern = r'[<>:"/\\|?*]'
+
+    # 使用指定的替换字符替换特殊字符
+    new_path = re.sub(pattern, replacement, path)
+
+    return new_path
 
 def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
