@@ -363,6 +363,7 @@ class XexunRTTWindow(QWidget):
             self.ui.cmd_buffer.clearEditText()
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
             self.ui.sent.setText(sent_msg)
+            self.ui.tem_switch.setCurrentIndex(2);#输入指令成功后，自动切换到应答界面
             # 检查字符串是否在 ComboBox 的列表中
             if current_text not in [self.ui.cmd_buffer.itemText(i) for i in range(self.ui.cmd_buffer.count())]:
                 # 如果不在列表中，则将字符串添加到 ComboBox 中
