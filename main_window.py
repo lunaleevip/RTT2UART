@@ -42,8 +42,8 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
-MAX_TEXT_LENGTH = (int)(2e6) #缓存 2MB 的数据
-VERSION = "1.0.2"
+MAX_TEXT_LENGTH = (int)(8e6) #缓存 8MB 的数据
+VERSION = "1.0.3"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -207,8 +207,11 @@ class EditableTabBar(QTabBar):
         if index >= 17:
             old_text = self.tabText(index)
             new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("main_window", "Edit Filter Text"), QCoreApplication.translate("main_window", "Enter new text:"), QLineEdit.Normal, old_text)
-            if ok and new_text:
-                self.setTabText(index, new_text)
+            if ok:
+                if new_text:
+                    self.setTabText(index, new_text)
+                else:
+                    self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
 
 class XexunRTTWindow(QWidget):
     def __init__(self, main):
@@ -825,9 +828,10 @@ class MainWindow(QDialog):
                 text_length = len(text_edit.toPlainText())
                 if text_length > MAX_TEXT_LENGTH:
                     # 截取文本长度
-                    new_text = text_edit.toPlainText()[(MAX_TEXT_LENGTH/2):]
+                    new_text = text_edit.toPlainText()[(int)(MAX_TEXT_LENGTH/2):]
                     text_edit.clear()
                     text_edit.insertPlainText(new_text)
+                    #print("new_text_length:" + str(len(new_text)) + ", old_len:" + str(text_length))
 
                 # 恢复滚动条的值
                 if self.xexunrtt.ui.LockV_checkBox.isChecked():
@@ -844,9 +848,11 @@ class MainWindow(QDialog):
     @Slot()
     def handleBufferUpdate(self):
         # 获取当前选定的页面索引
-        index = self.xexunrtt.ui.tem_switch.currentIndex()
+        for i in range(MAX_TAB_SIZE):
+            self.switchPage(i)
+        #index = self.xexunrtt.ui.tem_switch.currentIndex()
         # 刷新文本框
-        self.switchPage(index)
+        #self.switchPage(index)
    
 
 class Worker(QObject):
