@@ -267,11 +267,11 @@ class rtt_to_serial():
         #     cursor.insertText(string.decode('gbk'))
 
 
-if __name__ == "__main__":
-    serial_name = input("请输入虚拟串口对中的串口名字，如COM26：")
+# if __name__ == "__main__":
+#     serial_name = input("请输入虚拟串口对中的串口名字，如COM26：")
 
-    if '' == serial_name:
-        serial_name = 'COM26'
+#     if '' == serial_name:
+#         serial_name = 'COM26'
 
-    test = rtt_to_serial(0, 'AMAPH1KK-KBR', serial_name, 115200)
-    test.start()
+#     test = rtt_to_serial(0, 'AMAPH1KK-KBR', serial_name, 115200)
+#     test.start()
