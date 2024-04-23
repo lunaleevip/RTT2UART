@@ -14,7 +14,7 @@ from ui_rtt2uart import Ui_dialog
 from ui_sel_device import Ui_Dialog
 from ui_xexunrtt import Ui_xexun_rtt
 import resources_rc
-
+from contextlib import redirect_stdout
 import serial.tools.list_ports
 import serial
 import ctypes.util as ctypes_util
@@ -28,8 +28,10 @@ import subprocess
 import threading
 import shutil
 import re
+import psutil
+import atexit
 
-logging.basicConfig(level=logging.WARNING,
+logging.basicConfig(level=logging.WARN,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,6 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
 
 MAX_TAB_SIZE = 24
 MAX_TEXT_LENGTH = (int)(8e6) #缓存 8MB 的数据
-VERSION = "1.0.3"
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
     def __init__(self, device_list, header):
@@ -279,6 +280,7 @@ class XexunRTTWindow(QWidget):
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
         
+        self.highlighter = [PythonHighlighter] * MAX_TAB_SIZE
         for i in range(MAX_TAB_SIZE):
             page = QWidget()
             text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
@@ -288,7 +290,7 @@ class XexunRTTWindow(QWidget):
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
-            
+            self.highlighter[i] = PythonHighlighter(text_edit.document())
             if i == 0:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
             elif i < 17:
@@ -307,8 +309,10 @@ class XexunRTTWindow(QWidget):
         self.ui.cmd_buffer.enter_pressed.connect(self.on_pushButton_clicked)
 
         # 设置默认样式
-        self.light_stylesheet = ""
-        self.dark_stylesheet = qdarkstyle.load_stylesheet()
+        palette = QPalette()
+        palette.ID = 'light'
+        self.light_stylesheet = qdarkstyle._load_stylesheet(qt_api='pyside6', palette=palette)
+        self.dark_stylesheet = qdarkstyle.load_stylesheet_pyside6()
         
         self.ui.light_checkbox.stateChanged.connect(self.set_style)
         self.set_style()
@@ -341,6 +345,23 @@ class XexunRTTWindow(QWidget):
                 shutil.rmtree(log_directory)
         self.main.close()
 
+        # 获取当前进程的所有子进程
+        current_process = psutil.Process()
+        children = current_process.children(recursive=True)
+
+        # 关闭所有子进程
+        for child in children:
+            try:
+                child.terminate()  # 发送 SIGTERM 信号终止子进程
+                child.wait(timeout=1)  # 等待子进程退出
+                if child.is_running():
+                    # 如果子进程未能正常退出，发送 SIGKILL 信号强制终止子进程
+                    child.kill()
+                    child.wait()
+            except psutil.NoSuchProcess:
+                # 如果子进程已经退出，会抛出 NoSuchProcess 异常，忽略该异常
+                pass
+
     @Slot(int)
     def switchPage(self, index):
         self.main.switchPage(index)
@@ -366,7 +387,13 @@ class XexunRTTWindow(QWidget):
             self.ui.cmd_buffer.clearEditText()
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
             self.ui.sent.setText(sent_msg)
-            self.ui.tem_switch.setCurrentIndex(2);#输入指令成功后，自动切换到应答界面
+            self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
+            current_page_widget = self.ui.tem_switch.widget(2)
+            if isinstance(current_page_widget, QWidget):
+                text_edit = current_page_widget.findChild(QTextEdit)
+                if text_edit:
+                    self.highlighter[2].setKeywords([current_text])
+                    
             # 检查字符串是否在 ComboBox 的列表中
             if current_text not in [self.ui.cmd_buffer.itemText(i) for i in range(self.ui.cmd_buffer.count())]:
                 # 如果不在列表中，则将字符串添加到 ComboBox 中
@@ -418,7 +445,7 @@ class XexunRTTWindow(QWidget):
 
     def update_periodic_task(self):
         
-        title = QCoreApplication.translate("main_window", u"XexunRTT Main Ver:") + VERSION
+        title = QCoreApplication.translate("main_window", u"XexunRTT")
         title += "\t"
         
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -446,6 +473,8 @@ class XexunRTTWindow(QWidget):
         for i in range(17 , MAX_TAB_SIZE):
             tagText = self.ui.tem_switch.tabText(i)
             self.main.settings['filter'][i-17] = tagText
+            
+
 
     def toggle_lock_h_checkbox(self):
         self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
@@ -584,7 +613,7 @@ class MainWindow(QDialog):
 
         try:
             # 导出器件列表文件
-            if self.jlink._library._path is not None:
+            if self.jlink._library._path is not None and os.path.exists(r'JLinkDevicesBuildIn.xml') == False:
                 path_env = os.path.dirname(self.jlink._library._path)
                 env = os.environ
 
@@ -599,6 +628,8 @@ class MainWindow(QDialog):
                     startupinfo.wShowWindow = subprocess.SW_HIDE
 
                     subprocess.run(cmd, check=True, startupinfo=startupinfo, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.kill()
+
                 elif sys.platform.startswith('linux'):
                     jlink_env = {}
                     cmd = 'JLinkExe -CommandFile JLinkCommandFile.jlink'
@@ -822,6 +853,9 @@ class MainWindow(QDialog):
                 text_edit.setTextCursor(cursor)
                 text_edit.setCursorWidth(0)
 
+                if index >= 17:
+                    self.xexunrtt.highlighter[index].setKeywords([self.xexunrtt.ui.tem_switch.tabText(index)])
+                    
                 text_edit.insertPlainText(self.worker.buffers[index])
                 self.worker.buffers[index] = ""
 
@@ -913,6 +947,38 @@ def replace_special_characters(path, replacement='_'):
     new_path = re.sub(pattern, replacement, path)
 
     return new_path
+
+
+from PySide6.QtCore import QRegularExpression, QRegularExpressionMatch
+from PySide6.QtGui import QTextCharFormat, QSyntaxHighlighter
+
+class PythonHighlighter(QSyntaxHighlighter):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        self.keywords = []
+        self.keyword_format = QTextCharFormat()
+        self.keyword_format.setForeground(Qt.darkBlue)
+        self.keyword_format.setFontWeight(QFont.Bold)
+        self.keyword_format.setBackground(Qt.yellow)
+
+        self.pattern = None
+
+    def setKeywords(self, keywords):
+        self.keywords = keywords
+        escaped_keywords = [re.escape(keyword) for keyword in keywords]
+        # 将问号进行转义
+        escaped_keywords = [keyword.replace('?', r'\?') for keyword in escaped_keywords]
+        self.pattern = re.compile(r'\b(?:' + '|'.join(escaped_keywords) + r')\b')
+
+    def highlightBlock(self, text):
+        if not self.pattern:
+            return
+
+        for match in self.pattern.finditer(text):
+            start_index = match.start()
+            match_length = match.end() - start_index
+            self.setFormat(start_index, match_length, self.keyword_format)
 
 def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
