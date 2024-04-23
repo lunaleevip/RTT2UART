@@ -29,7 +29,6 @@ import threading
 import shutil
 import re
 import psutil
-import atexit
 
 logging.basicConfig(level=logging.WARN,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
@@ -280,6 +279,7 @@ class XexunRTTWindow(QWidget):
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
         
+        self.tabText = [None] * MAX_TAB_SIZE
         self.highlighter = [PythonHighlighter] * MAX_TAB_SIZE
         for i in range(MAX_TAB_SIZE):
             page = QWidget()
@@ -297,6 +297,8 @@ class XexunRTTWindow(QWidget):
                 self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
             else:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "filter"))
+            
+            self.tabText[i] = self.ui.tem_switch.tabText(i)
                 
         self.ui.tem_switch.currentChanged.connect(self.switchPage)
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
@@ -852,9 +854,18 @@ class MainWindow(QDialog):
                 cursor.movePosition(QTextCursor.End)
                 text_edit.setTextCursor(cursor)
                 text_edit.setCursorWidth(0)
-
+                
                 if index >= 17:
                     self.xexunrtt.highlighter[index].setKeywords([self.xexunrtt.ui.tem_switch.tabText(index)])
+                    if self.xexunrtt.tabText[index] != self.xexunrtt.ui.tem_switch.tabText(index):
+                        self.xexunrtt.tabText[index] = self.xexunrtt.ui.tem_switch.tabText(index)
+                        text_edit.clear()
+                elif index != 2:
+                    keywords = []
+                    for i in range(MAX_TAB_SIZE):
+                        if i >= 17:
+                            keywords.append(self.xexunrtt.ui.tem_switch.tabText(i))
+                    self.xexunrtt.highlighter[index].setKeywords(keywords)
                     
                 text_edit.insertPlainText(self.worker.buffers[index])
                 self.worker.buffers[index] = ""
@@ -930,12 +941,25 @@ class Worker(QObject):
                 for i in range(17 , MAX_TAB_SIZE):
                     tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
                     search_word = tagText
-                    buffer = self.buffers[i]
-                    if search_word != QCoreApplication.translate("main_window", "filter") and search_word in line:
-                        new_path = replace_special_characters(search_word)
-                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
-                            search_log_file.write(line + '\n');
-                            self.buffers[i] += line + '\n'
+                    if search_word != QCoreApplication.translate("main_window", "filter"):
+                        if search_word != self.parent.xexunrtt.tabText[i]:
+                            self.buffers[i] = ""
+                            zero_widget = self.parent.xexunrtt.ui.tem_switch.widget(0)
+                            if isinstance(zero_widget, QWidget):
+                                text_edit = zero_widget.findChild(QTextEdit)
+                                zero_lines = text_edit.toPlainText().split('\n')
+                                for newline in zero_lines:
+                                    if search_word in newline:
+                                        new_path = replace_special_characters(search_word)
+                                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
+                                            search_log_file.write(newline[4:] + '\n');
+                                            self.buffers[i] += newline[4:] + '\n'
+
+                        elif search_word in line:
+                            new_path = replace_special_characters(search_word)
+                            with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
+                                search_log_file.write(line + '\n');
+                                self.buffers[i] += line + '\n'
 
             self.finished.emit()
 
