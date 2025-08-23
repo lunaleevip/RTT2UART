@@ -67,6 +67,9 @@ class rtt_to_serial():
         
         self.tem = '0'
         
+        # JLink日志回调函数
+        self.jlink_log_callback = None
+        
         # 设置日志文件名
         log_directory=None
         
@@ -86,6 +89,15 @@ class rtt_to_serial():
     def __del__(self):
         logger.debug('close app')
         self.stop()
+    
+    def set_jlink_log_callback(self, callback):
+        """设置JLink日志回调函数"""
+        self.jlink_log_callback = callback
+    
+    def _log_to_gui(self, message):
+        """将消息发送到GUI日志"""
+        if self.jlink_log_callback:
+            self.jlink_log_callback(message)
 
     def start(self):
         logger.debug('start rtt2uart')
@@ -102,18 +114,28 @@ class rtt_to_serial():
                 if not is_connected:
                     # 加载jlinkARM.dll
                     try:
+                        self._log_to_gui("正在打开JLink连接...")
                         if self._connect_inf == 'USB':
-                            self.jlink.open(serial_no=self._connect_para)
+                            if self._connect_para:
+                                self._log_to_gui(f"通过USB连接JLink (序列号: {self._connect_para})")
+                                self.jlink.open(serial_no=self._connect_para)
+                            else:
+                                self._log_to_gui("通过USB连接JLink (自动检测)")
+                                self.jlink.open()
                         else:
+                            self._log_to_gui(f"通过TCP/IP连接JLink ({self._connect_para})")
                             self.jlink.open(ip_addr=self._connect_para)
                         
                         # 短暂等待连接稳定
                         import time
                         time.sleep(0.1)
+                        self._log_to_gui("JLink连接已建立")
                         
                     except pylink.errors.JLinkException as e:
-                        logger.error(f'Failed to open JLink: {e}', exc_info=True)
-                        raise Exception(f"Failed to open JLink: {e}")
+                        error_msg = f"Failed to open JLink: {e}"
+                        self._log_to_gui(error_msg)
+                        logger.error(error_msg, exc_info=True)
+                        raise Exception(error_msg)
 
                 # 再次检查连接状态
                 try:
@@ -124,35 +146,57 @@ class rtt_to_serial():
 
                 # 设置连接速率
                 try:
+                    self._log_to_gui(f"设置JLink速率: {self._speed} kHz")
                     if self.jlink.set_speed(self._speed) == False:
+                        error_msg = "Set jlink speed failed"
+                        self._log_to_gui(error_msg)
                         logger.error('Set speed failed', exc_info=True)
-                        raise Exception("Set jlink speed failed")
+                        raise Exception(error_msg)
+                    self._log_to_gui(f"JLink速率设置成功: {self._speed} kHz")
                 except pylink.errors.JLinkException as e:
+                    error_msg = f"Set jlink speed failed: {e}"
+                    self._log_to_gui(error_msg)
                     logger.error(f'Set speed failed with exception: {e}', exc_info=True)
-                    raise Exception(f"Set jlink speed failed: {e}")
+                    raise Exception(error_msg)
 
-                # 设置连接接口为SWD
+                # 设置连接接口
                 try:
+                    interface_name = "SWD" if self._interface == pylink.enums.JLinkInterfaces.SWD else "JTAG"
+                    self._log_to_gui(f"设置JLink接口: {interface_name}")
                     if self.jlink.set_tif(self._interface) == False:
+                        error_msg = "Set jlink interface failed"
+                        self._log_to_gui(error_msg)
                         logger.error('Set interface failed', exc_info=True)
-                        raise Exception("Set jlink interface failed")
+                        raise Exception(error_msg)
+                    self._log_to_gui(f"JLink接口设置成功: {interface_name}")
                 except pylink.errors.JLinkException as e:
+                    error_msg = f"Set jlink interface failed: {e}"
+                    self._log_to_gui(error_msg)
                     logger.error(f'Set interface failed with exception: {e}', exc_info=True)
-                    raise Exception(f"Set jlink interface failed: {e}")
+                    raise Exception(error_msg)
 
                 try:
                     if self._reset == True:
                         # 复位一下目标芯片，复位后不要停止芯片，保证后续操作的稳定性
+                        self._log_to_gui("正在复位目标芯片...")
                         self.jlink.reset(halt=False)
+                        self._log_to_gui("目标芯片复位完成")
 
                     # 连接目标芯片
+                    self._log_to_gui(f"正在连接目标设备: {self.device}")
                     self.jlink.connect(self.device)
+                    self._log_to_gui(f"目标设备连接成功: {self.device}")
+                    
                     # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
+                    self._log_to_gui("正在启动RTT...")
                     self.jlink.rtt_start()
+                    self._log_to_gui("RTT启动成功")
 
                 except pylink.errors.JLinkException as e:
+                    error_msg = f"Connect target failed: {e}"
+                    self._log_to_gui(error_msg)
                     logger.error(f'Connect target failed: {e}', exc_info=True)
-                    raise Exception(f"Connect target failed: {e}")
+                    raise Exception(error_msg)
         except pylink.errors.JLinkException as errors:
             logger.error(f'Open jlink failed: {errors}', exc_info=True)
             raise Exception(f"Open jlink failed: {errors}")
@@ -215,6 +259,7 @@ class rtt_to_serial():
 
     def _safe_close_jlink(self):
         """安全关闭 JLink 连接"""
+        self._log_to_gui("正在关闭JLink连接...")
         max_retries = 3
         retry_count = 0
         
@@ -225,23 +270,30 @@ class rtt_to_serial():
                 try:
                     is_connected = self.jlink.connected()
                 except pylink.errors.JLinkException:
+                    self._log_to_gui(f'无法检查JLink连接状态 (重试 {retry_count + 1})')
                     logger.warning(f'Cannot check JLink connection status on retry {retry_count + 1}')
                     is_connected = False
                 
                 if is_connected:
                     try:
                         # 停止RTT
+                        self._log_to_gui("正在停止RTT...")
                         self.jlink.rtt_stop()
+                        self._log_to_gui("RTT已停止")
                         logger.debug('RTT stopped successfully')
                     except pylink.errors.JLinkException as e:
+                        self._log_to_gui(f'停止RTT失败: {e}')
                         logger.warning(f'Failed to stop RTT: {e}')
                     
                     try:
                         # 关闭JLink连接
+                        self._log_to_gui("正在关闭JLink...")
                         self.jlink.close()
+                        self._log_to_gui("JLink连接已关闭")
                         logger.debug('JLink closed successfully')
                         break  # 成功关闭，退出循环
                     except pylink.errors.JLinkException as e:
+                        self._log_to_gui(f'关闭JLink失败 (尝试 {retry_count + 1}): {e}')
                         logger.warning(f'Failed to close JLink on attempt {retry_count + 1}: {e}')
                         retry_count += 1
                         if retry_count < max_retries:
@@ -249,10 +301,12 @@ class rtt_to_serial():
                             time.sleep(0.2)  # 短暂等待后重试
                         continue
                 else:
+                    self._log_to_gui("JLink已断开连接")
                     logger.debug('JLink already disconnected')
                     break
                     
             except Exception as e:
+                self._log_to_gui(f'关闭JLink时发生意外错误 (尝试 {retry_count + 1}): {e}')
                 logger.error(f'Unexpected error during JLink close on attempt {retry_count + 1}: {e}')
                 retry_count += 1
                 if retry_count < max_retries:
@@ -261,6 +315,7 @@ class rtt_to_serial():
                 continue
         
         if retry_count >= max_retries:
+            self._log_to_gui("达到最大重试次数，JLink关闭失败")
             logger.error('Failed to close JLink after maximum retries')
 
     def _safe_close_serial(self):
