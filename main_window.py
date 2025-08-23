@@ -257,14 +257,29 @@ class EditableTabBar(QTabBar):
                 else:
                     self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
 
-class XexunRTTWindow(QWidget):
-    def __init__(self, main):
-        super(XexunRTTWindow, self).__init__()
-        self.main = main
+class RTTMainWindow(QMainWindow):
+    def __init__(self):
+        super(RTTMainWindow, self).__init__()
+        self.connection_dialog = None
+        
+        # 设置主窗口属性
+        self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT调试主窗口"))
+        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        
+        # 创建中心部件
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        
+        # 创建菜单栏和状态栏
+        self._create_menu_bar()
+        self._create_status_bar()
+        
+        # 初始化时禁用RTT相关功能，直到连接成功
+        self._set_rtt_controls_enabled(False)
         
         # 先设置原有的UI
         self.ui = Ui_xexun_rtt()
-        self.ui.setupUi(self)
+        self.ui.setupUi(self.central_widget)
         
         # 保存原有的layoutWidget并重新设置其父级
         original_layout_widget = self.ui.layoutWidget
@@ -292,17 +307,11 @@ class XexunRTTWindow(QWidget):
         splitter.setStretchFactor(0, 1)  # RTT区域可拉伸
         splitter.setStretchFactor(1, 0)  # JLink日志区域固定大小
         
-        # 清除原有布局并设置新布局
-        if self.layout():
-            QWidget().setLayout(self.layout())
-        
+        # 设置中心部件的布局
         main_layout.addWidget(splitter)
-        self.setLayout(main_layout)
+        self.central_widget.setLayout(main_layout)
         
-        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
-        
-        # 设置窗口标志以显示最大化按钮
-        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        # QMainWindow默认就有最大化按钮，不需要额外设置
         # 向 tabWidget 中添加页面并连接信号
 
         # 创建动作并设置快捷键
@@ -416,6 +425,166 @@ class XexunRTTWindow(QWidget):
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
     
+    def _create_menu_bar(self):
+        """创建菜单栏"""
+        menubar = self.menuBar()
+        
+        # 连接菜单
+        connection_menu = menubar.addMenu(QCoreApplication.translate("main_window", "连接(&C)"))
+        
+        # 重新连接动作
+        reconnect_action = QAction(QCoreApplication.translate("main_window", "重新连接(&R)"), self)
+        reconnect_action.setShortcut(QKeySequence("F2"))
+        reconnect_action.triggered.connect(self.on_re_connect_clicked)
+        connection_menu.addAction(reconnect_action)
+        
+        # 断开连接动作
+        disconnect_action = QAction(QCoreApplication.translate("main_window", "断开连接(&D)"), self)
+        disconnect_action.setShortcut(QKeySequence("F3"))
+        disconnect_action.triggered.connect(self.on_dis_connect_clicked)
+        connection_menu.addAction(disconnect_action)
+        
+        connection_menu.addSeparator()
+        
+        # 连接设置动作
+        settings_action = QAction(QCoreApplication.translate("main_window", "连接设置(&S)..."), self)
+        settings_action.triggered.connect(self._show_connection_settings)
+        connection_menu.addAction(settings_action)
+        
+        # 工具菜单
+        tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "工具(&T)"))
+        
+        # 清除日志动作
+        clear_action = QAction(QCoreApplication.translate("main_window", "清除当前页面(&C)"), self)
+        clear_action.setShortcut(QKeySequence("F4"))
+        clear_action.triggered.connect(self.on_clear_clicked)
+        tools_menu.addAction(clear_action)
+        
+        # 打开日志文件夹动作
+        open_folder_action = QAction(QCoreApplication.translate("main_window", "打开日志文件夹(&O)"), self)
+        open_folder_action.setShortcut(QKeySequence("F1"))
+        open_folder_action.triggered.connect(self.on_openfolder_clicked)
+        tools_menu.addAction(open_folder_action)
+        
+        tools_menu.addSeparator()
+        
+        # 样式切换动作
+        style_action = QAction(QCoreApplication.translate("main_window", "切换主题(&T)"), self)
+        style_action.setShortcut(QKeySequence("F7"))
+        style_action.triggered.connect(self.toggle_style_checkbox)
+        tools_menu.addAction(style_action)
+        
+        # 帮助菜单
+        help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "帮助(&H)"))
+        
+        # 关于动作
+        about_action = QAction(QCoreApplication.translate("main_window", "关于(&A)..."), self)
+        about_action.triggered.connect(self._show_about)
+        help_menu.addAction(about_action)
+    
+    def _create_status_bar(self):
+        """创建状态栏"""
+        self.status_bar = self.statusBar()
+        
+        # 连接状态标签
+        self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "未连接"))
+        self.status_bar.addWidget(self.connection_status_label)
+        
+        # 数据统计标签
+        self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "读取: 0 | 写入: 0"))
+        self.status_bar.addPermanentWidget(self.data_stats_label)
+    
+    def _show_connection_settings(self):
+        """显示连接设置对话框"""
+        self.show_connection_dialog()
+    
+    def _show_about(self):
+        """显示关于对话框"""
+        QMessageBox.about(self, 
+                         QCoreApplication.translate("main_window", "关于 XexunRTT"),
+                         QCoreApplication.translate("main_window", 
+                                                   "XexunRTT v2.0\n\n"
+                                                   "RTT调试工具\n\n"
+                                                   "基于 PySide6 开发"))
+    
+    def show_connection_dialog(self):
+        """显示连接配置对话框"""
+        if not self.connection_dialog:
+            self.connection_dialog = ConnectionDialog(self)  # 设置主窗口为父窗口
+            # 连接成功信号
+            self.connection_dialog.connection_established.connect(self.on_connection_established)
+            # 连接断开信号
+            self.connection_dialog.connection_disconnected.connect(self.on_connection_disconnected)
+        
+        self.connection_dialog.show()
+        self.connection_dialog.raise_()
+        self.connection_dialog.activateWindow()
+    
+    def on_connection_established(self):
+        """连接建立成功后的处理"""
+        # 启用RTT相关功能
+        self._set_rtt_controls_enabled(True)
+        
+        # 应用保存的设置
+        self._apply_saved_settings()
+        
+        # 更新状态显示
+        self.update_status_bar()
+        
+        # 显示成功消息
+        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT连接建立成功"), 3000)
+    
+    def on_connection_disconnected(self):
+        """连接断开后的处理"""
+        # 禁用RTT相关功能
+        self._set_rtt_controls_enabled(False)
+        
+        # 更新状态显示
+        self.update_status_bar()
+        
+        # 显示断开消息
+        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT连接已断开"), 3000)
+    
+    def _set_rtt_controls_enabled(self, enabled):
+        """设置RTT相关控件的启用状态"""
+        # RTT相关的UI控件在连接成功前应该被禁用
+        if hasattr(self, 'ui'):
+            # 发送命令相关控件
+            if hasattr(self.ui, 'pushButton'):
+                self.ui.pushButton.setEnabled(enabled)
+            if hasattr(self.ui, 'cmd_buffer'):
+                self.ui.cmd_buffer.setEnabled(enabled)
+            
+            # 清除按钮
+            if hasattr(self.ui, 'clear'):
+                self.ui.clear.setEnabled(enabled)
+            
+            # 打开文件夹按钮
+            if hasattr(self.ui, 'openfolder'):
+                self.ui.openfolder.setEnabled(enabled)
+    
+    def _apply_saved_settings(self):
+        """应用保存的设置"""
+        if not self.connection_dialog:
+            return
+            
+        try:
+            settings = self.connection_dialog.settings
+            self.ui.LockH_checkBox.setChecked(settings['lock_h'])
+            self.ui.LockV_checkBox.setChecked(settings['lock_v'])
+            self.ui.light_checkbox.setChecked(settings['light_mode'])
+            self.ui.fontsize_box.setValue(settings['fontsize'])
+            self.ui.cmd_buffer.addItems(settings['cmd'])
+            
+            for i in range(17, MAX_TAB_SIZE):
+                if settings['filter'][i-17]:
+                    self.ui.tem_switch.setTabText(i, settings['filter'][i-17])
+                    
+            # 应用样式
+            self.set_style()
+        except Exception as e:
+            logger.warning(f'Failed to apply saved settings: {e}')
+    
     def _create_jlink_log_area(self):
         """创建JLink日志显示区域"""
         # 创建JLink日志widget
@@ -499,9 +668,9 @@ class XexunRTTWindow(QWidget):
             self.append_jlink_log(QCoreApplication.translate("main_window", "JLink verbose logging enabled - will show all debug information"))
             
             # 可选：同时启用JLink的文件日志
-            if hasattr(self.main, 'rtt2uart') and self.main.rtt2uart and hasattr(self.main.rtt2uart, 'jlink'):
+            if hasattr(self.connection_dialog, 'rtt2uart') and self.connection_dialog.rtt2uart and hasattr(self.connection_dialog.rtt2uart, 'jlink'):
                 try:
-                    self.main.rtt2uart.jlink.set_log_file("jlink_debug.log")
+                    self.connection_dialog.rtt2uart.jlink.set_log_file("jlink_debug.log")
                     self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: jlink_debug.log"))
                 except Exception as e:
                     self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
@@ -530,8 +699,8 @@ class XexunRTTWindow(QWidget):
         super().resizeEvent(event)
 
     def closeEvent(self, e):
-        if self.main.rtt2uart is not None and self.main.start_state == True:
-            self.main.start()
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+            self.connection_dialog.start()
 
         for i in range(MAX_TAB_SIZE):
             current_page_widget = self.ui.tem_switch.widget(i)
@@ -540,8 +709,8 @@ class XexunRTTWindow(QWidget):
                 if text_edit:
                     text_edit.clear()
 
-        if self.main.rtt2uart and self.main.rtt2uart.log_directory:
-            log_directory = self.main.rtt2uart.log_directory
+        if self.connection_dialog.rtt2uart and self.connection_dialog.rtt2uart.log_directory:
+            log_directory = self.connection_dialog.rtt2uart.log_directory
             # 注释掉自动打开文件夹功能，避免关闭程序时弹出文件夹
             # if log_directory and os.listdir(log_directory):
             #     os.startfile(log_directory)
@@ -554,7 +723,7 @@ class XexunRTTWindow(QWidget):
                     shutil.rmtree(log_directory)
             except:
                 pass
-        self.main.close()
+        self.connection_dialog.close()
 
         # 获取当前进程的所有子进程
         current_process = psutil.Process()
@@ -575,7 +744,7 @@ class XexunRTTWindow(QWidget):
 
     @Slot(int)
     def switchPage(self, index):
-        self.main.switchPage(index)
+        self.connection_dialog.switchPage(index)
         # 每次切换页面时都确保工具提示设置正确
         self._ensure_correct_tooltips()
 
@@ -594,8 +763,11 @@ class XexunRTTWindow(QWidget):
         
         gbk_data = utf8_data.encode('gbk', errors='ignore')
         
-        bytes_written = self.main.jlink.rtt_write(0, gbk_data)
-        self.main.rtt2uart.write_bytes0 = bytes_written
+        if self.connection_dialog:
+            bytes_written = self.connection_dialog.jlink.rtt_write(0, gbk_data)
+            self.connection_dialog.rtt2uart.write_bytes0 = bytes_written
+        else:
+            bytes_written = 0
         if(bytes_written == len(gbk_data)):
             self.ui.cmd_buffer.clearEditText()
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
@@ -611,17 +783,19 @@ class XexunRTTWindow(QWidget):
             if current_text not in [self.ui.cmd_buffer.itemText(i) for i in range(self.ui.cmd_buffer.count())]:
                 # 如果不在列表中，则将字符串添加到 ComboBox 中
                 self.ui.cmd_buffer.addItem(current_text)
-                self.main.settings['cmd'].append(current_text)
+                if self.connection_dialog:
+                    self.connection_dialog.settings['cmd'].append(current_text)
 
     def on_dis_connect_clicked(self):
-        if self.main.rtt2uart is not None and self.main.start_state == True:
-            self.main.start()
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+            self.connection_dialog.start()
 
     def on_re_connect_clicked(self):
-        if self.main.rtt2uart is not None and self.main.start_state == True:
-            self.main.start()
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+            self.connection_dialog.start()
             
-        self.main.show()
+        if self.connection_dialog:
+            self.connection_dialog.show()
 
     def on_clear_clicked(self):
         index = self.ui.tem_switch.currentIndex()
@@ -632,7 +806,8 @@ class XexunRTTWindow(QWidget):
                 text_edit.clear()
 
     def on_openfolder_clicked(self):
-        os.startfile(self.main.rtt2uart.log_directory)
+        if self.connection_dialog and self.connection_dialog.rtt2uart:
+            os.startfile(self.connection_dialog.rtt2uart.log_directory)
 
     def populateComboBox(self):
         # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
@@ -649,7 +824,8 @@ class XexunRTTWindow(QWidget):
         # 根据复选框状态设置样式
         stylesheet = self.light_stylesheet if self.ui.light_checkbox.isChecked() else self.dark_stylesheet
         self.setStyleSheet(stylesheet)
-        self.main.settings['light_mode'] = self.ui.light_checkbox.isChecked()
+        if self.connection_dialog:
+            self.connection_dialog.settings['light_mode'] = self.ui.light_checkbox.isChecked()
         
         # 更新JLink日志区域的样式
         self._update_jlink_log_style()
@@ -708,12 +884,34 @@ class XexunRTTWindow(QWidget):
         if text:  # 如果文本不为空
             self.ui.pushButton.click()  # 触发 QPushButton 的点击事件
 
+    def update_status_bar(self):
+        """更新状态栏信息"""
+        if not hasattr(self, 'status_bar'):
+            return
+            
+        # 更新连接状态
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
+        else:
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "未连接"))
+        
+        # 更新数据统计
+        readed = 0
+        writed = 0
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
+            writed = self.connection_dialog.rtt2uart.write_bytes0
+        
+        self.data_stats_label.setText(
+            QCoreApplication.translate("main_window", "读取: {} | 写入: {}").format(readed, writed)
+        )
+    
     def update_periodic_task(self):
         
         title = QCoreApplication.translate("main_window", u"XexunRTT")
         title += "\t"
         
-        if self.main.rtt2uart is not None and self.main.start_state == True:
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             title += QCoreApplication.translate("main_window", u"status:Started")
         else:
             title += QCoreApplication.translate("main_window", u"status:Stoped")
@@ -722,9 +920,9 @@ class XexunRTTWindow(QWidget):
         
         readed = 0
         writed = 0
-        if self.main.rtt2uart is not None:
-            readed = self.main.rtt2uart.read_bytes0 + self.main.rtt2uart.read_bytes1
-            writed = self.main.rtt2uart.write_bytes0
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
+            writed = self.connection_dialog.rtt2uart.write_bytes0
         
         title += QCoreApplication.translate("main_window", u"Readed:") + "%8u" % readed
         title += "\t"
@@ -733,11 +931,15 @@ class XexunRTTWindow(QWidget):
         
         self.setWindowTitle(title)
         
-        self.main.settings['fontsize'] = self.ui.fontsize_box.value()
-            
-        for i in range(17 , MAX_TAB_SIZE):
-            tagText = self.ui.tem_switch.tabText(i)
-            self.main.settings['filter'][i-17] = tagText
+        # 更新状态栏
+        self.update_status_bar()
+        
+        if self.connection_dialog:
+            self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
+                
+            for i in range(17 , MAX_TAB_SIZE):
+                tagText = self.ui.tem_switch.tabText(i)
+                self.connection_dialog.settings['filter'][i-17] = tagText
             
         # 确保工具提示设置正确 - 只有filter标签页才有工具提示
         self._ensure_correct_tooltips()
@@ -771,32 +973,39 @@ class XexunRTTWindow(QWidget):
 
     def toggle_lock_h_checkbox(self):
         self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
-        self.main.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
+        if self.connection_dialog:
+            self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
     def toggle_lock_v_checkbox(self):
         self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
-        self.main.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
+        if self.connection_dialog:
+            self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
         
     def device_restart(self):
         return
-        # if self.main.rtt2uart.jlink:
+        # if self.connection_dialog.rtt2uart.jlink:
         #     try:
-        #         jlink = self.main.rtt2uart.jlink
+        #         jlink = self.connection_dialog.rtt2uart.jlink
         #         jlink.open()
         #         jlink.reset(halt=True) #实测效果不理想
         #         print("J-Link device start successfully.")
         #     except pylink.errors.JLinkException as e:
         #         print("Error resetting J-Link device:", e)
                                     
-class MainWindow(QDialog):
-    def __init__(self):
-        super(MainWindow, self).__init__()
+class ConnectionDialog(QDialog):
+    # 定义信号
+    connection_established = Signal()
+    connection_disconnected = Signal()
+    
+    def __init__(self, parent=None):
+        super(ConnectionDialog, self).__init__(parent)
         self.ui = Ui_dialog()
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART 连接配置"))
         self.setWindowModality(Qt.ApplicationModal)
         
         self.setting_file_path = os.path.join(os.getcwd(), "settings")
@@ -827,8 +1036,8 @@ class MainWindow(QDialog):
         self.settings = {'device': [], 'device_index': 0, 'interface': 0,
                          'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[]}
 
-        self.xexunrtt = XexunRTTWindow(self)
-        self.xexunrtt.showMaximized()
+        # 主窗口引用（由父窗口传入）
+        self.main_window = parent
         self.worker = Worker(self)
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
 
@@ -860,16 +1069,17 @@ class MainWindow(QDialog):
             self.ui.comboBox_baudrate.setCurrentIndex(
                 self.settings['buadrate'])
             
-            self.xexunrtt.ui.LockH_checkBox.setChecked(self.settings['lock_h'])
-            self.xexunrtt.ui.LockV_checkBox.setChecked(self.settings['lock_v'])
-            self.xexunrtt.ui.light_checkbox.setChecked(self.settings['light_mode'])
-            self.xexunrtt.ui.fontsize_box.setValue(self.settings['fontsize'])
-            self.xexunrtt.ui.cmd_buffer.addItems(self.settings['cmd'])
-            
-            for i in range(17 , MAX_TAB_SIZE):
-                    tagText = self.xexunrtt.ui.tem_switch.tabText(i)
-                    if self.settings['filter'][i-17]:
-                        self.xexunrtt.ui.tem_switch.setTabText(i, self.settings['filter'][i-17])
+            # 这些设置将在主窗口创建后应用
+            # self.main_window.ui.LockH_checkBox.setChecked(self.settings['lock_h'])
+            # self.main_window.ui.LockV_checkBox.setChecked(self.settings['lock_v'])
+            # self.main_window.ui.light_checkbox.setChecked(self.settings['light_mode'])
+            # self.main_window.ui.fontsize_box.setValue(self.settings['fontsize'])
+            # self.main_window.ui.cmd_buffer.addItems(self.settings['cmd'])
+            # 
+            # for i in range(17 , MAX_TAB_SIZE):
+            #         tagText = self.main_window.ui.tem_switch.tabText(i)
+            #         if self.settings['filter'][i-17]:
+            #             self.main_window.ui.tem_switch.setTabText(i, self.settings['filter'][i-17])
 
         else:
             logger.info('Setting file not exist', exc_info=True)
@@ -946,11 +1156,12 @@ class MainWindow(QDialog):
                     logger.error(f"Error stopping RTT: {ex}")
             
             # 关闭RTT窗口
-            if self.xexunrtt is not None:
-                try:
-                    self.xexunrtt.close()
-                except Exception as ex:
-                    logger.error(f"Error closing RTT window: {ex}")
+            # 主窗口由父窗口管理，不需要在这里关闭
+            # if self.main_window is not None:
+            #     try:
+            #         self.main_window.close()
+            #     except Exception as ex:
+            #         logger.error(f"Error closing RTT main window: {ex}")
             
             # 停止工作线程
             if hasattr(self, 'worker'):
@@ -1047,20 +1258,21 @@ class MainWindow(QDialog):
                 self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
 
-                # 设置JLink日志回调
-                if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.rtt2uart.set_jlink_log_callback(self.xexunrtt.append_jlink_log)
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Starting connection to device: %s") % str(self.target_device))
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Connection type: %s") % str(self.connect_type))
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.ui.comboBox_Port.currentText(), self.ui.comboBox_baudrate.currentText()))
-
                 self.rtt2uart.start()
                 
-                if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
+                # 设置JLink日志回调
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.rtt2uart.set_jlink_log_callback(self.main_window.append_jlink_log)
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Starting connection to device: %s") % str(self.target_device))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Connection type: %s") % str(self.connect_type))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.ui.comboBox_Port.currentText(), self.ui.comboBox_baudrate.currentText()))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
                 
+                # 发送连接成功信号
+                self.connection_established.emit()
+                
+                # 隐藏连接对话框
                 self.hide()
-                #self.xexunrtt.show()
 
             except Exception as errors:
                 QMessageBox.critical(self, "Errors", str(errors))
@@ -1093,20 +1305,24 @@ class MainWindow(QDialog):
                     self.ui.pushButton_scan.setEnabled(True)
                     
 
-                if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
                 
                 self.rtt2uart.stop()
-                #self.show()
+                
+                # 发送连接断开信号
+                self.connection_disconnected.emit()
+                
+                # 显示连接对话框
+                self.show()
 
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
-                
-                if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection stopped"))
             except:
                 logger.error('Stop rtt2uart failed', exc_info=True)
                 pass
+    
+    # 删除了不再需要的_apply_saved_settings_to_main_window方法
 
     def target_device_selete(self):
         device_ui = DeviceSelectDialog()
@@ -1181,10 +1397,13 @@ class MainWindow(QDialog):
         if len(self.worker.buffers[index]) <= 0:
             return
         
-        current_page_widget = self.xexunrtt.ui.tem_switch.widget(index)
+        if not self.main_window:
+            return
+            
+        current_page_widget = self.main_window.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
             text_edit = current_page_widget.findChild(QTextEdit)
-            font = QFont("新宋体", self.xexunrtt.ui.fontsize_box.value())  # 设置字体
+            font = QFont("新宋体", self.main_window.ui.fontsize_box.value())  # 设置字体
             if text_edit:
                 text_edit.setFont(font)
                 # 记录滚动条位置
@@ -1198,22 +1417,22 @@ class MainWindow(QDialog):
                 text_edit.setCursorWidth(0)
                 
                 if index >= 17:
-                    self.xexunrtt.highlighter[index].setKeywords([self.xexunrtt.ui.tem_switch.tabText(index)])
-                    if self.xexunrtt.tabText[index] != self.xexunrtt.ui.tem_switch.tabText(index):
-                        self.xexunrtt.tabText[index] = self.xexunrtt.ui.tem_switch.tabText(index)
+                    self.main_window.highlighter[index].setKeywords([self.main_window.ui.tem_switch.tabText(index)])
+                    if self.main_window.tabText[index] != self.main_window.ui.tem_switch.tabText(index):
+                        self.main_window.tabText[index] = self.main_window.ui.tem_switch.tabText(index)
                         text_edit.clear()
                 elif index != 2:
                     keywords = []
                     for i in range(MAX_TAB_SIZE):
                         if i >= 17:
-                            keywords.append(self.xexunrtt.ui.tem_switch.tabText(i))
-                    self.xexunrtt.highlighter[index].setKeywords(keywords)
+                            keywords.append(self.main_window.ui.tem_switch.tabText(i))
+                    self.main_window.highlighter[index].setKeywords(keywords)
                     
                 text_edit.insertPlainText(self.worker.buffers[index])
                 self.worker.buffers[index] = ""
                 # 标记页面需要更新
-                if hasattr(self, 'xexunrtt') and hasattr(self.xexunrtt, 'page_dirty_flags'):
-                    self.xexunrtt.page_dirty_flags[index] = True
+                if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'page_dirty_flags'):
+                    self.main_window.page_dirty_flags[index] = True
 
                 text_length = len(text_edit.toPlainText())
                 if text_length > MAX_TEXT_LENGTH:
@@ -1224,10 +1443,10 @@ class MainWindow(QDialog):
                     #print("new_text_length:" + str(len(new_text)) + ", old_len:" + str(text_length))
 
                 # 恢复滚动条的值
-                if self.xexunrtt.ui.LockV_checkBox.isChecked():
+                if self.main_window.ui.LockV_checkBox.isChecked():
                     text_edit.verticalScrollBar().setValue(vscroll)
 
-                if self.xexunrtt.ui.LockH_checkBox.isChecked():
+                if self.main_window.ui.LockH_checkBox.isChecked():
                     text_edit.horizontalScrollBar().setValue(hscroll)
             else:
                 print("No QTextEdit found on page:", index)
@@ -1238,19 +1457,22 @@ class MainWindow(QDialog):
     @Slot()
     def handleBufferUpdate(self):
         # 智能更新：只刷新有数据变化的页面
-        current_index = self.xexunrtt.ui.tem_switch.currentIndex()
+        if not self.main_window:
+            return
+            
+        current_index = self.main_window.ui.tem_switch.currentIndex()
         
         # 优先更新当前显示的页面
-        if self.xexunrtt.page_dirty_flags[current_index]:
+        if self.main_window.page_dirty_flags[current_index]:
             self.switchPage(current_index)
-            self.xexunrtt.page_dirty_flags[current_index] = False
+            self.main_window.page_dirty_flags[current_index] = False
         
         # 批量更新其他有变化的页面（限制每次最多更新3个）
         updated_count = 0
         for i in range(MAX_TAB_SIZE):
-            if i != current_index and self.xexunrtt.page_dirty_flags[i] and updated_count < 3:
+            if i != current_index and self.main_window.page_dirty_flags[i] and updated_count < 3:
                 self.switchPage(i)
-                self.xexunrtt.page_dirty_flags[i] = False
+                self.main_window.page_dirty_flags[i] = False
                 updated_count += 1
    
 
@@ -1312,9 +1534,9 @@ class Worker(QObject):
             self.buffers[0] += ''.join(buffer_parts)
             
             # 标记页面需要更新
-            if hasattr(self.parent, 'xexunrtt') and hasattr(self.parent.xexunrtt, 'page_dirty_flags'):
-                self.parent.xexunrtt.page_dirty_flags[index+1] = True
-                self.parent.xexunrtt.page_dirty_flags[0] = True
+            if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+                self.parent.main_window.page_dirty_flags[index+1] = True
+                self.parent.main_window.page_dirty_flags[0] = True
 
             # 优化：使用缓冲写入日志
             log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log'
@@ -1333,9 +1555,10 @@ class Worker(QObject):
         search_words = []
         for i in range(17, MAX_TAB_SIZE):
             try:
-                tag_text = self.parent.xexunrtt.ui.tem_switch.tabText(i)
-                if tag_text != QCoreApplication.translate("main_window", "filter"):
-                    search_words.append((i, tag_text))
+                if self.parent.main_window:
+                    tag_text = self.parent.main_window.ui.tem_switch.tabText(i)
+                    if tag_text != QCoreApplication.translate("main_window", "filter"):
+                        search_words.append((i, tag_text))
             except:
                 continue
         
@@ -1348,8 +1571,8 @@ class Worker(QObject):
                 if search_word in line:
                     self.buffers[i] += line + '\n'
                     # 标记页面需要更新
-                    if hasattr(self.parent, 'xexunrtt') and hasattr(self.parent.xexunrtt, 'page_dirty_flags'):
-                        self.parent.xexunrtt.page_dirty_flags[i] = True
+                    if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+                        self.parent.main_window.page_dirty_flags[i] = True
                     
                     # 缓冲写入搜索日志
                     new_path = replace_special_characters(search_word)
@@ -1444,13 +1667,17 @@ if __name__ == "__main__":
     else:
         print("Failed to load Qt translation file.")
     
-    window = MainWindow()
-    #window.setWindowTitle("RTT2UART Control Panel V2.0.0")
+    # 创建主窗口
+    main_window = RTTMainWindow()
     
     # 在窗口显示前更新翻译
-    if hasattr(window, '_update_ui_translations'):
-        window._update_ui_translations()
+    if hasattr(main_window, '_update_ui_translations'):
+        main_window._update_ui_translations()
     
-    window.show()
+    # 先显示主窗口
+    main_window.show()
+    
+    # 然后弹出连接配置对话框
+    main_window.show_connection_dialog()
 
     sys.exit(app.exec())
