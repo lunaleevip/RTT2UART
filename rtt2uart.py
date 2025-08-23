@@ -114,22 +114,22 @@ class rtt_to_serial():
                 if not is_connected:
                     # 加载jlinkARM.dll
                     try:
-                        self._log_to_gui("正在打开JLink连接...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Opening JLink connection..."))
                         if self._connect_inf == 'USB':
                             if self._connect_para:
-                                self._log_to_gui(f"通过USB连接JLink (序列号: {self._connect_para})")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via USB (Serial: %s)") % self._connect_para)
                                 self.jlink.open(serial_no=self._connect_para)
                             else:
-                                self._log_to_gui("通过USB连接JLink (自动检测)")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via USB (Auto-detect)"))
                                 self.jlink.open()
                         else:
-                            self._log_to_gui(f"通过TCP/IP连接JLink ({self._connect_para})")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via TCP/IP (%s)") % self._connect_para)
                             self.jlink.open(ip_addr=self._connect_para)
                         
                         # 短暂等待连接稳定
                         import time
                         time.sleep(0.1)
-                        self._log_to_gui("JLink连接已建立")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection established"))
                         
                     except pylink.errors.JLinkException as e:
                         error_msg = f"Failed to open JLink: {e}"
@@ -146,13 +146,13 @@ class rtt_to_serial():
 
                 # 设置连接速率
                 try:
-                    self._log_to_gui(f"设置JLink速率: {self._speed} kHz")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Setting JLink speed: %s kHz") % self._speed)
                     if self.jlink.set_speed(self._speed) == False:
                         error_msg = "Set jlink speed failed"
                         self._log_to_gui(error_msg)
                         logger.error('Set speed failed', exc_info=True)
                         raise Exception(error_msg)
-                    self._log_to_gui(f"JLink速率设置成功: {self._speed} kHz")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink speed set successfully: %s kHz") % self._speed)
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Set jlink speed failed: {e}"
                     self._log_to_gui(error_msg)
@@ -162,13 +162,13 @@ class rtt_to_serial():
                 # 设置连接接口
                 try:
                     interface_name = "SWD" if self._interface == pylink.enums.JLinkInterfaces.SWD else "JTAG"
-                    self._log_to_gui(f"设置JLink接口: {interface_name}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Setting JLink interface: %s") % interface_name)
                     if self.jlink.set_tif(self._interface) == False:
                         error_msg = "Set jlink interface failed"
                         self._log_to_gui(error_msg)
                         logger.error('Set interface failed', exc_info=True)
                         raise Exception(error_msg)
-                    self._log_to_gui(f"JLink接口设置成功: {interface_name}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink interface set successfully: %s") % interface_name)
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Set jlink interface failed: {e}"
                     self._log_to_gui(error_msg)
@@ -178,19 +178,19 @@ class rtt_to_serial():
                 try:
                     if self._reset == True:
                         # 复位一下目标芯片，复位后不要停止芯片，保证后续操作的稳定性
-                        self._log_to_gui("正在复位目标芯片...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Resetting target chip..."))
                         self.jlink.reset(halt=False)
-                        self._log_to_gui("目标芯片复位完成")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target chip reset completed"))
 
                     # 连接目标芯片
-                    self._log_to_gui(f"正在连接目标设备: {self.device}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
                     self.jlink.connect(self.device)
-                    self._log_to_gui(f"目标设备连接成功: {self.device}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device connected successfully: %s") % self.device)
                     
                     # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
-                    self._log_to_gui("正在启动RTT...")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT..."))
                     self.jlink.rtt_start()
-                    self._log_to_gui("RTT启动成功")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
 
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Connect target failed: {e}"
@@ -259,7 +259,7 @@ class rtt_to_serial():
 
     def _safe_close_jlink(self):
         """安全关闭 JLink 连接"""
-        self._log_to_gui("正在关闭JLink连接...")
+        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Closing JLink connection..."))
         max_retries = 3
         retry_count = 0
         
@@ -270,30 +270,30 @@ class rtt_to_serial():
                 try:
                     is_connected = self.jlink.connected()
                 except pylink.errors.JLinkException:
-                    self._log_to_gui(f'无法检查JLink连接状态 (重试 {retry_count + 1})')
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Cannot check JLink connection status (retry %s)") % (retry_count + 1))
                     logger.warning(f'Cannot check JLink connection status on retry {retry_count + 1}')
                     is_connected = False
                 
                 if is_connected:
                     try:
                         # 停止RTT
-                        self._log_to_gui("正在停止RTT...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Stopping RTT..."))
                         self.jlink.rtt_stop()
-                        self._log_to_gui("RTT已停止")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT stopped"))
                         logger.debug('RTT stopped successfully')
                     except pylink.errors.JLinkException as e:
-                        self._log_to_gui(f'停止RTT失败: {e}')
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to stop RTT: %s") % str(e))
                         logger.warning(f'Failed to stop RTT: {e}')
                     
                     try:
                         # 关闭JLink连接
-                        self._log_to_gui("正在关闭JLink...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Closing JLink..."))
                         self.jlink.close()
-                        self._log_to_gui("JLink连接已关闭")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection closed"))
                         logger.debug('JLink closed successfully')
                         break  # 成功关闭，退出循环
                     except pylink.errors.JLinkException as e:
-                        self._log_to_gui(f'关闭JLink失败 (尝试 {retry_count + 1}): {e}')
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to close JLink (attempt %s): %s") % (retry_count + 1, str(e)))
                         logger.warning(f'Failed to close JLink on attempt {retry_count + 1}: {e}')
                         retry_count += 1
                         if retry_count < max_retries:
@@ -301,12 +301,12 @@ class rtt_to_serial():
                             time.sleep(0.2)  # 短暂等待后重试
                         continue
                 else:
-                    self._log_to_gui("JLink已断开连接")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink already disconnected"))
                     logger.debug('JLink already disconnected')
                     break
                     
             except Exception as e:
-                self._log_to_gui(f'关闭JLink时发生意外错误 (尝试 {retry_count + 1}): {e}')
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Unexpected error while closing JLink (attempt %s): %s") % (retry_count + 1, str(e)))
                 logger.error(f'Unexpected error during JLink close on attempt {retry_count + 1}: {e}')
                 retry_count += 1
                 if retry_count < max_retries:
@@ -315,7 +315,7 @@ class rtt_to_serial():
                 continue
         
         if retry_count >= max_retries:
-            self._log_to_gui("达到最大重试次数，JLink关闭失败")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Maximum retry attempts reached, JLink close failed"))
             logger.error('Failed to close JLink after maximum retries')
 
     def _safe_close_serial(self):
@@ -334,18 +334,36 @@ class rtt_to_serial():
             # 性能优化：添加短暂延迟避免过度占用CPU
             import time
             
+            # 连接状态检查优化：减少检查频率
+            connection_check_counter = 0
+            connection_check_interval = 100  # 每100次循环检查一次连接状态
+            last_connection_warning_time = 0
+            connection_warning_interval = 5.0  # 连接警告最少间隔5秒
+            
             while self.thread_switch:
                 try:
-                    # 检查JLink连接状态
-                    try:
-                        if not self.jlink.connected():
-                            logger.warning('JLink connection lost in RTT thread')
-                            time.sleep(0.1)
+                    # 减少连接状态检查频率，避免过多警告
+                    connection_check_counter += 1
+                    if connection_check_counter >= connection_check_interval:
+                        connection_check_counter = 0
+                        try:
+                            if not self.jlink.connected():
+                                current_time = time.time()
+                                # 限制警告频率，避免日志刷屏
+                                if current_time - last_connection_warning_time > connection_warning_interval:
+                                    logger.warning('JLink connection lost in RTT thread')
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT thread"))
+                                    last_connection_warning_time = current_time
+                                time.sleep(0.5)  # 连接丢失时增加休眠时间
+                                continue
+                        except pylink.errors.JLinkException:
+                            current_time = time.time()
+                            if current_time - last_connection_warning_time > connection_warning_interval:
+                                logger.warning('Cannot check JLink status in RTT thread')
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Cannot check JLink status in RTT thread"))
+                                last_connection_warning_time = current_time
+                            time.sleep(0.5)
                             continue
-                    except pylink.errors.JLinkException:
-                        logger.warning('Cannot check JLink status in RTT thread')
-                        time.sleep(0.1)
-                        continue
                     
                     rtt_recv_log = []
                     # 优化：一次性读取更多数据，减少系统调用
@@ -406,18 +424,36 @@ class rtt_to_serial():
         with open(self.rtt_data_filename, 'ab') as data_file:
             import time
             
+            # 连接状态检查优化：减少检查频率
+            connection_check_counter = 0
+            connection_check_interval = 100  # 每100次循环检查一次连接状态
+            last_connection_warning_time = 0
+            connection_warning_interval = 5.0  # 连接警告最少间隔5秒
+            
             while self.thread_switch:
                 try:
-                    # 检查JLink连接状态
-                    try:
-                        if not self.jlink.connected():
-                            logger.warning('JLink connection lost in RTT2UART thread')
-                            time.sleep(0.1)
+                    # 减少连接状态检查频率，避免过多警告
+                    connection_check_counter += 1
+                    if connection_check_counter >= connection_check_interval:
+                        connection_check_counter = 0
+                        try:
+                            if not self.jlink.connected():
+                                current_time = time.time()
+                                # 限制警告频率，避免日志刷屏
+                                if current_time - last_connection_warning_time > connection_warning_interval:
+                                    logger.warning('JLink connection lost in RTT2UART thread')
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT2UART thread"))
+                                    last_connection_warning_time = current_time
+                                time.sleep(0.5)  # 连接丢失时增加休眠时间
+                                continue
+                        except pylink.errors.JLinkException:
+                            current_time = time.time()
+                            if current_time - last_connection_warning_time > connection_warning_interval:
+                                logger.warning('Cannot check JLink status in RTT2UART thread')
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Cannot check JLink status in RTT2UART thread"))
+                                last_connection_warning_time = current_time
+                            time.sleep(0.5)
                             continue
-                    except pylink.errors.JLinkException:
-                        logger.warning('Cannot check JLink status in RTT2UART thread')
-                        time.sleep(0.1)
-                        continue
                     
                     try:
                         rtt_recv_data = self.jlink.rtt_read(1, 1024)

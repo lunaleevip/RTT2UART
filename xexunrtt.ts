@@ -263,6 +263,293 @@
         <source>Sent:</source>
         <translation type="unfinished">已发送:</translation>
     </message>
+    <message>
+        <source>JLink Debug Log</source>
+        <translation>JLink 调试日志</translation>
+    </message>
+    <message>
+        <source>Clear Log</source>
+        <translation>清除日志</translation>
+    </message>
+    <message>
+        <source>Enable Verbose Log</source>
+        <translation>启用详细日志</translation>
+    </message>
+    <message>
+        <source>Disable Verbose Log</source>
+        <translation>禁用详细日志</translation>
+    </message>
+    <message>
+        <source>JLink verbose logging enabled - will show all debug information</source>
+        <translation>JLink 详细日志已启用 - 将显示所有调试信息</translation>
+    </message>
+    <message>
+        <source>JLink file logging enabled: jlink_debug.log</source>
+        <translation>JLink 文件日志已启用: jlink_debug.log</translation>
+    </message>
+    <message>
+        <source>Failed to enable file logging: %s</source>
+        <translation>启用文件日志失败: %s</translation>
+    </message>
+    <message>
+        <source>JLink verbose logging disabled - only showing warnings and errors</source>
+        <translation>JLink 详细日志已禁用 - 只显示警告和错误信息</translation>
+    </message>
+    <message>
+        <source>Starting connection to device: %s</source>
+        <translation>开始连接到设备: %s</translation>
+    </message>
+    <message>
+        <source>Connection type: %s</source>
+        <translation>连接类型: %s</translation>
+    </message>
+    <message>
+        <source>Serial port: %s, Baud rate: %s</source>
+        <translation>串口: %s, 波特率: %s</translation>
+    </message>
+    <message>
+        <source>RTT connection started successfully</source>
+        <translation>RTT连接启动成功</translation>
+    </message>
+    <message>
+        <source>Stopping RTT connection...</source>
+        <translation>正在停止RTT连接...</translation>
+    </message>
+    <message>
+        <source>RTT connection stopped</source>
+        <translation>RTT连接已停止</translation>
+    </message>
+    <message>
+        <source>Opening JLink connection...</source>
+        <translation>正在打开JLink连接...</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via USB (Serial: %s)</source>
+        <translation>通过USB连接JLink (序列号: %s)</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via USB (Auto-detect)</source>
+        <translation>通过USB连接JLink (自动检测)</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via TCP/IP (%s)</source>
+        <translation>通过TCP/IP连接JLink (%s)</translation>
+    </message>
+    <message>
+        <source>JLink connection established</source>
+        <translation>JLink连接已建立</translation>
+    </message>
+    <message>
+        <source>Setting JLink speed: %s kHz</source>
+        <translation>设置JLink速率: %s kHz</translation>
+    </message>
+    <message>
+        <source>JLink speed set successfully: %s kHz</source>
+        <translation>JLink速率设置成功: %s kHz</translation>
+    </message>
+    <message>
+        <source>Setting JLink interface: %s</source>
+        <translation>设置JLink接口: %s</translation>
+    </message>
+    <message>
+        <source>JLink interface set successfully: %s</source>
+        <translation>JLink接口设置成功: %s</translation>
+    </message>
+    <message>
+        <source>Resetting target chip...</source>
+        <translation>正在复位目标芯片...</translation>
+    </message>
+    <message>
+        <source>Target chip reset completed</source>
+        <translation>目标芯片复位完成</translation>
+    </message>
+    <message>
+        <source>Connecting to target device: %s</source>
+        <translation>正在连接目标设备: %s</translation>
+    </message>
+    <message>
+        <source>Target device connected successfully: %s</source>
+        <translation>目标设备连接成功: %s</translation>
+    </message>
+    <message>
+        <source>Starting RTT...</source>
+        <translation>正在启动RTT...</translation>
+    </message>
+    <message>
+        <source>RTT started successfully</source>
+        <translation>RTT启动成功</translation>
+    </message>
+    <message>
+        <source>Closing JLink connection...</source>
+        <translation>正在关闭JLink连接...</translation>
+    </message>
+    <message>
+        <source>Cannot check JLink connection status (retry %s)</source>
+        <translation>无法检查JLink连接状态 (重试 %s)</translation>
+    </message>
+    <message>
+        <source>Stopping RTT...</source>
+        <translation>正在停止RTT...</translation>
+    </message>
+    <message>
+        <source>RTT stopped</source>
+        <translation>RTT已停止</translation>
+    </message>
+    <message>
+        <source>Failed to stop RTT: %s</source>
+        <translation>停止RTT失败: %s</translation>
+    </message>
+    <message>
+        <source>Closing JLink...</source>
+        <translation>正在关闭JLink...</translation>
+    </message>
+    <message>
+        <source>JLink connection closed</source>
+        <translation>JLink连接已关闭</translation>
+    </message>
+    <message>
+        <source>Failed to close JLink (attempt %s): %s</source>
+        <translation>关闭JLink失败 (尝试 %s): %s</translation>
+    </message>
+    <message>
+        <source>JLink already disconnected</source>
+        <translation>JLink已断开连接</translation>
+    </message>
+    <message>
+        <source>Unexpected error while closing JLink (attempt %s): %s</source>
+        <translation>关闭JLink时发生意外错误 (尝试 %s): %s</translation>
+    </message>
+    <message>
+        <source>Maximum retry attempts reached, JLink close failed</source>
+        <translation>达到最大重试次数，JLink关闭失败</translation>
+    </message>
+    <message>
+        <source>double click filter to write filter text</source>
+        <translation>双击筛选可以修改筛选的文本</translation>
+    </message>
+</context>
+<context>
+    <name>rtt2uart</name>
+    <message>
+        <source>Opening JLink connection...</source>
+        <translation>正在打开JLink连接...</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via USB (Serial: %s)</source>
+        <translation>通过USB连接JLink (序列号: %s)</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via USB (Auto-detect)</source>
+        <translation>通过USB连接JLink (自动检测)</translation>
+    </message>
+    <message>
+        <source>Connecting JLink via TCP/IP (%s)</source>
+        <translation>通过TCP/IP连接JLink (%s)</translation>
+    </message>
+    <message>
+        <source>JLink connection established</source>
+        <translation>JLink连接已建立</translation>
+    </message>
+    <message>
+        <source>Starting RTT...</source>
+        <translation>正在启动RTT...</translation>
+    </message>
+    <message>
+        <source>RTT started successfully</source>
+        <translation>RTT启动成功</translation>
+    </message>
+    <message>
+        <source>Setting JLink speed: %s kHz</source>
+        <translation>设置JLink速率: %s kHz</translation>
+    </message>
+    <message>
+        <source>JLink speed set successfully: %s kHz</source>
+        <translation>JLink速率设置成功: %s kHz</translation>
+    </message>
+    <message>
+        <source>Setting JLink interface: %s</source>
+        <translation>设置JLink接口: %s</translation>
+    </message>
+    <message>
+        <source>JLink interface set successfully: %s</source>
+        <translation>JLink接口设置成功: %s</translation>
+    </message>
+    <message>
+        <source>Resetting target chip...</source>
+        <translation>正在复位目标芯片...</translation>
+    </message>
+    <message>
+        <source>Target chip reset completed</source>
+        <translation>目标芯片复位完成</translation>
+    </message>
+    <message>
+        <source>Connecting to target device: %s</source>
+        <translation>正在连接目标设备: %s</translation>
+    </message>
+    <message>
+        <source>Target device connected successfully: %s</source>
+        <translation>目标设备连接成功: %s</translation>
+    </message>
+    <message>
+        <source>Closing JLink connection...</source>
+        <translation>正在关闭JLink连接...</translation>
+    </message>
+    <message>
+        <source>Cannot check JLink connection status (retry %s)</source>
+        <translation>无法检查JLink连接状态 (重试 %s)</translation>
+    </message>
+    <message>
+        <source>Stopping RTT...</source>
+        <translation>正在停止RTT...</translation>
+    </message>
+    <message>
+        <source>RTT stopped</source>
+        <translation>RTT已停止</translation>
+    </message>
+    <message>
+        <source>Failed to stop RTT: %s</source>
+        <translation>停止RTT失败: %s</translation>
+    </message>
+    <message>
+        <source>Closing JLink...</source>
+        <translation>正在关闭JLink...</translation>
+    </message>
+    <message>
+        <source>JLink connection closed</source>
+        <translation>JLink连接已关闭</translation>
+    </message>
+    <message>
+        <source>Failed to close JLink (attempt %s): %s</source>
+        <translation>关闭JLink失败 (尝试 %s): %s</translation>
+    </message>
+    <message>
+        <source>JLink already disconnected</source>
+        <translation>JLink已断开连接</translation>
+    </message>
+    <message>
+        <source>Unexpected error while closing JLink (attempt %s): %s</source>
+        <translation>关闭JLink时发生意外错误 (尝试 %s): %s</translation>
+    </message>
+    <message>
+        <source>Maximum retry attempts reached, JLink close failed</source>
+        <translation>达到最大重试次数，JLink关闭失败</translation>
+    </message>
+    <message>
+        <source>JLink connection lost in RTT thread</source>
+        <translation>JLink连接在RTT线程中丢失</translation>
+    </message>
+    <message>
+        <source>Cannot check JLink status in RTT thread</source>
+        <translation>无法检查RTT线程中的JLink状态</translation>
+    </message>
+    <message>
+        <source>JLink connection lost in RTT2UART thread</source>
+        <translation>JLink连接在RTT2UART线程中丢失</translation>
+    </message>
+    <message>
+        <source>Cannot check JLink status in RTT2UART thread</source>
+        <translation>无法检查RTT2UART线程中的JLink状态</translation>
+    </message>
 </context>
 <context>
     <name>xexun_rtt</name>
@@ -326,11 +613,7 @@
         <source>DisConnect</source>
         <translation>断开连接</translation>
     </message>
-    <message>
-        <location filename="xexunrtt.ui" line="290"/>
-        <source>double click filter to write filter text</source>
-        <translation>双击筛选可以修改筛选的文本</translation>
-    </message>
+
     <message>
         <location filename="xexunrtt.ui" line="62"/>
         <source>can read from cmd.txt</source>
