@@ -542,10 +542,18 @@ class XexunRTTWindow(QWidget):
 
         if self.main.rtt2uart and self.main.rtt2uart.log_directory:
             log_directory = self.main.rtt2uart.log_directory
-            if log_directory and os.listdir(log_directory):
-                os.startfile(log_directory)
-            else:
-                shutil.rmtree(log_directory)
+            # 注释掉自动打开文件夹功能，避免关闭程序时弹出文件夹
+            # if log_directory and os.listdir(log_directory):
+            #     os.startfile(log_directory)
+            # else:
+            #     shutil.rmtree(log_directory)
+            
+            # 只清理空的日志目录，不自动打开
+            try:
+                if log_directory and os.path.exists(log_directory) and not os.listdir(log_directory):
+                    shutil.rmtree(log_directory)
+            except:
+                pass
         self.main.close()
 
         # 获取当前进程的所有子进程
