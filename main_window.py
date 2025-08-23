@@ -431,7 +431,7 @@ class XexunRTTWindow(QWidget):
         header_layout = QHBoxLayout()
         
         # JLink日志标题
-        title_label = QLabel("JLink 调试日志")
+        title_label = QLabel(QCoreApplication.translate("main_window", "JLink Debug Log"))
         title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         header_layout.addWidget(title_label)
         
@@ -439,14 +439,14 @@ class XexunRTTWindow(QWidget):
         header_layout.addStretch()
         
         # 清除日志按钮
-        self.clear_jlink_log_btn = QPushButton("清除日志")
+        self.clear_jlink_log_btn = QPushButton(QCoreApplication.translate("main_window", "Clear Log"))
         self.clear_jlink_log_btn.setMaximumWidth(80)
         self.clear_jlink_log_btn.clicked.connect(self.clear_jlink_log)
         header_layout.addWidget(self.clear_jlink_log_btn)
         
         # 启用/禁用JLink日志按钮
-        self.toggle_jlink_log_btn = QPushButton("启用详细日志")
-        self.toggle_jlink_log_btn.setMaximumWidth(100)
+        self.toggle_jlink_log_btn = QPushButton(QCoreApplication.translate("main_window", "Enable Verbose Log"))
+        self.toggle_jlink_log_btn.setMaximumWidth(120)
         self.toggle_jlink_log_btn.setCheckable(True)
         self.toggle_jlink_log_btn.clicked.connect(self.toggle_jlink_verbose_log)
         header_layout.addWidget(self.toggle_jlink_log_btn)
@@ -493,23 +493,23 @@ class XexunRTTWindow(QWidget):
         jlink_logger = logging.getLogger('pylink')
         
         if enabled:
-            self.toggle_jlink_log_btn.setText("禁用详细日志")
+            self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Disable Verbose Log"))
             # 启用详细的JLink日志 - 设置为DEBUG级别
             jlink_logger.setLevel(logging.DEBUG)
-            self.append_jlink_log("JLink 详细日志已启用 - 将显示所有调试信息")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "JLink verbose logging enabled - will show all debug information"))
             
             # 可选：同时启用JLink的文件日志
             if hasattr(self.main, 'rtt2uart') and self.main.rtt2uart and hasattr(self.main.rtt2uart, 'jlink'):
                 try:
                     self.main.rtt2uart.jlink.set_log_file("jlink_debug.log")
-                    self.append_jlink_log("JLink 文件日志已启用: jlink_debug.log")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: jlink_debug.log"))
                 except Exception as e:
-                    self.append_jlink_log(f"启用文件日志失败: {e}")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
         else:
-            self.toggle_jlink_log_btn.setText("启用详细日志")
+            self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Enable Verbose Log"))
             # 禁用详细日志 - 恢复为WARNING级别
             jlink_logger.setLevel(logging.WARNING)
-            self.append_jlink_log("JLink 详细日志已禁用 - 只显示警告和错误信息")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "JLink verbose logging disabled - only showing warnings and errors"))
     
     def append_jlink_log(self, message):
         """添加JLink日志消息"""
@@ -677,6 +677,23 @@ class XexunRTTWindow(QWidget):
             """
         
         self.jlink_log_text.setStyleSheet(jlink_log_style)
+    
+    def _update_ui_translations(self):
+        """更新UI元素的翻译文本"""
+        if hasattr(self, 'jlink_log_widget'):
+            # 更新JLink日志区域的文本
+            title_label = self.jlink_log_widget.findChild(QLabel)
+            if title_label:
+                title_label.setText(QCoreApplication.translate("main_window", "JLink Debug Log"))
+            
+            if hasattr(self, 'clear_jlink_log_btn'):
+                self.clear_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Clear Log"))
+            
+            if hasattr(self, 'toggle_jlink_log_btn'):
+                if self.toggle_jlink_log_btn.isChecked():
+                    self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Disable Verbose Log"))
+                else:
+                    self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Enable Verbose Log"))
         
     def on_cmd_buffer_activated(self, index):
         text = self.ui.cmd_buffer.currentText()
@@ -1025,14 +1042,14 @@ class MainWindow(QDialog):
                 # 设置JLink日志回调
                 if hasattr(self.xexunrtt, 'append_jlink_log'):
                     self.rtt2uart.set_jlink_log_callback(self.xexunrtt.append_jlink_log)
-                    self.xexunrtt.append_jlink_log(f"开始连接到设备: {self.target_device}")
-                    self.xexunrtt.append_jlink_log(f"连接类型: {self.connect_type}")
-                    self.xexunrtt.append_jlink_log(f"串口: {self.ui.comboBox_Port.currentText()}, 波特率: {self.ui.comboBox_baudrate.currentText()}")
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Starting connection to device: %s") % str(self.target_device))
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Connection type: %s") % str(self.connect_type))
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.ui.comboBox_Port.currentText(), self.ui.comboBox_baudrate.currentText()))
 
                 self.rtt2uart.start()
                 
                 if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log("RTT连接启动成功")
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
                 
                 self.hide()
                 #self.xexunrtt.show()
@@ -1069,7 +1086,7 @@ class MainWindow(QDialog):
                     
 
                 if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log("正在停止RTT连接...")
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
                 
                 self.rtt2uart.stop()
                 #self.show()
@@ -1078,7 +1095,7 @@ class MainWindow(QDialog):
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
                 
                 if hasattr(self.xexunrtt, 'append_jlink_log'):
-                    self.xexunrtt.append_jlink_log("RTT连接已停止")
+                    self.xexunrtt.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection stopped"))
             except:
                 logger.error('Stop rtt2uart failed', exc_info=True)
                 pass
@@ -1380,23 +1397,52 @@ if __name__ == "__main__":
     
     # 加载并安装翻译文件
     translator = QTranslator()
-    # 加载内置翻译文件
-    if translator.load(QLocale.system(), ":/xexunrtt.qm"):
-        # 如果成功加载翻译文件，则安装翻译器
+    # 尝试从多个位置加载翻译文件
+    translation_loaded = False
+    
+    # 尝试从当前目录加载（开发环境）
+    if translator.load("xexunrtt.qm"):
         QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from current directory.")
+        # 测试翻译是否工作
+        test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+        print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
+    # 如果当前目录加载失败，尝试从资源文件加载
+    elif translator.load(QLocale.system(), ":/xexunrtt.qm"):
+        QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from resources.")
+        # 测试翻译是否工作
+        test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+        print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
     else:
-        # 加载失败时进行错误处理
         print("Failed to load translation file.")
 
     # 加载 Qt 内置翻译文件
     qt_translator = QTranslator()
-    if qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
+    qt_translation_loaded = False
+    
+    # 尝试从当前目录加载（开发环境）
+    if qt_translator.load("qt_zh_CN.qm"):
         QCoreApplication.installTranslator(qt_translator)
+        qt_translation_loaded = True
+        print("Qt translation loaded from current directory.")
+    # 如果当前目录加载失败，尝试从资源文件加载
+    elif qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
+        QCoreApplication.installTranslator(qt_translator)
+        qt_translation_loaded = True
+        print("Qt translation loaded from resources.")
     else:
         print("Failed to load Qt translation file.")
     
     window = MainWindow()
     #window.setWindowTitle("RTT2UART Control Panel V2.0.0")
+    
+    # 在窗口显示前更新翻译
+    if hasattr(window, '_update_ui_translations'):
+        window._update_ui_translations()
+    
     window.show()
 
     sys.exit(app.exec())

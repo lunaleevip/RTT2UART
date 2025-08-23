@@ -991,12 +991,37 @@ def main():
     
     # 加载翻译文件
     translator = QTranslator()
+    translation_loaded = False
+    
+    # 首先尝试从资源文件加载
     if translator.load(QLocale.system(), ":/xexunrtt.qm"):
         QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from resources.")
+    # 如果资源文件加载失败，尝试从当前目录加载
+    elif translator.load("xexunrtt.qm"):
+        QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from current directory.")
+    else:
+        print("Failed to load translation file.")
     
+    # 加载 Qt 内置翻译文件
     qt_translator = QTranslator()
+    qt_translation_loaded = False
+    
+    # 首先尝试从资源文件加载
     if qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
         QCoreApplication.installTranslator(qt_translator)
+        qt_translation_loaded = True
+        print("Qt translation loaded from resources.")
+    # 如果资源文件加载失败，尝试从当前目录加载
+    elif qt_translator.load("qt_zh_CN.qm"):
+        QCoreApplication.installTranslator(qt_translator)
+        qt_translation_loaded = True
+        print("Qt translation loaded from current directory.")
+    else:
+        print("Failed to load Qt translation file.")
     
     # 创建并显示主窗口
     window = RTTMainWindow()
