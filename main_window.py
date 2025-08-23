@@ -30,6 +30,50 @@ import shutil
 import re
 import psutil
 
+class JLinkLogHandler(logging.Handler):
+    """自定义JLink日志处理器，将日志输出到GUI"""
+    
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+        self.setLevel(logging.DEBUG)
+        
+        # 设置日志格式
+        formatter = logging.Formatter('%(levelname)s: %(message)s')
+        self.setFormatter(formatter)
+    
+    def emit(self, record):
+        """发送日志记录到GUI"""
+        try:
+            msg = self.format(record)
+            # 使用QTimer确保在主线程中更新GUI
+            QTimer.singleShot(0, lambda: self._append_to_gui(msg))
+        except Exception:
+            pass
+    
+    def _append_to_gui(self, message):
+        """在GUI中添加消息"""
+        try:
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            formatted_message = f"[{timestamp}] {message}"
+            
+            self.text_widget.append(formatted_message)
+            
+            # 自动滚动到底部
+            scrollbar = self.text_widget.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+            
+            # 限制日志行数，避免内存占用过多
+            document = self.text_widget.document()
+            if document.blockCount() > 1000:
+                cursor = self.text_widget.textCursor()
+                cursor.movePosition(cursor.Start)
+                cursor.movePosition(cursor.Down, cursor.KeepAnchor, 100)
+                cursor.removeSelectedText()
+        except Exception:
+            pass
+
 logging.basicConfig(level=logging.WARN,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
@@ -217,8 +261,43 @@ class XexunRTTWindow(QWidget):
     def __init__(self, main):
         super(XexunRTTWindow, self).__init__()
         self.main = main
+        
+        # 先设置原有的UI
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self)
+        
+        # 保存原有的layoutWidget并重新设置其父级
+        original_layout_widget = self.ui.layoutWidget
+        original_layout_widget.setParent(None)  # 从原有父级移除
+        
+        # 创建新的主布局
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 创建分割器
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)  # 防止子部件被完全折叠
+        
+        # 将原有的layoutWidget添加到分割器，并确保它能够扩展
+        original_layout_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        splitter.addWidget(original_layout_widget)
+        
+        # 创建JLink日志区域
+        self._create_jlink_log_area()
+        splitter.addWidget(self.jlink_log_widget)
+        
+        # 设置分割比例 (RTT区域占85%，JLink日志占15%)
+        splitter.setSizes([850, 150])
+        splitter.setStretchFactor(0, 1)  # RTT区域可拉伸
+        splitter.setStretchFactor(1, 0)  # JLink日志区域固定大小
+        
+        # 清除原有布局并设置新布局
+        if self.layout():
+            QWidget().setLayout(self.layout())
+        
+        main_layout.addWidget(splitter)
+        self.setLayout(main_layout)
         
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         
@@ -279,24 +358,34 @@ class XexunRTTWindow(QWidget):
         self.ui.tem_switch.clear()
         self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
         
+        # 清除整个TabWidget的工具提示
+        self.ui.tem_switch.setToolTip("")
+        
         self.tabText = [None] * MAX_TAB_SIZE
         self.highlighter = [PythonHighlighter] * MAX_TAB_SIZE
         for i in range(MAX_TAB_SIZE):
             page = QWidget()
+            page.setToolTip("")  # 清除页面的工具提示
+            
             text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
             text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
+            text_edit.setToolTip("")  # 清除文本编辑器的工具提示
+            
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
             self.highlighter[i] = PythonHighlighter(text_edit.document())
+            
             if i == 0:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
             elif i < 17:
                 self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
             else:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "filter"))
+                # 只为自定义filter标签页设置工具提示
+                self.ui.tem_switch.setTabToolTip(i, QCoreApplication.translate("main_window", "double click filter to write filter text"))
             
             self.tabText[i] = self.ui.tem_switch.tabText(i)
                 
@@ -326,10 +415,119 @@ class XexunRTTWindow(QWidget):
         
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
+    
+    def _create_jlink_log_area(self):
+        """创建JLink日志显示区域"""
+        # 创建JLink日志widget
+        self.jlink_log_widget = QWidget()
+        self.jlink_log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.jlink_log_widget.setMinimumHeight(150)
+        self.jlink_log_widget.setMaximumHeight(300)
+        
+        layout = QVBoxLayout(self.jlink_log_widget)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 创建标题和控制按钮
+        header_layout = QHBoxLayout()
+        
+        # JLink日志标题
+        title_label = QLabel("JLink 调试日志")
+        title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        header_layout.addWidget(title_label)
+        
+        # 添加弹簧
+        header_layout.addStretch()
+        
+        # 清除日志按钮
+        self.clear_jlink_log_btn = QPushButton("清除日志")
+        self.clear_jlink_log_btn.setMaximumWidth(80)
+        self.clear_jlink_log_btn.clicked.connect(self.clear_jlink_log)
+        header_layout.addWidget(self.clear_jlink_log_btn)
+        
+        # 启用/禁用JLink日志按钮
+        self.toggle_jlink_log_btn = QPushButton("启用详细日志")
+        self.toggle_jlink_log_btn.setMaximumWidth(100)
+        self.toggle_jlink_log_btn.setCheckable(True)
+        self.toggle_jlink_log_btn.clicked.connect(self.toggle_jlink_verbose_log)
+        header_layout.addWidget(self.toggle_jlink_log_btn)
+        
+        layout.addLayout(header_layout)
+        
+        # 创建JLink日志文本框
+        self.jlink_log_text = QTextEdit()
+        self.jlink_log_text.setReadOnly(True)
+        self.jlink_log_text.setMinimumHeight(120)
+        self.jlink_log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.jlink_log_text.setFont(QFont("Consolas", 9))
+        # 不设置固定样式表，让它跟随主题
+        
+        layout.addWidget(self.jlink_log_text)
+        
+        # 初始化JLink日志捕获
+        self.jlink_verbose_logging = False
+        self._setup_jlink_logging()
+        
+        # 设置初始样式（需要在创建完JLink日志文本框后调用）
+        QTimer.singleShot(0, self._update_jlink_log_style)
+    
+    def _setup_jlink_logging(self):
+        """设置JLink日志捕获"""
+        # 创建自定义日志处理器来捕获JLink日志
+        self.jlink_log_handler = JLinkLogHandler(self.jlink_log_text)
+        
+        # 设置JLink库的日志级别 - 默认只显示WARNING及以上级别的日志
+        jlink_logger = logging.getLogger('pylink')
+        jlink_logger.setLevel(logging.WARNING)  # 改为WARNING级别，减少调试信息
+        jlink_logger.addHandler(self.jlink_log_handler)
+        
+        # 防止日志传播到根日志器，避免在控制台重复输出
+        jlink_logger.propagate = False
+    
+    def clear_jlink_log(self):
+        """清除JLink日志"""
+        self.jlink_log_text.clear()
+    
+    def toggle_jlink_verbose_log(self, enabled):
+        """切换JLink详细日志"""
+        self.jlink_verbose_logging = enabled
+        jlink_logger = logging.getLogger('pylink')
+        
+        if enabled:
+            self.toggle_jlink_log_btn.setText("禁用详细日志")
+            # 启用详细的JLink日志 - 设置为DEBUG级别
+            jlink_logger.setLevel(logging.DEBUG)
+            self.append_jlink_log("JLink 详细日志已启用 - 将显示所有调试信息")
+            
+            # 可选：同时启用JLink的文件日志
+            if hasattr(self.main, 'rtt2uart') and self.main.rtt2uart and hasattr(self.main.rtt2uart, 'jlink'):
+                try:
+                    self.main.rtt2uart.jlink.set_log_file("jlink_debug.log")
+                    self.append_jlink_log("JLink 文件日志已启用: jlink_debug.log")
+                except Exception as e:
+                    self.append_jlink_log(f"启用文件日志失败: {e}")
+        else:
+            self.toggle_jlink_log_btn.setText("启用详细日志")
+            # 禁用详细日志 - 恢复为WARNING级别
+            jlink_logger.setLevel(logging.WARNING)
+            self.append_jlink_log("JLink 详细日志已禁用 - 只显示警告和错误信息")
+    
+    def append_jlink_log(self, message):
+        """添加JLink日志消息"""
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        formatted_message = f"[{timestamp}] {message}"
+        
+        # 在GUI线程中更新文本
+        self.jlink_log_text.append(formatted_message)
+        
+        # 自动滚动到底部
+        scrollbar = self.jlink_log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
-        self.ui.layoutWidget.setGeometry(QRect(0, 0, self.width(), self.height()))
+        # 由于现在使用了分割器布局，让Qt自动处理大小调整
+        super().resizeEvent(event)
 
     def closeEvent(self, e):
         if self.main.rtt2uart is not None and self.main.start_state == True:
@@ -370,6 +568,8 @@ class XexunRTTWindow(QWidget):
     @Slot(int)
     def switchPage(self, index):
         self.main.switchPage(index)
+        # 每次切换页面时都确保工具提示设置正确
+        self._ensure_correct_tooltips()
 
 
     @Slot()
@@ -443,6 +643,41 @@ class XexunRTTWindow(QWidget):
         self.setStyleSheet(stylesheet)
         self.main.settings['light_mode'] = self.ui.light_checkbox.isChecked()
         
+        # 更新JLink日志区域的样式
+        self._update_jlink_log_style()
+    
+    def _update_jlink_log_style(self):
+        """更新JLink日志区域的样式以匹配当前主题"""
+        if not hasattr(self, 'jlink_log_text'):
+            return
+            
+        is_light_mode = self.ui.light_checkbox.isChecked()
+        
+        if is_light_mode:
+            # 浅色主题样式
+            jlink_log_style = """
+                QTextEdit {
+                    background-color: #ffffff;
+                    color: #000000;
+                    border: 1px solid #c0c0c0;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    selection-background-color: #3399ff;
+                }
+            """
+        else:
+            # 深色主题样式
+            jlink_log_style = """
+                QTextEdit {
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                    border: 1px solid #3e3e3e;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    selection-background-color: #264f78;
+                }
+            """
+        
+        self.jlink_log_text.setStyleSheet(jlink_log_style)
+        
     def on_cmd_buffer_activated(self, index):
         text = self.ui.cmd_buffer.currentText()
         if text:  # 如果文本不为空
@@ -479,6 +714,34 @@ class XexunRTTWindow(QWidget):
             tagText = self.ui.tem_switch.tabText(i)
             self.main.settings['filter'][i-17] = tagText
             
+        # 确保工具提示设置正确 - 只有filter标签页才有工具提示
+        self._ensure_correct_tooltips()
+    
+    def _ensure_correct_tooltips(self):
+        """确保工具提示设置正确 - 只有filter标签页才显示工具提示"""
+        try:
+            # 清除TabWidget本身的工具提示
+            self.ui.tem_switch.setToolTip("")
+            
+            # 清除所有页面和文本编辑器的工具提示
+            for i in range(MAX_TAB_SIZE):
+                page_widget = self.ui.tem_switch.widget(i)
+                if page_widget:
+                    page_widget.setToolTip("")
+                    # 查找页面中的QTextEdit并清除其工具提示
+                    text_edit = page_widget.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.setToolTip("")
+                
+                # 清除所有标签页的工具提示
+                self.ui.tem_switch.setTabToolTip(i, "")
+            
+            # 只为filter标签页（索引>=17）设置工具提示
+            for i in range(17, MAX_TAB_SIZE):
+                self.ui.tem_switch.setTabToolTip(i, QCoreApplication.translate("main_window", "double click filter to write filter text"))
+                
+        except Exception:
+            pass  # 忽略任何错误，避免影响正常功能
 
 
     def toggle_lock_h_checkbox(self):
@@ -759,7 +1022,17 @@ class MainWindow(QDialog):
                 self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.ui.comboBox_Port.currentText(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
 
+                # 设置JLink日志回调
+                if hasattr(self.xexunrtt, 'append_jlink_log'):
+                    self.rtt2uart.set_jlink_log_callback(self.xexunrtt.append_jlink_log)
+                    self.xexunrtt.append_jlink_log(f"开始连接到设备: {self.target_device}")
+                    self.xexunrtt.append_jlink_log(f"连接类型: {self.connect_type}")
+                    self.xexunrtt.append_jlink_log(f"串口: {self.ui.comboBox_Port.currentText()}, 波特率: {self.ui.comboBox_baudrate.currentText()}")
+
                 self.rtt2uart.start()
+                
+                if hasattr(self.xexunrtt, 'append_jlink_log'):
+                    self.xexunrtt.append_jlink_log("RTT连接启动成功")
                 
                 self.hide()
                 #self.xexunrtt.show()
@@ -795,11 +1068,17 @@ class MainWindow(QDialog):
                     self.ui.pushButton_scan.setEnabled(True)
                     
 
+                if hasattr(self.xexunrtt, 'append_jlink_log'):
+                    self.xexunrtt.append_jlink_log("正在停止RTT连接...")
+                
                 self.rtt2uart.stop()
                 #self.show()
 
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+                
+                if hasattr(self.xexunrtt, 'append_jlink_log'):
+                    self.xexunrtt.append_jlink_log("RTT连接已停止")
             except:
                 logger.error('Stop rtt2uart failed', exc_info=True)
                 pass

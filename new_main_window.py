@@ -32,6 +32,50 @@ import logging
 # 设置日志
 logger = logging.getLogger(__name__)
 
+class JLinkLogHandler(logging.Handler):
+    """自定义JLink日志处理器，将日志输出到GUI"""
+    
+    def __init__(self, text_widget):
+        super().__init__()
+        self.text_widget = text_widget
+        self.setLevel(logging.DEBUG)
+        
+        # 设置日志格式
+        formatter = logging.Formatter('%(levelname)s: %(message)s')
+        self.setFormatter(formatter)
+    
+    def emit(self, record):
+        """发送日志记录到GUI"""
+        try:
+            msg = self.format(record)
+            # 使用QTimer确保在主线程中更新GUI
+            QTimer.singleShot(0, lambda: self._append_to_gui(msg))
+        except Exception:
+            pass
+    
+    def _append_to_gui(self, message):
+        """在GUI中添加消息"""
+        try:
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            formatted_message = f"[{timestamp}] {message}"
+            
+            self.text_widget.append(formatted_message)
+            
+            # 自动滚动到底部
+            scrollbar = self.text_widget.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+            
+            # 限制日志行数，避免内存占用过多
+            document = self.text_widget.document()
+            if document.blockCount() > 1000:
+                cursor = self.text_widget.textCursor()
+                cursor.movePosition(cursor.Start)
+                cursor.movePosition(cursor.Down, cursor.KeepAnchor, 100)
+                cursor.removeSelectedText()
+        except Exception:
+            pass
+
 # 导入原有的常量和工具类
 from main_window import (
     speed_list, baudrate_list, MAX_TAB_SIZE, MAX_TEXT_LENGTH,
@@ -380,12 +424,127 @@ class RTTMainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
+        # 创建主布局
+        main_layout = QVBoxLayout(central_widget)
+        
         # 创建RTT窗口UI
+        rtt_widget = QWidget()
         self.rtt_ui = Ui_xexun_rtt()
-        self.rtt_ui.setupUi(central_widget)
+        self.rtt_ui.setupUi(rtt_widget)
+        
+        # 创建JLink日志显示区域
+        self._create_jlink_log_area()
+        
+        # 创建分割器来分割RTT区域和JLink日志区域
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(rtt_widget)
+        splitter.addWidget(self.jlink_log_widget)
+        
+        # 设置分割比例 (RTT区域占70%，JLink日志占30%)
+        splitter.setSizes([700, 300])
+        
+        main_layout.addWidget(splitter)
         
         # 初始化RTT相关组件
         self._init_rtt_components()
+    
+    def _create_jlink_log_area(self):
+        """创建JLink日志显示区域"""
+        # 创建JLink日志widget
+        self.jlink_log_widget = QWidget()
+        layout = QVBoxLayout(self.jlink_log_widget)
+        
+        # 创建标题和控制按钮
+        header_layout = QHBoxLayout()
+        
+        # JLink日志标题
+        title_label = QLabel("JLink 调试日志")
+        title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
+        header_layout.addWidget(title_label)
+        
+        # 添加弹簧
+        header_layout.addStretch()
+        
+        # 清除日志按钮
+        self.clear_jlink_log_btn = QPushButton("清除日志")
+        self.clear_jlink_log_btn.setMaximumWidth(80)
+        self.clear_jlink_log_btn.clicked.connect(self.clear_jlink_log)
+        header_layout.addWidget(self.clear_jlink_log_btn)
+        
+        # 启用/禁用JLink日志按钮
+        self.toggle_jlink_log_btn = QPushButton("启用详细日志")
+        self.toggle_jlink_log_btn.setMaximumWidth(100)
+        self.toggle_jlink_log_btn.setCheckable(True)
+        self.toggle_jlink_log_btn.clicked.connect(self.toggle_jlink_verbose_log)
+        header_layout.addWidget(self.toggle_jlink_log_btn)
+        
+        layout.addLayout(header_layout)
+        
+        # 创建JLink日志文本框
+        self.jlink_log_text = QTextEdit()
+        self.jlink_log_text.setReadOnly(True)
+        self.jlink_log_text.setMaximumHeight(200)
+        self.jlink_log_text.setFont(QFont("Consolas", 9))
+        self.jlink_log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                border: 1px solid #3e3e3e;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+        """)
+        
+        layout.addWidget(self.jlink_log_text)
+        
+        # 初始化JLink日志捕获
+        self.jlink_verbose_logging = False
+        self._setup_jlink_logging()
+    
+    def _setup_jlink_logging(self):
+        """设置JLink日志捕获"""
+        # 创建自定义日志处理器来捕获JLink日志
+        self.jlink_log_handler = JLinkLogHandler(self.jlink_log_text)
+        
+        # 设置JLink库的日志级别
+        jlink_logger = logging.getLogger('pylink')
+        jlink_logger.setLevel(logging.DEBUG)
+        jlink_logger.addHandler(self.jlink_log_handler)
+    
+    def clear_jlink_log(self):
+        """清除JLink日志"""
+        self.jlink_log_text.clear()
+    
+    def toggle_jlink_verbose_log(self, enabled):
+        """切换JLink详细日志"""
+        self.jlink_verbose_logging = enabled
+        if enabled:
+            self.toggle_jlink_log_btn.setText("禁用详细日志")
+            # 启用更详细的JLink日志
+            if hasattr(self, 'connection_config') and self.connection_config:
+                jlink = self.connection_config.get('jlink')
+                if jlink:
+                    try:
+                        # 设置JLink为详细模式
+                        jlink.set_log_file("jlink_debug.log")
+                        self.append_jlink_log("JLink 详细日志已启用")
+                    except Exception as e:
+                        self.append_jlink_log(f"启用详细日志失败: {e}")
+        else:
+            self.toggle_jlink_log_btn.setText("启用详细日志")
+            self.append_jlink_log("JLink 详细日志已禁用")
+    
+    def append_jlink_log(self, message):
+        """添加JLink日志消息"""
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        formatted_message = f"[{timestamp}] {message}"
+        
+        # 在GUI线程中更新文本
+        self.jlink_log_text.append(formatted_message)
+        
+        # 自动滚动到底部
+        scrollbar = self.jlink_log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
     
     def _init_rtt_components(self):
         """初始化RTT相关组件"""
@@ -543,6 +702,12 @@ class RTTMainWindow(QMainWindow):
         
         try:
             config = self.connection_config
+            
+            # 在JLink日志中记录连接开始
+            self.append_jlink_log(f"开始连接到设备: {config['device']}")
+            self.append_jlink_log(f"连接类型: {config['connect_type']}")
+            self.append_jlink_log(f"串口: {config['port']}, 波特率: {config['baudrate']}")
+            
             self.rtt2uart = RTT2UART(
                 main=self,
                 jlink=config['jlink'],
@@ -556,13 +721,18 @@ class RTTMainWindow(QMainWindow):
                 reset=config['reset']
             )
             
+            # 设置JLink日志回调
+            self.rtt2uart.set_jlink_log_callback(self.append_jlink_log)
+            
             self.rtt2uart.start()
             self.start_state = True
             
             # 更新UI
             self.status_connection.setText(f"运行中: {config['device']} -> {config['port']}")
+            self.append_jlink_log("RTT连接启动成功")
             
         except Exception as e:
+            self.append_jlink_log(f"RTT启动失败: {e}")
             QMessageBox.critical(self, "启动失败", f"RTT启动失败: {e}")
     
     def stop_rtt(self):
