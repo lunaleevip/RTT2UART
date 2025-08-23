@@ -16,6 +16,8 @@
 * Step6: selete another com port of the com port pair like *com5*
 ![serialcomtool.png](./picture/serialcomtool.png)
 
+![XexunRTT.png](./picture/XexunRTT.png)
+
 ## Update the device lists
 > Note: Starting with version v2.0.0, there is no need to update ***JLinkDevicesBuildIn.xml*** file manually!
 
