@@ -10,3 +10,11 @@ build/*
 *.html
 *.spec
 dist/*
+/.vs/RTT2UART2/FileContentIndex
+/.vs/RTT2UART2/v17
+/.vs
+/env
+/app.log
+/help.txt
+/JLinkDevicesBuildIn.xml
+/print_output.log
