@@ -261,6 +261,7 @@ class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
         self.connection_dialog = None
+        self._is_closing = False  # 标记主窗口是否正在关闭
         
         # 设置主窗口属性
         self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT调试主窗口"))
@@ -280,6 +281,8 @@ class RTTMainWindow(QMainWindow):
         # 先设置原有的UI
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self.central_widget)
+        
+        # 串口转发设置已移动到连接对话框中
         
         # 保存原有的layoutWidget并重新设置其父级
         original_layout_widget = self.ui.layoutWidget
@@ -425,6 +428,10 @@ class RTTMainWindow(QMainWindow):
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
     
+    # 串口转发功能已移动到连接对话框中
+    
+    # 串口转发相关方法已移动到连接对话框中
+    
     def _create_menu_bar(self):
         """创建菜单栏"""
         menubar = self.menuBar()
@@ -516,9 +523,37 @@ class RTTMainWindow(QMainWindow):
             # 连接断开信号
             self.connection_dialog.connection_disconnected.connect(self.on_connection_disconnected)
         
+        # 显示对话框
         self.connection_dialog.show()
+        
+        # 将对话框居中显示在主窗口中
+        self._center_dialog_on_parent(self.connection_dialog)
+        
         self.connection_dialog.raise_()
         self.connection_dialog.activateWindow()
+    
+    def _center_dialog_on_parent(self, dialog):
+        """将对话框居中显示在父窗口中"""
+        if not dialog or not self:
+            return
+        
+        # 获取主窗口的几何信息
+        parent_geometry = self.geometry()
+        parent_x = parent_geometry.x()
+        parent_y = parent_geometry.y()
+        parent_width = parent_geometry.width()
+        parent_height = parent_geometry.height()
+        
+        # 获取对话框的大小
+        dialog_width = dialog.width()
+        dialog_height = dialog.height()
+        
+        # 计算居中位置
+        center_x = parent_x + (parent_width - dialog_width) // 2
+        center_y = parent_y + (parent_height - dialog_height) // 2
+        
+        # 设置对话框位置
+        dialog.move(center_x, center_y)
     
     def on_connection_established(self):
         """连接建立成功后的处理"""
@@ -699,6 +734,13 @@ class RTTMainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, e):
+        # 设置关闭标志，防止在关闭时显示连接对话框
+        self._is_closing = True
+        
+        # 隐藏连接对话框，防止闪现
+        if self.connection_dialog:
+            self.connection_dialog.hide()
+        
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             self.connection_dialog.start()
 
@@ -794,7 +836,8 @@ class RTTMainWindow(QMainWindow):
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             self.connection_dialog.start()
             
-        if self.connection_dialog:
+        # 只有在主窗口没有关闭时才显示连接对话框
+        if self.connection_dialog and not self._is_closing:
             self.connection_dialog.show()
 
     def on_clear_clicked(self):
@@ -1034,10 +1077,14 @@ class ConnectionDialog(QDialog):
         self.port_scan()
 
         self.settings = {'device': [], 'device_index': 0, 'interface': 0,
-                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[]}
+                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[], 'serial_forward_tab': -1}
 
         # 主窗口引用（由父窗口传入）
         self.main_window = parent
+        
+        # 创建串口转发设置控件
+        self._create_serial_forward_controls()
+        
         self.worker = Worker(self)
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
 
@@ -1148,6 +1195,12 @@ class ConnectionDialog(QDialog):
 
     def closeEvent(self, e):
         try:
+            # 检查主窗口是否正在关闭，如果是则直接关闭不做其他操作
+            if self.main_window and self.main_window._is_closing:
+                super().closeEvent(e)
+                e.accept()
+                return
+                
             # 停止RTT连接
             if self.rtt2uart is not None and self.start_state == True:
                 try:
@@ -1196,6 +1249,99 @@ class ConnectionDialog(QDialog):
         except Exception as ex:
             logger.error(f"Error during close event: {ex}")
             e.accept()  # 即使出错也要关闭窗口
+    
+    def _create_serial_forward_controls(self):
+        """在连接对话框中创建串口转发设置控件"""
+        # 创建串口转发组框
+        self.groupBox_SerialForward = QGroupBox(self)
+        self.groupBox_SerialForward.setObjectName("groupBox_SerialForward")
+        self.groupBox_SerialForward.setGeometry(QRect(10, 295, 381, 51))
+        self.groupBox_SerialForward.setTitle(QCoreApplication.translate("dialog", "串口转发设置"))
+        
+        # 创建标签
+        self.label_SerialForward = QLabel(self.groupBox_SerialForward)
+        self.label_SerialForward.setObjectName("label_SerialForward")
+        self.label_SerialForward.setGeometry(QRect(13, 20, 61, 20))
+        self.label_SerialForward.setText(QCoreApplication.translate("dialog", "转发内容:"))
+        
+        # 创建选择框
+        self.comboBox_SerialForward = QComboBox(self.groupBox_SerialForward)
+        self.comboBox_SerialForward.setObjectName("comboBox_SerialForward")
+        self.comboBox_SerialForward.setGeometry(QRect(80, 18, 291, 22))
+        
+        # 初始化选择框内容
+        self._update_serial_forward_combo()
+        
+        # 连接信号
+        self.comboBox_SerialForward.currentIndexChanged.connect(self._on_serial_forward_changed)
+        
+        # 调整其他控件的位置
+        # 将开始按钮向下移动
+        self.ui.pushButton_Start.setGeometry(QRect(100, 355, 181, 41))
+        # 将状态标签向下移动
+        self.ui.status.setGeometry(QRect(290, 355, 91, 31))
+        
+        # 调整对话框大小
+        self.resize(401, 405)
+        self.setMinimumSize(QSize(401, 405))
+        self.setMaximumSize(QSize(401, 405))
+    
+    def _update_serial_forward_combo(self):
+        """更新串口转发选择框的内容"""
+        if not hasattr(self, 'comboBox_SerialForward'):
+            return
+            
+        # 清空现有选项
+        self.comboBox_SerialForward.clear()
+        
+        # 添加选项
+        self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "禁用转发"), -1)
+        
+        # 添加所有TAB页面
+        if self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
+            for i in range(MAX_TAB_SIZE):
+                tab_text = self.main_window.ui.tem_switch.tabText(i)
+                if i == 0:
+                    display_text = f"{tab_text} (所有数据)"
+                elif i < 17:
+                    display_text = f"通道 {tab_text}"
+                else:
+                    # 对于筛选标签页，显示实际的筛选文本
+                    if tab_text == QCoreApplication.translate("main_window", "filter"):
+                        display_text = f"筛选 {i-16}: (未设置)"
+                    else:
+                        display_text = f"筛选 {i-16}: {tab_text}"
+                
+                self.comboBox_SerialForward.addItem(display_text, i)
+        
+        # 恢复保存的设置
+        if 'serial_forward_tab' in self.settings:
+            forward_tab = self.settings['serial_forward_tab']
+            for i in range(self.comboBox_SerialForward.count()):
+                if self.comboBox_SerialForward.itemData(i) == forward_tab:
+                    self.comboBox_SerialForward.setCurrentIndex(i)
+                    break
+    
+    def _on_serial_forward_changed(self, index):
+        """串口转发选择发生变化时的处理"""
+        if not hasattr(self, 'comboBox_SerialForward'):
+            return
+            
+        selected_tab = self.comboBox_SerialForward.itemData(index)
+        
+        # 更新串口转发设置
+        if self.rtt2uart:
+            self.rtt2uart.set_serial_forward_tab(selected_tab)
+        
+        # 保存设置
+        self.settings['serial_forward_tab'] = selected_tab
+        
+        # 显示状态信息
+        if selected_tab == -1:
+            self.ui.status.setText(QCoreApplication.translate("dialog", "转发已禁用"))
+        else:
+            tab_name = self.comboBox_SerialForward.currentText()
+            self.ui.status.setText(QCoreApplication.translate("dialog", "转发: {}").format(tab_name))
 
     def port_scan(self):
         port_list = list(serial.tools.list_ports.comports())
@@ -1268,6 +1414,21 @@ class ConnectionDialog(QDialog):
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.ui.comboBox_Port.currentText(), self.ui.comboBox_baudrate.currentText()))
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
                 
+                # 应用串口转发设置
+                if hasattr(self, 'comboBox_SerialForward'):
+                    selected_tab = self.comboBox_SerialForward.itemData(self.comboBox_SerialForward.currentIndex())
+                    if selected_tab is not None:
+                        self.rtt2uart.set_serial_forward_tab(selected_tab)
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            if selected_tab == -1:
+                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding disabled"))
+                            else:
+                                tab_name = self.comboBox_SerialForward.currentText()
+                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding enabled for: %s") % tab_name)
+                
+                # 更新串口转发选择框（在连接成功后更新TAB列表）
+                self._update_serial_forward_combo()
+                
                 # 发送连接成功信号
                 self.connection_established.emit()
                 
@@ -1313,8 +1474,9 @@ class ConnectionDialog(QDialog):
                 # 发送连接断开信号
                 self.connection_disconnected.emit()
                 
-                # 显示连接对话框
-                self.show()
+                # 只有在主窗口没有关闭时才显示连接对话框
+                if self.main_window and not self.main_window._is_closing:
+                    self.show()
 
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
@@ -1537,6 +1699,13 @@ class Worker(QObject):
             if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
                 self.parent.main_window.page_dirty_flags[index+1] = True
                 self.parent.main_window.page_dirty_flags[0] = True
+            
+            # 串口转发功能：将指定TAB的数据转发到串口
+            if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+                # 转发单个通道的数据（index+1对应TAB索引）
+                self.parent.rtt2uart.add_tab_data_for_forwarding(index+1, data)
+                # 转发所有数据（TAB 0）
+                self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
             # 优化：使用缓冲写入日志
             log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log'
@@ -1569,10 +1738,15 @@ class Worker(QObject):
                 
             for i, search_word in search_words:
                 if search_word in line:
-                    self.buffers[i] += line + '\n'
+                    filtered_data = line + '\n'
+                    self.buffers[i] += filtered_data
                     # 标记页面需要更新
                     if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
                         self.parent.main_window.page_dirty_flags[i] = True
+                    
+                    # 串口转发功能：转发筛选后的数据
+                    if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+                        self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
                     
                     # 缓冲写入搜索日志
                     new_path = replace_special_characters(search_word)
@@ -1674,8 +1848,8 @@ if __name__ == "__main__":
     if hasattr(main_window, '_update_ui_translations'):
         main_window._update_ui_translations()
     
-    # 先显示主窗口
-    main_window.show()
+    # 先显示主窗口（最大化）
+    main_window.showMaximized()
     
     # 然后弹出连接配置对话框
     main_window.show_connection_dialog()

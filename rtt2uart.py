@@ -70,6 +70,10 @@ class rtt_to_serial():
         # JLink日志回调函数
         self.jlink_log_callback = None
         
+        # 串口转发设置
+        self.serial_forward_tab = -1  # -1表示禁用转发，其他值表示转发指定TAB的内容
+        self.serial_forward_buffer = {}  # 存储各个TAB的数据缓冲
+        
         # 设置日志文件名
         log_directory=None
         
@@ -98,6 +102,32 @@ class rtt_to_serial():
         """将消息发送到GUI日志"""
         if self.jlink_log_callback:
             self.jlink_log_callback(message)
+    
+    def set_serial_forward_tab(self, tab_index):
+        """设置串口转发的TAB索引"""
+        self.serial_forward_tab = tab_index
+        if tab_index == -1:
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled"))
+        else:
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding set to TAB: %s") % tab_index)
+    
+    def add_tab_data_for_forwarding(self, tab_index, data):
+        """为TAB添加数据用于串口转发"""
+        if self.serial_forward_tab == tab_index and self.serial_forward_tab != -1:
+            # 将数据转发到串口
+            if self.serial.isOpen():
+                try:
+                    # 将字符串转换为字节
+                    if isinstance(data, str):
+                        data_bytes = data.encode('gbk', errors='ignore')
+                    else:
+                        data_bytes = bytes(data)
+                    
+                    self.serial.write(data_bytes)
+                    logger.debug(f'Forwarded {len(data_bytes)} bytes from TAB {tab_index} to serial port')
+                except Exception as e:
+                    logger.error(f"Serial forward error: {e}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forward error: %s") % str(e))
 
     def start(self):
         logger.debug('start rtt2uart')
