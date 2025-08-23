@@ -90,22 +90,55 @@ class rtt_to_serial():
     def start(self):
         logger.debug('start rtt2uart')
         try:
-            if self._connect_inf != 'EXISTING' and self.jlink.connected() == False:
-                # 加载jlinkARM.dll
-                if self._connect_inf == 'USB':
-                    self.jlink.open(serial_no=self._connect_para)
-                else:
-                    self.jlink.open(ip_addr=self._connect_para)
+            if self._connect_inf != 'EXISTING':
+                # 检查并确保 JLink 连接状态
+                try:
+                    is_connected = self.jlink.connected()
+                except pylink.errors.JLinkException:
+                    # 如果检查连接状态失败，假设未连接
+                    is_connected = False
+                    logger.warning('Failed to check JLink connection status, assuming disconnected')
+                
+                if not is_connected:
+                    # 加载jlinkARM.dll
+                    try:
+                        if self._connect_inf == 'USB':
+                            self.jlink.open(serial_no=self._connect_para)
+                        else:
+                            self.jlink.open(ip_addr=self._connect_para)
+                        
+                        # 短暂等待连接稳定
+                        import time
+                        time.sleep(0.1)
+                        
+                    except pylink.errors.JLinkException as e:
+                        logger.error(f'Failed to open JLink: {e}', exc_info=True)
+                        raise Exception(f"Failed to open JLink: {e}")
+
+                # 再次检查连接状态
+                try:
+                    if not self.jlink.connected():
+                        raise Exception("JLink connection failed after open")
+                except pylink.errors.JLinkException:
+                    raise Exception("JLink connection verification failed")
 
                 # 设置连接速率
-                if self.jlink.set_speed(self._speed) == False:
-                    logger.error('Set speed failed', exc_info=True)
-                    raise Exception("Set jlink speed failed")
+                try:
+                    if self.jlink.set_speed(self._speed) == False:
+                        logger.error('Set speed failed', exc_info=True)
+                        raise Exception("Set jlink speed failed")
+                except pylink.errors.JLinkException as e:
+                    logger.error(f'Set speed failed with exception: {e}', exc_info=True)
+                    raise Exception(f"Set jlink speed failed: {e}")
 
                 # 设置连接接口为SWD
-                if self.jlink.set_tif(self._interface) == False:
-                    logger.error('Set interface failed', exc_info=True)
-                    raise Exception("Set jlink interface failed")
+                try:
+                    if self.jlink.set_tif(self._interface) == False:
+                        logger.error('Set interface failed', exc_info=True)
+                        raise Exception("Set jlink interface failed")
+                except pylink.errors.JLinkException as e:
+                    logger.error(f'Set interface failed with exception: {e}', exc_info=True)
+                    raise Exception(f"Set jlink interface failed: {e}")
 
                 try:
                     if self._reset == True:
@@ -117,11 +150,14 @@ class rtt_to_serial():
                     # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
                     self.jlink.rtt_start()
 
-                except pylink.errors.JLinkException:
-                    logger.error('Connect target failed', exc_info=True)
-                    raise
+                except pylink.errors.JLinkException as e:
+                    logger.error(f'Connect target failed: {e}', exc_info=True)
+                    raise Exception(f"Connect target failed: {e}")
         except pylink.errors.JLinkException as errors:
-            logger.error('Open jlink failed', exc_info=True)
+            logger.error(f'Open jlink failed: {errors}', exc_info=True)
+            raise Exception(f"Open jlink failed: {errors}")
+        except Exception as e:
+            logger.error(f'Start RTT failed: {e}', exc_info=True)
             raise
 
         try:
@@ -151,56 +187,133 @@ class rtt_to_serial():
     def stop(self):
         logger.debug('stop rtt2uart')
 
+        # 停止线程
         self.thread_switch = False
-        if self.rtt_thread:
-            self.rtt_thread.join(0.5)
+        
+        # 等待线程结束，增加超时处理
+        if self.rtt_thread and self.rtt_thread.is_alive():
+            self.rtt_thread.join(1.0)  # 增加超时时间
+            if self.rtt_thread.is_alive():
+                logger.warning('RTT thread did not stop gracefully')
 
-        if self.rtt2uart:
-            self.rtt2uart.join(0.5)
-            
-        if self._connect_inf == 'USB':
-            try:
-                if self.jlink.connected() == True:
-                    # 使用完后停止RTT
-                    self.jlink.rtt_stop()
-                    # 释放之前加载的jlinkARM.dll
-                    self.jlink.close()
-            except pylink.errors.JLinkException:
-                logger.error('Disconnect target failed', exc_info=True)
-                pass
+        if self.rtt2uart and self.rtt2uart.is_alive():
+            self.rtt2uart.join(1.0)  # 增加超时时间
+            if self.rtt2uart.is_alive():
+                logger.warning('RTT2UART thread did not stop gracefully')
+        
+        # 改进的 JLink 关闭逻辑
+        if self._connect_inf != 'EXISTING':
+            self._safe_close_jlink()
 
-        try:
-            if self.serial.isOpen() == True:
-                self.serial.close()
-        except:
-            logger.error('Close serial failed', exc_info=True)
-            pass
+        # 关闭串口
+        self._safe_close_serial()
+        
         # 打包文件为ZIP压缩包
         #zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
         # 删除文件夹
         #shutil.rmtree(self.log_directory)
 
+    def _safe_close_jlink(self):
+        """安全关闭 JLink 连接"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # 检查连接状态
+                is_connected = False
+                try:
+                    is_connected = self.jlink.connected()
+                except pylink.errors.JLinkException:
+                    logger.warning(f'Cannot check JLink connection status on retry {retry_count + 1}')
+                    is_connected = False
+                
+                if is_connected:
+                    try:
+                        # 停止RTT
+                        self.jlink.rtt_stop()
+                        logger.debug('RTT stopped successfully')
+                    except pylink.errors.JLinkException as e:
+                        logger.warning(f'Failed to stop RTT: {e}')
+                    
+                    try:
+                        # 关闭JLink连接
+                        self.jlink.close()
+                        logger.debug('JLink closed successfully')
+                        break  # 成功关闭，退出循环
+                    except pylink.errors.JLinkException as e:
+                        logger.warning(f'Failed to close JLink on attempt {retry_count + 1}: {e}')
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            import time
+                            time.sleep(0.2)  # 短暂等待后重试
+                        continue
+                else:
+                    logger.debug('JLink already disconnected')
+                    break
+                    
+            except Exception as e:
+                logger.error(f'Unexpected error during JLink close on attempt {retry_count + 1}: {e}')
+                retry_count += 1
+                if retry_count < max_retries:
+                    import time
+                    time.sleep(0.2)
+                continue
+        
+        if retry_count >= max_retries:
+            logger.error('Failed to close JLink after maximum retries')
+
+    def _safe_close_serial(self):
+        """安全关闭串口连接"""
+        try:
+            if hasattr(self, 'serial') and self.serial and self.serial.isOpen():
+                self.serial.close()
+                logger.debug('Serial port closed successfully')
+        except Exception as e:
+            logger.error(f'Close serial failed: {e}', exc_info=True)
+
 
     def rtt_thread_exec(self):
         # 打开日志文件，如果不存在将自动创建
         with open(self.rtt_log_filename, 'ab') as log_file:
+            # 性能优化：添加短暂延迟避免过度占用CPU
+            import time
+            
             while self.thread_switch:
                 try:
+                    # 检查JLink连接状态
+                    try:
+                        if not self.jlink.connected():
+                            logger.warning('JLink connection lost in RTT thread')
+                            time.sleep(0.1)
+                            continue
+                    except pylink.errors.JLinkException:
+                        logger.warning('Cannot check JLink status in RTT thread')
+                        time.sleep(0.1)
+                        continue
+                    
                     rtt_recv_log = []
-                    while True:
-                        recv_log = self.jlink.rtt_read(0, 1024)
-                        if not recv_log:
+                    # 优化：一次性读取更多数据，减少系统调用
+                    max_read_attempts = 5
+                    for _ in range(max_read_attempts):
+                        try:
+                            recv_log = self.jlink.rtt_read(0, 4096)  # 增加缓冲区大小
+                            if not recv_log:
+                                break
+                            else:
+                                rtt_recv_log += recv_log
+                        except pylink.errors.JLinkException as e:
+                            logger.warning(f'RTT read failed: {e}')
                             break
-                        else:
-                            rtt_recv_log += recv_log
 
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
                 
                     if rtt_log_len:
                         # 将接收到的数据写入日志文件
-                        log_bytes = bytearray(rtt_recv_log);
+                        log_bytes = bytearray(rtt_recv_log)
                         log_file.write(log_bytes)
+                        log_file.flush()  # 确保及时写入
 
                         skip_next_byte = False
                         temp_buff = bytearray()
@@ -213,39 +326,76 @@ class rtt_to_serial():
                         
                             if log_bytes[i] == 255:
                                 skip_next_byte = True
-                                self.insert_char(self.tem, temp_buff)
-                                temp_buff.clear()
+                                if temp_buff:  # 只有非空时才处理
+                                    self.insert_char(self.tem, temp_buff)
+                                    temp_buff.clear()
                                 continue
                         
                             temp_buff.append(log_bytes[i])
                         
-                        if len(temp_buff):
+                        if temp_buff:  # 只有非空时才处理
                             self.insert_char(self.tem, temp_buff)
+                    else:
+                        # 没有数据时短暂休眠，避免过度占用CPU
+                        time.sleep(0.001)  # 1ms
                     
+                except pylink.errors.JLinkException as e:
+                    logger.error(f"JLink error in RTT thread: {e}")
+                    time.sleep(0.1)  # JLink错误时较长休眠
                 except Exception as e:
-                    print("Error:", e)
-                    pass
+                    logger.error(f"Unexpected error in RTT thread: {e}")
+                    time.sleep(0.01)  # 发生错误时稍长休眠
 
     def rtt2uart_exec(self):
         # 打开日志文件，如果不存在将自动创建
         with open(self.rtt_data_filename, 'ab') as data_file:
+            import time
+            
             while self.thread_switch:
                 try:
-                    rtt_recv_data = self.jlink.rtt_read(1, 1024)
-                    self.read_bytes1 += len(rtt_recv_data)
+                    # 检查JLink连接状态
+                    try:
+                        if not self.jlink.connected():
+                            logger.warning('JLink connection lost in RTT2UART thread')
+                            time.sleep(0.1)
+                            continue
+                    except pylink.errors.JLinkException:
+                        logger.warning('Cannot check JLink status in RTT2UART thread')
+                        time.sleep(0.1)
+                        continue
+                    
+                    try:
+                        rtt_recv_data = self.jlink.rtt_read(1, 1024)
+                        self.read_bytes1 += len(rtt_recv_data)
 
-                    if len(rtt_recv_data):
-                        # 将接收到的数据写入数据文件
-                        data_file.write(bytes(rtt_recv_data))
+                        if len(rtt_recv_data):
+                            # 将接收到的数据写入数据文件
+                            data_file.write(bytes(rtt_recv_data))
+                            data_file.flush()  # 确保及时写入
+                            
+                            if self.serial.isOpen():
+                                try:
+                                    self.serial.write(bytes(rtt_recv_data))
+                                except Exception as e:
+                                    logger.error(f"Serial write error: {e}")
+                                    try:
+                                        self.serial.close()
+                                    except:
+                                        pass
+                        else:
+                            # 没有数据时短暂休眠
+                            time.sleep(0.001)
+                            
+                    except pylink.errors.JLinkException as e:
+                        logger.warning(f'RTT2UART read failed: {e}')
+                        time.sleep(0.1)
                         
-                        if self.serial.isOpen():
-                            try:
-                                self.serial.write(bytes(rtt_recv_data))
-                            except Exception as e:
-                                print("Error:", e)
-                                self.serial.close()
+                except pylink.errors.JLinkException as e:
+                    logger.error(f"JLink error in RTT2UART thread: {e}")
+                    time.sleep(0.1)
                 except Exception as e:
-                    print("Error:", e)
+                    logger.error(f"Unexpected error in RTT2UART thread: {e}")
+                    time.sleep(0.01)
 
 
     def insert_char(self, tem, string, new_line=False):

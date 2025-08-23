@@ -322,7 +322,10 @@ class XexunRTTWindow(QWidget):
         # 创建定时器并连接到槽函数
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_periodic_task)
-        self.timer.start(100)  # 每100毫秒（0.1秒）执行一次
+        self.timer.start(500)  # 每500毫秒（0.5秒）执行一次，降低CPU使用率
+        
+        # 数据更新标志，用于智能刷新
+        self.page_dirty_flags = [False] * MAX_TAB_SIZE
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
@@ -545,6 +548,9 @@ class MainWindow(QDialog):
         self.worker.finished.connect(self.handleBufferUpdate)
         self.ui.addToBuffer = self.worker.addToBuffer
         
+        # 启动Worker的日志刷新定时器
+        self.worker.start_flush_timer()
+        
 
         # 检查是否存在上次配置，存在则加载
         if os.path.exists(self.setting_file_path) == True:
@@ -643,22 +649,54 @@ class MainWindow(QDialog):
             logging.error(f'can not export devices xml file, error info: {e}')
 
     def closeEvent(self, e):
-        if self.rtt2uart is not None and self.start_state == True:
-            self.rtt2uart.stop()
-        if self.xexunrtt is not None:
-            self.xexunrtt.close()
-        # 保存当前配置
-        with open(self.setting_file_path, 'wb') as f:
-            pickle.dump(self.settings, f)
-        
-        # 等待其他线程结束
-        for thread in threading.enumerate():
-            if thread != threading.current_thread():
-                if not is_dummy_thread(thread):
-                    thread.join()
-        super().closeEvent(e)
-        
-        e.accept()
+        try:
+            # 停止RTT连接
+            if self.rtt2uart is not None and self.start_state == True:
+                try:
+                    self.rtt2uart.stop()
+                except Exception as ex:
+                    logger.error(f"Error stopping RTT: {ex}")
+            
+            # 关闭RTT窗口
+            if self.xexunrtt is not None:
+                try:
+                    self.xexunrtt.close()
+                except Exception as ex:
+                    logger.error(f"Error closing RTT window: {ex}")
+            
+            # 停止工作线程
+            if hasattr(self, 'worker'):
+                try:
+                    if hasattr(self.worker, 'buffer_flush_timer') and self.worker.buffer_flush_timer:
+                        self.worker.buffer_flush_timer.stop()
+                except:
+                    pass
+            
+            # 保存当前配置
+            try:
+                with open(self.setting_file_path, 'wb') as f:
+                    pickle.dump(self.settings, f)
+            except Exception as ex:
+                logger.warning(f"Failed to save settings: {ex}")
+            
+            # 等待其他线程结束，增加超时处理
+            import time
+            time.sleep(0.2)  # 给线程时间清理
+            
+            for thread in threading.enumerate():
+                if thread != threading.current_thread() and thread.is_alive():
+                    if not is_dummy_thread(thread):
+                        try:
+                            thread.join(timeout=1.0)  # 增加超时
+                        except:
+                            pass
+            
+            super().closeEvent(e)
+            e.accept()
+            
+        except Exception as ex:
+            logger.error(f"Error during close event: {ex}")
+            e.accept()  # 即使出错也要关闭窗口
 
     def port_scan(self):
         port_list = list(serial.tools.list_ports.comports())
@@ -869,6 +907,9 @@ class MainWindow(QDialog):
                     
                 text_edit.insertPlainText(self.worker.buffers[index])
                 self.worker.buffers[index] = ""
+                # 标记页面需要更新
+                if hasattr(self, 'xexunrtt') and hasattr(self.xexunrtt, 'page_dirty_flags'):
+                    self.xexunrtt.page_dirty_flags[index] = True
 
                 text_length = len(text_edit.toPlainText())
                 if text_length > MAX_TEXT_LENGTH:
@@ -892,12 +933,21 @@ class MainWindow(QDialog):
 
     @Slot()
     def handleBufferUpdate(self):
-        # 获取当前选定的页面索引
+        # 智能更新：只刷新有数据变化的页面
+        current_index = self.xexunrtt.ui.tem_switch.currentIndex()
+        
+        # 优先更新当前显示的页面
+        if self.xexunrtt.page_dirty_flags[current_index]:
+            self.switchPage(current_index)
+            self.xexunrtt.page_dirty_flags[current_index] = False
+        
+        # 批量更新其他有变化的页面（限制每次最多更新3个）
+        updated_count = 0
         for i in range(MAX_TAB_SIZE):
-            self.switchPage(i)
-        #index = self.xexunrtt.ui.tem_switch.currentIndex()
-        # 刷新文本框
-        #self.switchPage(index)
+            if i != current_index and self.xexunrtt.page_dirty_flags[i] and updated_count < 3:
+                self.switchPage(i)
+                self.xexunrtt.page_dirty_flags[i] = False
+                updated_count += 1
    
 
 class Worker(QObject):
@@ -908,6 +958,35 @@ class Worker(QObject):
         self.parent = parent
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
+        
+        # 性能优化：文件I/O缓冲
+        self.log_buffers = {}  # 日志文件缓冲
+        # 延迟创建定时器，确保在正确的线程中
+        self.buffer_flush_timer = None
+
+    def start_flush_timer(self):
+        """启动日志刷新定时器"""
+        if self.buffer_flush_timer is None:
+            self.buffer_flush_timer = QTimer()
+            self.buffer_flush_timer.timeout.connect(self.flush_log_buffers)
+            self.buffer_flush_timer.start(1000)  # 每秒刷新一次缓冲
+
+    def flush_log_buffers(self):
+        """定期刷新日志缓冲到文件"""
+        for filepath, content in self.log_buffers.items():
+            if content:
+                try:
+                    with open(filepath, 'a', encoding='utf-8') as f:
+                        f.write(content)
+                    self.log_buffers[filepath] = ""
+                except Exception:
+                    pass
+
+    def write_to_log_buffer(self, filepath, content):
+        """写入日志缓冲而不是直接写文件"""
+        if filepath not in self.log_buffers:
+            self.log_buffers[filepath] = ""
+        self.log_buffers[filepath] += content
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
@@ -922,46 +1001,56 @@ class Worker(QObject):
             self.byte_buffer[index] = self.byte_buffer[index][newline + 1:]
             data = new_buffer.decode('gbk', errors='ignore')
 
-            buffer = self.buffers[index+1]
-            buffer0 = self.buffers[0]
-        
-            self.buffers[index+1] += data
+            # 性能优化：使用列表拼接替代字符串拼接
+            buffer_parts = ["%02u> " % index, data]
             
-            self.buffers[0] +=  "%02u> " % index
-            self.buffers[0] += data
-            # 在主线程中执行操作
+            self.buffers[index+1] += data
+            self.buffers[0] += ''.join(buffer_parts)
+            
+            # 标记页面需要更新
+            if hasattr(self.parent, 'xexunrtt') and hasattr(self.parent.xexunrtt, 'page_dirty_flags'):
+                self.parent.xexunrtt.page_dirty_flags[index+1] = True
+                self.parent.xexunrtt.page_dirty_flags[0] = True
 
-            with open(self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log', 'a') as page_log_file:
-                page_log_file.write(data);
+            # 优化：使用缓冲写入日志
+            log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log'
+            self.write_to_log_buffer(log_filepath, data)
 
-            # 将buffer分割成行
-            lines = data.split('\n')
-
-            for line in lines:
-                for i in range(17 , MAX_TAB_SIZE):
-                    tagText = self.parent.xexunrtt.ui.tem_switch.tabText(i)
-                    search_word = tagText
-                    if search_word != QCoreApplication.translate("main_window", "filter"):
-                        if search_word != self.parent.xexunrtt.tabText[i]:
-                            self.buffers[i] = ""
-                            zero_widget = self.parent.xexunrtt.ui.tem_switch.widget(0)
-                            if isinstance(zero_widget, QWidget):
-                                text_edit = zero_widget.findChild(QTextEdit)
-                                zero_lines = text_edit.toPlainText().split('\n')
-                                for newline in zero_lines:
-                                    if search_word in newline:
-                                        new_path = replace_special_characters(search_word)
-                                        with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
-                                            search_log_file.write(newline[4:] + '\n');
-                                            self.buffers[i] += newline[4:] + '\n'
-
-                        elif search_word in line:
-                            new_path = replace_special_characters(search_word)
-                            with open(self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log', 'a') as search_log_file:
-                                search_log_file.write(line + '\n');
-                                self.buffers[i] += line + '\n'
+            # 优化过滤逻辑：减少嵌套循环
+            if data.strip():  # 只处理非空数据
+                lines = [line for line in data.split('\n') if line.strip()]
+                self.process_filter_lines(lines)
 
             self.finished.emit()
+
+    def process_filter_lines(self, lines):
+        """优化的过滤处理逻辑"""
+        # 预编译搜索词以提高性能
+        search_words = []
+        for i in range(17, MAX_TAB_SIZE):
+            try:
+                tag_text = self.parent.xexunrtt.ui.tem_switch.tabText(i)
+                if tag_text != QCoreApplication.translate("main_window", "filter"):
+                    search_words.append((i, tag_text))
+            except:
+                continue
+        
+        # 批量处理行
+        for line in lines:
+            if not line.strip():
+                continue
+                
+            for i, search_word in search_words:
+                if search_word in line:
+                    self.buffers[i] += line + '\n'
+                    # 标记页面需要更新
+                    if hasattr(self.parent, 'xexunrtt') and hasattr(self.parent.xexunrtt, 'page_dirty_flags'):
+                        self.parent.xexunrtt.page_dirty_flags[i] = True
+                    
+                    # 缓冲写入搜索日志
+                    new_path = replace_special_characters(search_word)
+                    search_log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log'
+                    self.write_to_log_buffer(search_log_filepath, line + '\n')
 
 def replace_special_characters(path, replacement='_'):
     # 定义需要替换的特殊字符的正则表达式模式
