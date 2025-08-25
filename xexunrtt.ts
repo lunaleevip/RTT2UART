@@ -764,4 +764,12 @@
         <translation type="unfinished"></translation>
     </message>
 </context>
+<context>
+    <name>rtt2uart</name>
+    <message>
+        <location filename="rtt2uart.py" line="450"/>
+        <source>Deleted empty log folder: %s</source>
+        <translation>已删除空日志文件夹: %s</translation>
+    </message>
+</context>
 </TS>

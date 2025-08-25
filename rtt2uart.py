@@ -7,6 +7,7 @@ import socket
 import os
 import datetime
 import zipfile
+import re
 from pathlib import Path
 import shutil
 
@@ -17,6 +18,117 @@ from PySide6.QtWidgets import *
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+class AnsiProcessor:
+    """ANSI控制符处理器"""
+    
+    def __init__(self):
+        # ANSI控制符正则表达式（字符串版本）
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        # ANSI控制符正则表达式（bytes版本）
+        self.ansi_escape_bytes = re.compile(rb'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        
+        # 颜色映射表
+        self.color_map = {
+            # 普通颜色 (2;XXm)
+            '\x1B[2;30m': '#808080',  # 黑色
+            '\x1B[2;31m': '#800000',  # 红色
+            '\x1B[2;32m': '#008000',  # 绿色
+            '\x1B[2;33m': '#808000',  # 黄色
+            '\x1B[2;34m': '#000080',  # 蓝色
+            '\x1B[2;35m': '#800080',  # 洋红
+            '\x1B[2;36m': '#008080',  # 青色
+            '\x1B[2;37m': '#C0C0C0',  # 白色
+            
+            # 亮色 (1;XXm)
+            '\x1B[1;30m': '#808080',  # 亮黑色
+            '\x1B[1;31m': '#FF0000',  # 亮红色
+            '\x1B[1;32m': '#00FF00',  # 亮绿色
+            '\x1B[1;33m': '#FFFF00',  # 亮黄色
+            '\x1B[1;34m': '#0000FF',  # 亮蓝色
+            '\x1B[1;35m': '#FF00FF',  # 亮洋红
+            '\x1B[1;36m': '#00FFFF',  # 亮青色
+            '\x1B[1;37m': '#FFFFFF',  # 亮白色
+            
+            # 背景色 (24;XXm 和 4;XXm)
+            '\x1B[24;40m': 'bg:#000000',  # 黑色背景
+            '\x1B[24;41m': 'bg:#800000',  # 红色背景
+            '\x1B[24;42m': 'bg:#008000',  # 绿色背景
+            '\x1B[24;43m': 'bg:#808000',  # 黄色背景
+            '\x1B[24;44m': 'bg:#000080',  # 蓝色背景
+            '\x1B[24;45m': 'bg:#800080',  # 洋红背景
+            '\x1B[24;46m': 'bg:#008080',  # 青色背景
+            '\x1B[24;47m': 'bg:#C0C0C0',  # 白色背景
+            
+            '\x1B[4;40m': 'bg:#000000',   # 亮黑色背景
+            '\x1B[4;41m': 'bg:#FF0000',   # 亮红色背景
+            '\x1B[4;42m': 'bg:#00FF00',   # 亮绿色背景
+            '\x1B[4;43m': 'bg:#FFFF00',   # 亮黄色背景
+            '\x1B[4;44m': 'bg:#0000FF',   # 亮蓝色背景
+            '\x1B[4;45m': 'bg:#FF00FF',   # 亮洋红背景
+            '\x1B[4;46m': 'bg:#00FFFF',   # 亮青色背景
+            '\x1B[4;47m': 'bg:#FFFFFF',   # 亮白色背景
+            
+            # 控制符
+            '\x1B[0m': 'reset',      # 重置
+            '\x1B[2J': 'clear',      # 清屏
+        }
+    
+    def remove_ansi_codes(self, text):
+        """从文本中删除所有ANSI控制符（用于日志文件）"""
+        if isinstance(text, bytes):
+            # 直接在bytes上操作，然后解码
+            clean_bytes = self.ansi_escape_bytes.sub(b'', text)
+            return clean_bytes.decode('gbk', errors='ignore')
+        else:
+            # 字符串操作
+            return self.ansi_escape.sub('', text)
+    
+    def parse_ansi_text(self, text):
+        """解析ANSI文本，返回带格式信息的文本段列表"""
+        if isinstance(text, bytes):
+            text = text.decode('gbk', errors='ignore')
+        
+        segments = []
+        current_color = None
+        current_bg = None
+        
+        # 分割文本，保留ANSI控制符
+        parts = self.ansi_escape.split(text)
+        ansi_codes = self.ansi_escape.findall(text)
+        
+        i = 0
+        for part in parts:
+            if part:  # 非空文本段
+                segments.append({
+                    'text': part,
+                    'color': current_color,
+                    'background': current_bg
+                })
+            
+            # 处理对应的ANSI控制符
+            if i < len(ansi_codes):
+                code = ansi_codes[i]
+                if code in self.color_map:
+                    color_value = self.color_map[code]
+                    if color_value == 'reset':
+                        current_color = None
+                        current_bg = None
+                    elif color_value == 'clear':
+                        # 清屏命令，可以在这里处理
+                        pass
+                    elif color_value.startswith('bg:'):
+                        current_bg = color_value[3:]
+                    else:
+                        current_color = color_value
+                i += 1
+        
+        return segments
+
+
+# 创建全局ANSI处理器实例
+ansi_processor = AnsiProcessor()
 
 def zip_folder(folder_path, zip_file_path):
     with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -346,6 +458,9 @@ class rtt_to_serial():
         # 关闭串口
         self._safe_close_serial()
         
+        # 检查并删除空的日志文件夹
+        self._cleanup_empty_log_folder()
+        
         # 打包文件为ZIP压缩包
         #zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
         # 删除文件夹
@@ -421,6 +536,35 @@ class rtt_to_serial():
         except Exception as e:
             logger.error(f'Close serial failed: {e}', exc_info=True)
 
+    def _cleanup_empty_log_folder(self):
+        """检查并删除空的日志文件夹"""
+        try:
+            if hasattr(self, 'log_directory') and self.log_directory:
+                import os
+                import shutil
+                from pathlib import Path
+                
+                log_path = Path(self.log_directory)
+                if log_path.exists() and log_path.is_dir():
+                    # 计算文件夹的实际大小
+                    total_size = 0
+                    file_count = 0
+                    
+                    for file_path in log_path.rglob('*'):
+                        if file_path.is_file():
+                            file_count += 1
+                            total_size += file_path.stat().st_size
+                    
+                    # 如果文件夹为空或者总大小为0KB，则删除
+                    if file_count == 0 or total_size == 0:
+                        shutil.rmtree(str(log_path))
+                        logger.info(f'Deleted empty log folder: {log_path}')
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Deleted empty log folder: %s") % str(log_path))
+                    else:
+                        logger.debug(f'Log folder kept: {log_path} (size: {total_size} bytes, files: {file_count})')
+                        
+        except Exception as e:
+            logger.error(f'Failed to cleanup log folder: {e}', exc_info=True)
 
     def rtt_thread_exec(self):
         # 打开日志文件，如果不存在将自动创建
@@ -483,9 +627,19 @@ class rtt_to_serial():
                     rtt_log_len = len(rtt_recv_log)
                 
                     if rtt_log_len:
-                        # 将接收到的数据写入日志文件
+                        # 将接收到的数据写入日志文件（删除ANSI控制符并清理格式）
                         log_bytes = bytearray(rtt_recv_log)
-                        log_file.write(log_bytes)
+                        try:
+                            # 删除ANSI控制符
+                            clean_text = ansi_processor.remove_ansi_codes(log_bytes)
+                            # 清理不可见字符，保留可打印字符和换行符
+                            clean_text = ''.join(char for char in clean_text if char.isprintable() or char in '\n\r\t')
+                            # 统一换行符格式
+                            clean_text = clean_text.replace('\r\n', '\n').replace('\r', '\n')
+                            log_file.write(clean_text.encode('gbk', errors='ignore'))
+                        except Exception as e:
+                            # 如果处理失败，写入原始数据
+                            log_file.write(log_bytes)
                         log_file.flush()  # 确保及时写入
 
                         skip_next_byte = False
@@ -560,8 +714,18 @@ class rtt_to_serial():
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):
-                            # 将接收到的数据写入数据文件
-                            data_file.write(bytes(rtt_recv_data))
+                            # 将接收到的数据写入数据文件（删除ANSI控制符并清理格式）
+                            try:
+                                # 删除ANSI控制符
+                                clean_data = ansi_processor.remove_ansi_codes(bytes(rtt_recv_data))
+                                # 清理不可见字符，保留可打印字符和换行符
+                                clean_data = ''.join(char for char in clean_data if char.isprintable() or char in '\n\r\t')
+                                # 统一换行符格式
+                                clean_data = clean_data.replace('\r\n', '\n').replace('\r', '\n')
+                                data_file.write(clean_data.encode('gbk', errors='ignore'))
+                            except Exception as e:
+                                # 如果处理失败，写入原始数据
+                                data_file.write(bytes(rtt_recv_data))
                             data_file.flush()  # 确保及时写入
                             
                             # 使用我们的转发逻辑而不是直接写入串口
