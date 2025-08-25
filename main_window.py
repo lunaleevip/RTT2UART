@@ -3,6 +3,7 @@ import sys
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
+from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
 from PySide6.QtCore import *
 from PySide6 import QtGui
 from PySide6 import QtCore
@@ -386,21 +387,19 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            # 🚀 终极性能方案：使用QPlainTextEdit，专为大量文本设计
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = QPlainTextEdit(page)  # 切换到QPlainTextEdit，性能最佳
+            # 🎨 智能双模式：QTextEdit支持ANSI颜色 + 性能优化
+            text_edit = QTextEdit(page)  # 使用QTextEdit支持HTML格式化
             text_edit.setReadOnly(True)
-            text_edit.setLineWrapMode(QPlainTextEdit.NoWrap)  # 禁用换行，提升性能
+            text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
             
-            # 🎯 关键性能优化设置
-            text_edit.setMaximumBlockCount(3000)  # 限制最大行数，自动滑动窗口
-            text_edit.setCenterOnScroll(False)  # 禁用居中滚动，提升性能
+            # 🎯 关键性能优化设置 - 像JLink RTT Viewer一样支持大缓冲
+            text_edit.document().setMaximumBlockCount(10000)  # 10000行缓冲，接近JLink RTT Viewer
             
             # 🎨 设置等宽字体，提升渲染性能
-            font = QFont("Consolas", 10)
+            font = QFont("新宋体", 10)
             font.setFixedPitch(True)  # 等宽字体
             text_edit.setFont(font)
             
@@ -1684,11 +1683,11 @@ class ConnectionDialog(QDialog):
             
         current_page_widget = self.main_window.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
-            # 兼容QPlainTextEdit和QTextEdit
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = current_page_widget.findChild(QPlainTextEdit)
+            # 优先使用QTextEdit支持ANSI颜色显示
+            text_edit = current_page_widget.findChild(QTextEdit)
             if not text_edit:
-                text_edit = current_page_widget.findChild(QTextEdit)  # 后备方案
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page_widget.findChild(QPlainTextEdit)  # 后备方案
             
             font = QFont("Consolas", self.main_window.ui.fontsize_box.value())  # 使用等宽字体
             font.setFixedPitch(True)
@@ -1716,35 +1715,41 @@ class ConnectionDialog(QDialog):
                             keywords.append(self.main_window.ui.tem_switch.tabText(i))
                     self.main_window.highlighter[index].setKeywords(keywords)
                     
-                # 🚀 QPlainTextEdit终极性能策略：专为大量文本优化
+                # 🎨 智能ANSI颜色支持 + 高性能文本处理
                 try:
                     max_insert_length = 16384  # 16KB单次插入限制
                     
-                    # QPlainTextEdit只处理纯文本，忽略HTML格式
-                    if self.worker.buffers[index]:
+                    # 检查是否有ANSI彩色数据
+                    has_colored_data = (hasattr(self.worker, 'colored_buffers') and 
+                                      self.worker.colored_buffers[index])
+                    
+                    if has_colored_data and len(self.worker.colored_buffers[index]) > 0:
+                        # 🚀 方案A：高性能ANSI彩色显示（使用QTextCursor+QTextCharFormat）
+                        colored_data = self.worker.colored_buffers[index]
+                        if len(colored_data) > max_insert_length:
+                            colored_data = colored_data[-max_insert_length:]
+                        
+                        # 使用高性能原生Qt格式化，传入tab索引用于清屏控制
+                        self._insert_ansi_text_fast(text_edit, colored_data, index)
+                        
+                        # 自动滚动到底部
+                        text_edit.verticalScrollBar().setValue(
+                            text_edit.verticalScrollBar().maximum())
+                    
+                    elif self.worker.buffers[index]:
+                        # 🚀 方案B：高性能纯文本显示（使用QPlainTextEdit模式）
                         data_to_insert = self.worker.buffers[index]
                         if len(data_to_insert) > max_insert_length:
                             data_to_insert = data_to_insert[-max_insert_length:]
                         
-                        # 🎯 使用QPlainTextEdit的高性能方法
-                        # 检查是否为QPlainTextEdit
-                        from PySide6.QtWidgets import QPlainTextEdit
-                        if isinstance(text_edit, QPlainTextEdit):
-                            # 方法1：直接appendPlainText（最高性能）
-                            # 自动处理滑动窗口，超过maxBlockCount自动删除旧行
-                            lines = data_to_insert.split('\n')
-                            for line in lines:
-                                if line.strip():  # 跳过空行
-                                    text_edit.appendPlainText(line.rstrip())
-                            
-                            # 自动滚动到底部
-                            text_edit.verticalScrollBar().setValue(
-                                text_edit.verticalScrollBar().maximum())
-                        else:
-                            # 后备方案：兼容QTextEdit
-                            text_edit.insertPlainText(data_to_insert)
+                        # 使用QTextEdit的高性能纯文本插入
+                        text_edit.insertPlainText(data_to_insert)
+                        
+                        # 自动滚动到底部
+                        text_edit.verticalScrollBar().setValue(
+                            text_edit.verticalScrollBar().maximum())
                     
-                    # 清空彩色缓冲区（QPlainTextEdit不支持HTML）
+                    # 清空已处理的缓冲区
                     if hasattr(self.worker, 'colored_buffers'):
                         self.worker.colored_buffers[index] = ""
                         
@@ -1792,16 +1797,18 @@ class ConnectionDialog(QDialog):
             print("Invalid page index or widget type:", index)
 
     def clear_current_tab(self):
-        """清空当前标签页的内容"""
+        """清空当前标签页的内容 - 仅限RTT通道（0-15），不包括ALL窗口"""
         current_index = self.main_window.ui.tem_switch.currentIndex()
-        if current_index >= 0:
+        
+        # 限制清屏功能：只允许RTT通道（索引1-16，对应通道0-15），不允许ALL窗口（索引0）
+        if current_index >= 1 and current_index <= 16:
             current_page_widget = self.main_window.ui.tem_switch.widget(current_index)
             if isinstance(current_page_widget, QWidget):
-                # 兼容QPlainTextEdit和QTextEdit
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page_widget.findChild(QPlainTextEdit)
+                # 优先使用QTextEdit支持ANSI颜色显示
+                text_edit = current_page_widget.findChild(QTextEdit)
                 if not text_edit:
-                    text_edit = current_page_widget.findChild(QTextEdit)  # 后备方案
+                    from PySide6.QtWidgets import QPlainTextEdit
+                    text_edit = current_page_widget.findChild(QPlainTextEdit)  # 后备方案
                 
                 if text_edit and hasattr(text_edit, 'clear'):
                     text_edit.clear()
@@ -1815,8 +1822,73 @@ class ConnectionDialog(QDialog):
                     # 清空HTML缓冲区
                     if hasattr(self.worker, 'html_buffers') and current_index < len(self.worker.html_buffers):
                         self.worker.html_buffers[current_index] = ""
+        else:
+            # ALL窗口或其他窗口不允许清屏
+            if current_index == 0:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(
+                    self.main_window, 
+                    QCoreApplication.translate("MainWindow", "提示"),
+                    QCoreApplication.translate("MainWindow", "ALL窗口显示所有通道的汇总数据，不支持清屏操作。\n请切换到具体的RTT通道（0-15）进行清屏。")
+                )
 
 
+    def _insert_ansi_text_fast(self, text_edit, text, tab_index=None):
+        """高性能ANSI文本插入 - 使用QTextCursor和QTextCharFormat"""
+        try:
+            # 检查是否包含ANSI控制符
+            if '\x1B[' not in text:
+                # 纯文本，直接插入（最高性能）
+                text_edit.insertPlainText(text)
+                return
+            
+            # 检查是否包含清屏控制符
+            if '\x1B[2J' in text:
+                # 只有RTT通道（索引1-16）才允许清屏，ALL窗口（索引0）不允许
+                if tab_index is not None and tab_index >= 1 and tab_index <= 16:
+                    text_edit.clear()
+                # 移除清屏控制符，继续处理其他ANSI代码
+                text = text.replace('\x1B[2J', '')
+            
+            # 解析ANSI文本段落
+            segments = ansi_processor.parse_ansi_text(text)
+            cursor = text_edit.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            
+            for segment in segments:
+                text_part = segment['text']
+                color = segment['color']
+                background = segment['background']
+                
+                if not text_part:
+                    continue
+                
+                # 创建文本格式
+                format = QTextCharFormat()
+                
+                if color:
+                    # 设置前景色
+                    format.setForeground(QColor(color))
+                
+                if background:
+                    # 设置背景色
+                    format.setBackground(QColor(background))
+                
+                # 设置字体（保持等宽）
+                font = QFont("Consolas", text_edit.font().pointSize())
+                font.setFixedPitch(True)
+                format.setFont(font)
+                
+                # 插入格式化文本
+                cursor.insertText(text_part, format)
+            
+            # 更新文本编辑器的光标位置
+            text_edit.setTextCursor(cursor)
+            
+        except Exception as e:
+            # 如果ANSI处理失败，插入纯文本
+            clean_text = ansi_processor.remove_ansi_codes(text)
+            text_edit.insertPlainText(clean_text)
 
     def _cleanup_ui_text(self):
         """定期清理UI文本内容，防止无限累积"""
@@ -2015,43 +2087,7 @@ class Worker(QObject):
 
             self.finished.emit()
 
-    def _convert_ansi_to_html(self, text):
-        """将ANSI颜色代码转换为HTML格式"""
-        try:
-            # 检查是否包含ANSI控制符
-            if '\x1B[' not in text:
-                # 如果没有ANSI控制符，直接返回转义后的文本，保持换行
-                return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
-            
-            segments = ansi_processor.parse_ansi_text(text)
-            html_parts = []
-            
-            for segment in segments:
-                text_part = segment['text']
-                color = segment['color']
-                background = segment['background']
-                
-                # 转义HTML特殊字符，并将换行符转换为<br>
-                text_part = text_part.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
-                
-                if color or background:
-                    style_parts = []
-                    if color:
-                        style_parts.append(f'color: {color}')
-                    if background:
-                        style_parts.append(f'background-color: {background}')
-                    
-                    style = '; '.join(style_parts)
-                    html_parts.append(f'<span style="{style}">{text_part}</span>')
-                else:
-                    html_parts.append(text_part)
-            
-            result = ''.join(html_parts)
-            return result
-        except Exception as e:
-            # 如果ANSI处理失败，返回清理后的纯文本
-            clean_text = ansi_processor.remove_ansi_codes(text)
-            return clean_text.replace('\n', '<br>')
+
 
     def process_filter_lines(self, lines):
         """优化的过滤处理逻辑"""
