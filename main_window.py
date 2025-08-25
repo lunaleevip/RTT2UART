@@ -2087,7 +2087,23 @@ class Worker(QObject):
 
             self.finished.emit()
 
-
+    def _highlight_filter_text(self, line, search_word):
+        """为筛选文本添加高亮显示"""
+        try:
+            if not search_word or search_word not in line:
+                return line
+            
+            # 使用亮黄色背景高亮筛选关键词
+            highlight_start = '\x1B[2;33m'  # 黄色背景
+            highlight_end = '\x1B[0m'       # 重置
+            
+            # 替换所有匹配的关键词（保持大小写敏感）
+            highlighted_line = line.replace(search_word, f"{highlight_start}{search_word}{highlight_end}")
+            
+            return highlighted_line
+        except Exception:
+            # 如果高亮失败，返回原始行
+            return line
 
     def process_filter_lines(self, lines):
         """优化的过滤处理逻辑"""
@@ -2111,6 +2127,13 @@ class Worker(QObject):
                 if search_word in line:
                     filtered_data = line + '\n'
                     self.buffers[i] += filtered_data
+                    
+                    # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
+                    if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
+                        # 创建带高亮的彩色数据
+                        highlighted_line = self._highlight_filter_text(line, search_word)
+                        self.colored_buffers[i] += highlighted_line + '\n'
+                    
                     # 标记页面需要更新
                     if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
                         self.parent.main_window.page_dirty_flags[i] = True
@@ -2119,10 +2142,12 @@ class Worker(QObject):
                     if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
                         self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
                     
-                    # 缓冲写入搜索日志
+                    # 缓冲写入搜索日志（移除ANSI后保存）
                     new_path = replace_special_characters(search_word)
                     search_log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log'
-                    self.write_to_log_buffer(search_log_filepath, line + '\n')
+                    # 写入日志时移除ANSI控制符
+                    clean_line = ansi_processor.remove_ansi_codes(line)
+                    self.write_to_log_buffer(search_log_filepath, clean_line + '\n')
 
 def replace_special_characters(path, replacement='_'):
     # 定义需要替换的特殊字符的正则表达式模式

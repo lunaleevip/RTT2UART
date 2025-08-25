@@ -714,18 +714,8 @@ class rtt_to_serial():
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):
-                            # 将接收到的数据写入数据文件（删除ANSI控制符并清理格式）
-                            try:
-                                # 删除ANSI控制符
-                                clean_data = ansi_processor.remove_ansi_codes(bytes(rtt_recv_data))
-                                # 清理不可见字符，保留可打印字符和换行符
-                                clean_data = ''.join(char for char in clean_data if char.isprintable() or char in '\n\r\t')
-                                # 统一换行符格式
-                                clean_data = clean_data.replace('\r\n', '\n').replace('\r', '\n')
-                                data_file.write(clean_data.encode('gbk', errors='ignore'))
-                            except Exception as e:
-                                # 如果处理失败，写入原始数据
-                                data_file.write(bytes(rtt_recv_data))
+                            # rtt_data.log 保存原始RAW数据，不进行任何处理
+                            data_file.write(bytes(rtt_recv_data))
                             data_file.flush()  # 确保及时写入
                             
                             # 使用我们的转发逻辑而不是直接写入串口
