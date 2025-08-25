@@ -473,7 +473,6 @@ class RTTMainWindow(QMainWindow):
         
         # 样式切换动作
         style_action = QAction(QCoreApplication.translate("main_window", "切换主题(&T)"), self)
-        style_action.setShortcut(QKeySequence("F7"))
         style_action.triggered.connect(self.toggle_style_checkbox)
         tools_menu.addAction(style_action)
         
@@ -586,13 +585,13 @@ class RTTMainWindow(QMainWindow):
             if hasattr(self.ui, 'cmd_buffer'):
                 self.ui.cmd_buffer.setEnabled(enabled)
             
-            # 清除按钮
-            if hasattr(self.ui, 'clear'):
-                self.ui.clear.setEnabled(enabled)
+            # # 清除按钮
+            # if hasattr(self.ui, 'clear'):
+            #     self.ui.clear.setEnabled(enabled)
             
-            # 打开文件夹按钮
-            if hasattr(self.ui, 'openfolder'):
-                self.ui.openfolder.setEnabled(enabled)
+            # # 打开文件夹按钮
+            # if hasattr(self.ui, 'openfolder'):
+            #     self.ui.openfolder.setEnabled(enabled)
     
     def _apply_saved_settings(self):
         """应用保存的设置"""
@@ -833,6 +832,7 @@ class RTTMainWindow(QMainWindow):
         """断开连接，不显示连接对话框"""
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             self.connection_dialog.start()  # 这会切换到断开状态
+        # 如果已经断开，则无操作（但快捷键仍然响应）
 
     def on_re_connect_clicked(self):
         """重新连接：先断开现有连接，然后显示连接对话框"""
@@ -853,8 +853,19 @@ class RTTMainWindow(QMainWindow):
                 text_edit.clear()
 
     def on_openfolder_clicked(self):
+        # 在连接状态下打开当前的日志目录
         if self.connection_dialog and self.connection_dialog.rtt2uart:
             os.startfile(self.connection_dialog.rtt2uart.log_directory)
+        else:
+            # 在断开状态下打开默认的日志目录
+            import pathlib
+            desktop_path = pathlib.Path.home() / "Desktop/XexunRTT_Log"
+            if desktop_path.exists():
+                os.startfile(str(desktop_path))
+            else:
+                # 如果日志目录不存在，打开桌面
+                desktop = pathlib.Path.home() / "Desktop"
+                os.startfile(str(desktop))
 
     def populateComboBox(self):
         # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
@@ -1274,6 +1285,11 @@ class ConnectionDialog(QDialog):
         self.radioButton_DATA.setGeometry(QRect(150, 20, 120, 16))
         self.radioButton_DATA.setText(QCoreApplication.translate("dialog", "DATA (RTT Channel 1)"))
         
+        # 创建按钮组确保互斥选择
+        self.serial_forward_mode_group = QButtonGroup(self)
+        self.serial_forward_mode_group.addButton(self.radioButton_LOG)
+        self.serial_forward_mode_group.addButton(self.radioButton_DATA)
+        
         # 创建标签
         self.label_SerialForward = QLabel(self.groupBox_SerialForward)
         self.label_SerialForward.setObjectName("label_SerialForward")
@@ -1287,6 +1303,9 @@ class ConnectionDialog(QDialog):
         
         # 初始化选择框内容
         self._update_serial_forward_combo()
+        
+        # 恢复保存的设置（只在初始化时执行）
+        self._restore_saved_forward_settings()
         
         # 连接信号
         self.comboBox_SerialForward.currentIndexChanged.connect(self._on_serial_forward_changed)
@@ -1309,6 +1328,10 @@ class ConnectionDialog(QDialog):
         if not hasattr(self, 'comboBox_SerialForward'):
             return
             
+        # 临时断开信号连接，避免在更新过程中触发不必要的事件
+        # 使用blockSignals更安全的方式
+        self.comboBox_SerialForward.blockSignals(True)
+        
         # 清空现有选项
         self.comboBox_SerialForward.clear()
         
@@ -1340,7 +1363,24 @@ class ConnectionDialog(QDialog):
             # DATA模式：只显示RTT信道1
             self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "RTT Channel 1 (Raw Data)"), 'rtt_channel_1')
         
-        # 恢复保存的设置
+        # 恢复保存的设置（只在初始化时执行，不在每次更新时重置）
+        # 这里不再重置单选框状态，避免用户选择被覆盖
+        # if 'serial_forward_mode' in self.settings:
+        #     forward_mode = self.settings['serial_forward_mode']
+        #     if forward_mode == 'DATA' and hasattr(self, 'radioButton_DATA'):
+        #         self.radioButton_DATA.setChecked(True)
+        #     elif hasattr(self, 'radioButton_LOG'):
+        #         self.radioButton_LOG.setChecked(True)
+        
+        # 不在这里恢复选择框的选中项，避免覆盖用户的当前选择
+        # 选择框的恢复由_restore_saved_forward_settings方法处理
+        
+        # 重新启用信号
+        self.comboBox_SerialForward.blockSignals(False)
+    
+    def _restore_saved_forward_settings(self):
+        """恢复保存的转发设置（只在初始化时调用）"""
+        # 恢复单选框状态
         if 'serial_forward_mode' in self.settings:
             forward_mode = self.settings['serial_forward_mode']
             if forward_mode == 'DATA' and hasattr(self, 'radioButton_DATA'):
@@ -1348,6 +1388,10 @@ class ConnectionDialog(QDialog):
             elif hasattr(self, 'radioButton_LOG'):
                 self.radioButton_LOG.setChecked(True)
         
+        # 重新更新选择框内容以匹配单选框状态
+        self._update_serial_forward_combo()
+        
+        # 恢复选择框的选中项
         if 'serial_forward_tab' in self.settings:
             forward_tab = self.settings['serial_forward_tab']
             for i in range(self.comboBox_SerialForward.count()):
@@ -1357,6 +1401,10 @@ class ConnectionDialog(QDialog):
     
     def _on_forward_mode_changed(self):
         """转发模式发生变化时的处理"""
+        # 添加调试信息
+        mode = 'DATA' if (hasattr(self, 'radioButton_DATA') and self.radioButton_DATA.isChecked()) else 'LOG'
+        logger.debug(f'Forward mode changed to: {mode}')
+        
         # 更新选择框内容
         self._update_serial_forward_combo()
         
@@ -1395,10 +1443,11 @@ class ConnectionDialog(QDialog):
         port_list.sort()
         for port in port_list:
             try:
-                s = serial.Serial(port[0])
-                s.close()
+                # 不实际打开串口，只是列出可用的串口
+                # 避免与其他程序冲突或阻塞
                 self.ui.comboBox_Port.addItem(port[0])
-            except (OSError, serial.SerialException):
+            except Exception as e:
+                logger.warning(f'Error adding port {port[0]}: {e}')
                 pass
 
     def start(self):
@@ -1469,7 +1518,8 @@ class ConnectionDialog(QDialog):
                         self.rtt2uart.set_serial_forward_config(selected_tab, forward_mode)
                         if hasattr(self.main_window, 'append_jlink_log'):
                             if selected_tab == -1:
-                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding disabled"))
+                                pass
+                                #self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding disabled"))
                             else:
                                 tab_name = self.comboBox_SerialForward.currentText()
                                 mode_text = QCoreApplication.translate("main_window", "LOG Mode") if forward_mode == 'LOG' else QCoreApplication.translate("main_window", "DATA Mode")
@@ -1753,7 +1803,7 @@ class Worker(QObject):
             if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
                 # 转发单个通道的数据（index+1对应TAB索引）
                 self.parent.rtt2uart.add_tab_data_for_forwarding(index+1, data)
-                # 转发所有数据（TAB 0）
+                # 转发所有数据（TAB 0）包含通道前缀
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
             # 优化：使用缓冲写入日志
