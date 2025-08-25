@@ -14,7 +14,7 @@ from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
 
-logging.basicConfig(level=logging.WARNING,
+logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -137,15 +137,17 @@ class rtt_to_serial():
             if self.serial_forward_tab == 'current_tab':
                 # 转发当前标签页
                 should_forward = (tab_index == self.current_tab_index)
+                # 添加调试信息
+                if tab_index <= 1:  # 只为前几个TAB显示调试信息，避免日志过多
+                    logger.debug(f'Current tab forwarding check: tab_index={tab_index}, current_tab_index={self.current_tab_index}, should_forward={should_forward}')
             elif isinstance(self.serial_forward_tab, int):
                 # 转发指定的TAB
                 should_forward = (tab_index == self.serial_forward_tab)
         
         elif self.serial_forward_mode == 'DATA':
-            # DATA模式：只转发RTT信道1的原始数据
-            if self.serial_forward_tab == 'rtt_channel_1':
-                # 只转发通道1的数据（tab_index == 1）
-                should_forward = (tab_index == 1)
+            # DATA模式：不在这里转发，原始数据由add_raw_rtt_data_for_forwarding处理
+            # 避免重复转发处理后的LOG数据
+            should_forward = False
         
         if should_forward:
             # 将数据转发到串口
@@ -158,16 +160,22 @@ class rtt_to_serial():
                         data_bytes = bytes(data)
                     
                     self.serial.write(data_bytes)
-                    logger.debug(f'Forwarded {len(data_bytes)} bytes from TAB {tab_index} to serial port (mode: {self.serial_forward_mode})')
+                    # # 添加详细的调试信息
+                    # logger.debug(f'Forwarded {len(data_bytes)} bytes from TAB {tab_index} to serial port (mode: {self.serial_forward_mode}, forward_tab: {self.serial_forward_tab}, current_tab: {self.current_tab_index})')
+                    # # 显示部分数据内容用于调试
+                    # preview = data[:50] if len(str(data)) > 50 else str(data)
+                    # logger.debug(f'Forwarded data preview: {repr(preview)}')
                 except Exception as e:
                     logger.error(f"Serial forward error: {e}")
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forward error: %s") % str(e))
     
     def add_raw_rtt_data_for_forwarding(self, channel, data):
         """为RTT原始数据添加转发功能（DATA模式专用）"""
+        logger.debug(f'add_raw_rtt_data_for_forwarding called: channel={channel}, data_len={len(data) if data else 0}, mode={self.serial_forward_mode}, tab={self.serial_forward_tab}')
         if (self.serial_forward_mode == 'DATA' and 
             self.serial_forward_tab == 'rtt_channel_1' and 
             channel == 1):
+            logger.debug('add_raw_rtt_data_for_forwarding: conditions met, proceeding with forwarding')
             
             if self.serial.isOpen():
                 try:
@@ -556,15 +564,15 @@ class rtt_to_serial():
                             data_file.write(bytes(rtt_recv_data))
                             data_file.flush()  # 确保及时写入
                             
-                            if self.serial.isOpen():
-                                try:
-                                    self.serial.write(bytes(rtt_recv_data))
-                                except Exception as e:
-                                    logger.error(f"Serial write error: {e}")
-                                    try:
-                                        self.serial.close()
-                                    except:
-                                        pass
+                            # 使用我们的转发逻辑而不是直接写入串口
+                            # 这样可以按照UI设置进行转发
+                            # logger.debug(f'RTT2UART thread: received {len(rtt_recv_data)} bytes, mode={self.serial_forward_mode}, tab={self.serial_forward_tab}')
+                            if (self.serial_forward_mode == 'DATA' and 
+                                self.serial_forward_tab == 'rtt_channel_1'):
+                                logger.debug('RTT2UART thread: calling add_raw_rtt_data_for_forwarding')
+                                self.add_raw_rtt_data_for_forwarding(1, rtt_recv_data)
+                            # else:
+                            #     logger.debug(f'RTT2UART thread: not forwarding - mode={self.serial_forward_mode}, tab={self.serial_forward_tab}')
                         else:
                             # 没有数据时短暂休眠
                             time.sleep(0.001)
@@ -590,9 +598,12 @@ class rtt_to_serial():
             # 处理非法输入的情况
             tem_num = 0
         
-        # 在DATA模式下，转发RTT原始数据（在处理之前）
-        if tem_num == 1:  # RTT信道1
-            self.add_raw_rtt_data_for_forwarding(1, string)
+        # DATA模式下的原始数据转发由RTT2UART线程处理
+        # 这里不需要重复调用，避免数据混乱
+        # if (tem_num == 1 and 
+        #     self.serial_forward_mode == 'DATA' and 
+        #     self.serial_forward_tab == 'rtt_channel_1'):
+        #     self.add_raw_rtt_data_for_forwarding(1, string)
             
         self.main.addToBuffer(tem_num, string);
 
