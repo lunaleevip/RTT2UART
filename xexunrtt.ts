@@ -147,6 +147,80 @@
         <source>TCP/IP</source>
         <translation>TCP/IP</translation>
     </message>
+    <message>
+        <location filename="main_window.py" line="1260"/>
+        <source>Serial Forward Settings</source>
+        <translation>串口转发设置</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1266"/>
+        <source>LOG Current Tab Selection</source>
+        <translation>LOG 当前的标签页选择</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1271"/>
+        <source>DATA (RTT Channel 1)</source>
+        <translation>DATA（RTT 信道1）</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1276"/>
+        <source>Forward Content:</source>
+        <translation>转发内容:</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1295"/>
+        <source>Disable Forward</source>
+        <translation>禁用转发</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1300"/>
+        <source>Current Tab</source>
+        <translation>当前标签页</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1305"/>
+        <source>All Data</source>
+        <translation>所有数据</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1307"/>
+        <source>Channel</source>
+        <translation>通道</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1311"/>
+        <source>Filter</source>
+        <translation>筛选</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1312"/>
+        <source>Not Set</source>
+        <translation>未设置</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1318"/>
+        <source>RTT Channel 1 (Raw Data)</source>
+        <translation>RTT 信道1 (原始数据)</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1340"/>
+        <source>Forward Disabled</source>
+        <translation>转发已禁用</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1343"/>
+        <source>LOG Mode</source>
+        <translation>LOG模式</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1343"/>
+        <source>DATA Mode</source>
+        <translation>DATA模式</translation>
+    </message>
+    <message>
+        <source>{} - {}</source>
+        <translation>{} - {}</translation>
+    </message>
 </context>
 <context>
     <name>filter</name>
@@ -427,6 +501,18 @@
         <source>double click filter to write filter text</source>
         <translation>双击筛选可以修改筛选的文本</translation>
     </message>
+    <message>
+        <source>LOG Mode</source>
+        <translation>LOG模式</translation>
+    </message>
+    <message>
+        <source>DATA Mode</source>
+        <translation>DATA模式</translation>
+    </message>
+    <message>
+        <source>Serial forwarding enabled: %s - %s</source>
+        <translation>串口转发已启用: %s - %s</translation>
+    </message>
 </context>
 <context>
     <name>rtt2uart</name>
@@ -549,6 +635,34 @@
     <message>
         <source>Cannot check JLink status in RTT2UART thread</source>
         <translation>无法检查RTT2UART线程中的JLink状态</translation>
+    </message>
+    <message>
+        <source>LOG Mode</source>
+        <translation>LOG模式</translation>
+    </message>
+    <message>
+        <location filename="rtt2uart.py" line="116"/>
+        <source>DATA Mode</source>
+        <translation>DATA模式</translation>
+    </message>
+    <message>
+        <location filename="rtt2uart.py" line="117"/>
+        <source>Serial forwarding enabled: %s - %s</source>
+        <translation>串口转发已启用: %s - %s</translation>
+    </message>
+    <message>
+        <location filename="rtt2uart.py" line="114"/>
+        <source>Serial forwarding disabled</source>
+        <translation>串口转发已禁用</translation>
+    </message>
+    <message>
+        <source>Serial forwarding set to TAB: %s</source>
+        <translation>串口转发设置为标签页: %s</translation>
+    </message>
+    <message>
+        <location filename="rtt2uart.py" line="470"/>
+        <source>RTT read failed: %s</source>
+        <translation>RTT读取失败: %s</translation>
     </message>
 </context>
 <context>

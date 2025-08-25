@@ -441,13 +441,11 @@ class RTTMainWindow(QMainWindow):
         
         # 重新连接动作
         reconnect_action = QAction(QCoreApplication.translate("main_window", "重新连接(&R)"), self)
-        reconnect_action.setShortcut(QKeySequence("F2"))
         reconnect_action.triggered.connect(self.on_re_connect_clicked)
         connection_menu.addAction(reconnect_action)
         
         # 断开连接动作
         disconnect_action = QAction(QCoreApplication.translate("main_window", "断开连接(&D)"), self)
-        disconnect_action.setShortcut(QKeySequence("F3"))
         disconnect_action.triggered.connect(self.on_dis_connect_clicked)
         connection_menu.addAction(disconnect_action)
         
@@ -463,13 +461,11 @@ class RTTMainWindow(QMainWindow):
         
         # 清除日志动作
         clear_action = QAction(QCoreApplication.translate("main_window", "清除当前页面(&C)"), self)
-        clear_action.setShortcut(QKeySequence("F4"))
         clear_action.triggered.connect(self.on_clear_clicked)
         tools_menu.addAction(clear_action)
         
         # 打开日志文件夹动作
         open_folder_action = QAction(QCoreApplication.translate("main_window", "打开日志文件夹(&O)"), self)
-        open_folder_action.setShortcut(QKeySequence("F1"))
         open_folder_action.triggered.connect(self.on_openfolder_clicked)
         tools_menu.addAction(open_folder_action)
         
@@ -787,6 +783,11 @@ class RTTMainWindow(QMainWindow):
     @Slot(int)
     def switchPage(self, index):
         self.connection_dialog.switchPage(index)
+        
+        # 更新当前标签页索引（用于串口转发）
+        if self.connection_dialog and self.connection_dialog.rtt2uart:
+            self.connection_dialog.rtt2uart.set_current_tab_index(index)
+        
         # 每次切换页面时都确保工具提示设置正确
         self._ensure_correct_tooltips()
 
@@ -829,14 +830,17 @@ class RTTMainWindow(QMainWindow):
                     self.connection_dialog.settings['cmd'].append(current_text)
 
     def on_dis_connect_clicked(self):
+        """断开连接，不显示连接对话框"""
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_dialog.start()
+            self.connection_dialog.start()  # 这会切换到断开状态
 
     def on_re_connect_clicked(self):
+        """重新连接：先断开现有连接，然后显示连接对话框"""
+        # 如果当前有连接，先断开
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_dialog.start()
+            self.connection_dialog.start()  # 这会切换到断开状态
             
-        # 只有在主窗口没有关闭时才显示连接对话框
+        # 显示连接对话框供用户重新连接
         if self.connection_dialog and not self._is_closing:
             self.connection_dialog.show()
 
@@ -1077,7 +1081,7 @@ class ConnectionDialog(QDialog):
         self.port_scan()
 
         self.settings = {'device': [], 'device_index': 0, 'interface': 0,
-                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[], 'serial_forward_tab': -1}
+                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[], 'serial_forward_tab': -1, 'serial_forward_mode': 'LOG'}
 
         # 主窗口引用（由父窗口传入）
         self.main_window = parent
@@ -1252,39 +1256,53 @@ class ConnectionDialog(QDialog):
     
     def _create_serial_forward_controls(self):
         """在连接对话框中创建串口转发设置控件"""
-        # 创建串口转发组框
+        # 创建串口转发组框（增加高度以容纳更多控件）
         self.groupBox_SerialForward = QGroupBox(self)
         self.groupBox_SerialForward.setObjectName("groupBox_SerialForward")
-        self.groupBox_SerialForward.setGeometry(QRect(10, 295, 381, 51))
-        self.groupBox_SerialForward.setTitle(QCoreApplication.translate("dialog", "串口转发设置"))
+        self.groupBox_SerialForward.setGeometry(QRect(10, 295, 381, 75))  # 增加高度
+        self.groupBox_SerialForward.setTitle(QCoreApplication.translate("dialog", "Serial Forward Settings"))
+        
+        # 创建转发模式单选按钮
+        self.radioButton_LOG = QRadioButton(self.groupBox_SerialForward)
+        self.radioButton_LOG.setObjectName("radioButton_LOG")
+        self.radioButton_LOG.setGeometry(QRect(13, 20, 120, 16))
+        self.radioButton_LOG.setText(QCoreApplication.translate("dialog", "LOG Current Tab Selection"))
+        self.radioButton_LOG.setChecked(True)  # 默认选中LOG模式
+        
+        self.radioButton_DATA = QRadioButton(self.groupBox_SerialForward)
+        self.radioButton_DATA.setObjectName("radioButton_DATA")
+        self.radioButton_DATA.setGeometry(QRect(150, 20, 120, 16))
+        self.radioButton_DATA.setText(QCoreApplication.translate("dialog", "DATA (RTT Channel 1)"))
         
         # 创建标签
         self.label_SerialForward = QLabel(self.groupBox_SerialForward)
         self.label_SerialForward.setObjectName("label_SerialForward")
-        self.label_SerialForward.setGeometry(QRect(13, 20, 61, 20))
-        self.label_SerialForward.setText(QCoreApplication.translate("dialog", "转发内容:"))
+        self.label_SerialForward.setGeometry(QRect(13, 45, 61, 20))
+        self.label_SerialForward.setText(QCoreApplication.translate("dialog", "Forward Content:"))
         
         # 创建选择框
         self.comboBox_SerialForward = QComboBox(self.groupBox_SerialForward)
         self.comboBox_SerialForward.setObjectName("comboBox_SerialForward")
-        self.comboBox_SerialForward.setGeometry(QRect(80, 18, 291, 22))
+        self.comboBox_SerialForward.setGeometry(QRect(80, 43, 291, 22))
         
         # 初始化选择框内容
         self._update_serial_forward_combo()
         
         # 连接信号
         self.comboBox_SerialForward.currentIndexChanged.connect(self._on_serial_forward_changed)
+        self.radioButton_LOG.toggled.connect(self._on_forward_mode_changed)
+        self.radioButton_DATA.toggled.connect(self._on_forward_mode_changed)
         
         # 调整其他控件的位置
         # 将开始按钮向下移动
-        self.ui.pushButton_Start.setGeometry(QRect(100, 355, 181, 41))
+        self.ui.pushButton_Start.setGeometry(QRect(100, 380, 181, 41))
         # 将状态标签向下移动
-        self.ui.status.setGeometry(QRect(290, 355, 91, 31))
+        self.ui.status.setGeometry(QRect(290, 380, 91, 31))
         
         # 调整对话框大小
-        self.resize(401, 405)
-        self.setMinimumSize(QSize(401, 405))
-        self.setMaximumSize(QSize(401, 405))
+        self.resize(401, 430)
+        self.setMinimumSize(QSize(401, 430))
+        self.setMaximumSize(QSize(401, 430))
     
     def _update_serial_forward_combo(self):
         """更新串口转发选择框的内容"""
@@ -1294,33 +1312,56 @@ class ConnectionDialog(QDialog):
         # 清空现有选项
         self.comboBox_SerialForward.clear()
         
-        # 添加选项
-        self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "禁用转发"), -1)
+        # 添加禁用选项
+        self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "Disable Forward"), -1)
         
-        # 添加所有TAB页面
-        if self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
-            for i in range(MAX_TAB_SIZE):
-                tab_text = self.main_window.ui.tem_switch.tabText(i)
-                if i == 0:
-                    display_text = f"{tab_text} (所有数据)"
-                elif i < 17:
-                    display_text = f"通道 {tab_text}"
-                else:
-                    # 对于筛选标签页，显示实际的筛选文本
-                    if tab_text == QCoreApplication.translate("main_window", "filter"):
-                        display_text = f"筛选 {i-16}: (未设置)"
+        # 根据选中的模式添加不同的选项
+        if hasattr(self, 'radioButton_LOG') and self.radioButton_LOG.isChecked():
+            # LOG模式：显示所有TAB页面
+            self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "Current Tab"), 'current_tab')
+            
+            if self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
+                for i in range(MAX_TAB_SIZE):
+                    tab_text = self.main_window.ui.tem_switch.tabText(i)
+                    if i == 0:
+                        display_text = f"{tab_text} ({QCoreApplication.translate('dialog', 'All Data')})"
+                    elif i < 17:
+                        display_text = f"{QCoreApplication.translate('dialog', 'Channel')} {tab_text}"
                     else:
-                        display_text = f"筛选 {i-16}: {tab_text}"
-                
-                self.comboBox_SerialForward.addItem(display_text, i)
+                        # 对于筛选标签页，显示实际的筛选文本
+                        if tab_text == QCoreApplication.translate("main_window", "filter"):
+                            display_text = f"{QCoreApplication.translate('dialog', 'Filter')} {i-16}: ({QCoreApplication.translate('dialog', 'Not Set')})"
+                        else:
+                            display_text = f"{QCoreApplication.translate('dialog', 'Filter')} {i-16}: {tab_text}"
+                    
+                    self.comboBox_SerialForward.addItem(display_text, i)
+        
+        elif hasattr(self, 'radioButton_DATA') and self.radioButton_DATA.isChecked():
+            # DATA模式：只显示RTT信道1
+            self.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "RTT Channel 1 (Raw Data)"), 'rtt_channel_1')
         
         # 恢复保存的设置
+        if 'serial_forward_mode' in self.settings:
+            forward_mode = self.settings['serial_forward_mode']
+            if forward_mode == 'DATA' and hasattr(self, 'radioButton_DATA'):
+                self.radioButton_DATA.setChecked(True)
+            elif hasattr(self, 'radioButton_LOG'):
+                self.radioButton_LOG.setChecked(True)
+        
         if 'serial_forward_tab' in self.settings:
             forward_tab = self.settings['serial_forward_tab']
             for i in range(self.comboBox_SerialForward.count()):
                 if self.comboBox_SerialForward.itemData(i) == forward_tab:
                     self.comboBox_SerialForward.setCurrentIndex(i)
                     break
+    
+    def _on_forward_mode_changed(self):
+        """转发模式发生变化时的处理"""
+        # 更新选择框内容
+        self._update_serial_forward_combo()
+        
+        # 应用新的转发设置
+        self._on_serial_forward_changed(self.comboBox_SerialForward.currentIndex())
     
     def _on_serial_forward_changed(self, index):
         """串口转发选择发生变化时的处理"""
@@ -1329,19 +1370,24 @@ class ConnectionDialog(QDialog):
             
         selected_tab = self.comboBox_SerialForward.itemData(index)
         
+        # 获取转发模式
+        forward_mode = 'LOG' if (hasattr(self, 'radioButton_LOG') and self.radioButton_LOG.isChecked()) else 'DATA'
+        
         # 更新串口转发设置
         if self.rtt2uart:
-            self.rtt2uart.set_serial_forward_tab(selected_tab)
+            self.rtt2uart.set_serial_forward_config(selected_tab, forward_mode)
         
         # 保存设置
         self.settings['serial_forward_tab'] = selected_tab
+        self.settings['serial_forward_mode'] = forward_mode
         
         # 显示状态信息
         if selected_tab == -1:
-            self.ui.status.setText(QCoreApplication.translate("dialog", "转发已禁用"))
+            self.ui.status.setText(QCoreApplication.translate("dialog", "Forward Disabled"))
         else:
             tab_name = self.comboBox_SerialForward.currentText()
-            self.ui.status.setText(QCoreApplication.translate("dialog", "转发: {}").format(tab_name))
+            mode_text = QCoreApplication.translate("dialog", "LOG Mode") if forward_mode == 'LOG' else QCoreApplication.translate("dialog", "DATA Mode")
+            self.ui.status.setText(QCoreApplication.translate("dialog", "{} - {}").format(mode_text, tab_name))
 
     def port_scan(self):
         port_list = list(serial.tools.list_ports.comports())
@@ -1417,14 +1463,17 @@ class ConnectionDialog(QDialog):
                 # 应用串口转发设置
                 if hasattr(self, 'comboBox_SerialForward'):
                     selected_tab = self.comboBox_SerialForward.itemData(self.comboBox_SerialForward.currentIndex())
+                    forward_mode = 'LOG' if (hasattr(self, 'radioButton_LOG') and self.radioButton_LOG.isChecked()) else 'DATA'
+                    
                     if selected_tab is not None:
-                        self.rtt2uart.set_serial_forward_tab(selected_tab)
+                        self.rtt2uart.set_serial_forward_config(selected_tab, forward_mode)
                         if hasattr(self.main_window, 'append_jlink_log'):
                             if selected_tab == -1:
                                 self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding disabled"))
                             else:
                                 tab_name = self.comboBox_SerialForward.currentText()
-                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding enabled for: %s") % tab_name)
+                                mode_text = QCoreApplication.translate("main_window", "LOG Mode") if forward_mode == 'LOG' else QCoreApplication.translate("main_window", "DATA Mode")
+                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial forwarding enabled: %s - %s") % (mode_text, tab_name))
                 
                 # 更新串口转发选择框（在连接成功后更新TAB列表）
                 self._update_serial_forward_combo()
@@ -1474,9 +1523,9 @@ class ConnectionDialog(QDialog):
                 # 发送连接断开信号
                 self.connection_disconnected.emit()
                 
-                # 只有在主窗口没有关闭时才显示连接对话框
-                if self.main_window and not self.main_window._is_closing:
-                    self.show()
+                # 断开连接时不自动显示连接对话框
+                # 用户可以通过菜单或快捷键手动打开连接设置
+                pass
 
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
