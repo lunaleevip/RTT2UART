@@ -13,6 +13,7 @@ import qdarkstyle
 from ui_rtt2uart import Ui_dialog
 from ui_sel_device import Ui_Dialog
 from ui_xexunrtt import Ui_xexun_rtt
+from rtt2uart import ansi_processor
 import resources_rc
 from contextlib import redirect_stdout
 import serial.tools.list_ports
@@ -87,6 +88,7 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
+MAX_UI_TEXT_LENGTH = 1024 * 1024  # 1MB UI文本限制
 MAX_TEXT_LENGTH = (int)(8e6) #缓存 8MB 的数据
 
 class DeviceTableModel(QtCore.QAbstractTableModel):
@@ -338,6 +340,9 @@ class RTTMainWindow(QMainWindow):
 
         self.action7 = QAction(self)
         self.action7.setShortcut(QKeySequence("F7"))
+        
+
+
                 
         self.action9 = QAction(self)
         self.action9.setShortcut(QKeySequence("F9"))
@@ -353,6 +358,7 @@ class RTTMainWindow(QMainWindow):
         self.addAction(self.action5)
         self.addAction(self.action6)
         self.addAction(self.action7)
+
         self.addAction(self.action9)
         #self.addAction(self.actionenter)
 
@@ -364,6 +370,7 @@ class RTTMainWindow(QMainWindow):
         self.action5.triggered.connect(self.toggle_lock_v_checkbox)
         self.action6.triggered.connect(self.toggle_lock_h_checkbox)
         self.action7.triggered.connect(self.toggle_style_checkbox)
+
         self.action9.triggered.connect(self.device_restart)
         #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
@@ -379,12 +386,23 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            text_edit = QTextEdit(page)  # 在页面上创建 QTextEdit 实例
+            # 🚀 终极性能方案：使用QPlainTextEdit，专为大量文本设计
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = QPlainTextEdit(page)  # 切换到QPlainTextEdit，性能最佳
             text_edit.setReadOnly(True)
-            text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用自动换行
+            text_edit.setLineWrapMode(QPlainTextEdit.NoWrap)  # 禁用换行，提升性能
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
+            
+            # 🎯 关键性能优化设置
+            text_edit.setMaximumBlockCount(3000)  # 限制最大行数，自动滑动窗口
+            text_edit.setCenterOnScroll(False)  # 禁用居中滚动，提升性能
+            
+            # 🎨 设置等宽字体，提升渲染性能
+            font = QFont("Consolas", 10)
+            font.setFixedPitch(True)  # 等宽字体
+            text_edit.setFont(font)
             
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
@@ -423,7 +441,7 @@ class RTTMainWindow(QMainWindow):
         # 创建定时器并连接到槽函数
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_periodic_task)
-        self.timer.start(500)  # 每500毫秒（0.5秒）执行一次，降低CPU使用率
+        self.timer.start(1000)  # 每1000毫秒（1秒）执行一次，进一步降低更新频率
         
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
@@ -1051,6 +1069,8 @@ class RTTMainWindow(QMainWindow):
         #         print("J-Link device start successfully.")
         #     except pylink.errors.JLinkException as e:
         #         print("Error resetting J-Link device:", e)
+
+
                                     
 class ConnectionDialog(QDialog):
     # 定义信号
@@ -1655,6 +1675,7 @@ class ConnectionDialog(QDialog):
     @Slot(int)
     def switchPage(self, index):
         # 获取当前选定的页面索引并显示相应的缓冲区数据
+        from PySide6.QtGui import QTextCursor
         if len(self.worker.buffers[index]) <= 0:
             return
         
@@ -1663,8 +1684,14 @@ class ConnectionDialog(QDialog):
             
         current_page_widget = self.main_window.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
-            text_edit = current_page_widget.findChild(QTextEdit)
-            font = QFont("新宋体", self.main_window.ui.fontsize_box.value())  # 设置字体
+            # 兼容QPlainTextEdit和QTextEdit
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = current_page_widget.findChild(QPlainTextEdit)
+            if not text_edit:
+                text_edit = current_page_widget.findChild(QTextEdit)  # 后备方案
+            
+            font = QFont("Consolas", self.main_window.ui.fontsize_box.value())  # 使用等宽字体
+            font.setFixedPitch(True)
             if text_edit:
                 text_edit.setFont(font)
                 # 记录滚动条位置
@@ -1689,19 +1716,69 @@ class ConnectionDialog(QDialog):
                             keywords.append(self.main_window.ui.tem_switch.tabText(i))
                     self.main_window.highlighter[index].setKeywords(keywords)
                     
-                text_edit.insertPlainText(self.worker.buffers[index])
+                # 🚀 QPlainTextEdit终极性能策略：专为大量文本优化
+                try:
+                    max_insert_length = 16384  # 16KB单次插入限制
+                    
+                    # QPlainTextEdit只处理纯文本，忽略HTML格式
+                    if self.worker.buffers[index]:
+                        data_to_insert = self.worker.buffers[index]
+                        if len(data_to_insert) > max_insert_length:
+                            data_to_insert = data_to_insert[-max_insert_length:]
+                        
+                        # 🎯 使用QPlainTextEdit的高性能方法
+                        # 检查是否为QPlainTextEdit
+                        from PySide6.QtWidgets import QPlainTextEdit
+                        if isinstance(text_edit, QPlainTextEdit):
+                            # 方法1：直接appendPlainText（最高性能）
+                            # 自动处理滑动窗口，超过maxBlockCount自动删除旧行
+                            lines = data_to_insert.split('\n')
+                            for line in lines:
+                                if line.strip():  # 跳过空行
+                                    text_edit.appendPlainText(line.rstrip())
+                            
+                            # 自动滚动到底部
+                            text_edit.verticalScrollBar().setValue(
+                                text_edit.verticalScrollBar().maximum())
+                        else:
+                            # 后备方案：兼容QTextEdit
+                            text_edit.insertPlainText(data_to_insert)
+                    
+                    # 清空彩色缓冲区（QPlainTextEdit不支持HTML）
+                    if hasattr(self.worker, 'colored_buffers'):
+                        self.worker.colored_buffers[index] = ""
+                        
+                except Exception as e:
+                    # 异常处理：清空缓冲区避免数据堆积
+                    if hasattr(self.worker, 'colored_buffers'):
+                        self.worker.colored_buffers[index] = ""
+                    print(f"文本更新异常: {e}")  # 调试信息
+                
+                # 清空当前缓冲区（数据已经显示）
                 self.worker.buffers[index] = ""
                 # 标记页面需要更新
                 if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'page_dirty_flags'):
                     self.main_window.page_dirty_flags[index] = True
 
+                # 激进的文本长度管理：每次都检查并严格控制
                 text_length = len(text_edit.toPlainText())
-                if text_length > MAX_TEXT_LENGTH:
-                    # 截取文本长度
-                    new_text = text_edit.toPlainText()[(int)(MAX_TEXT_LENGTH/2):]
-                    text_edit.clear()
-                    text_edit.insertPlainText(new_text)
-                    #print("new_text_length:" + str(len(new_text)) + ", old_len:" + str(text_length))
+                max_allowed_length = MAX_UI_TEXT_LENGTH  # 1MB限制，更激进
+                
+                if text_length > max_allowed_length:
+                    # 激进截取：只保留最新的50%数据
+                    cursor = text_edit.textCursor()
+                    cursor.movePosition(QTextCursor.MoveOperation.Start)
+                    
+                    # 删除前50%的内容
+                    chars_to_remove = int(text_length * 0.5)
+                    cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor, chars_to_remove)
+                    cursor.removeSelectedText()
+                    
+                    # 移动到文档末尾
+                    cursor.movePosition(QTextCursor.MoveOperation.End)
+                    text_edit.setTextCursor(cursor)
+                    
+                    print(f"Text truncated: {text_length} -> {len(text_edit.toPlainText())} chars")
 
                 # 恢复滚动条的值
                 if self.main_window.ui.LockV_checkBox.isChecked():
@@ -1714,12 +1791,76 @@ class ConnectionDialog(QDialog):
         else:
             print("Invalid page index or widget type:", index)
 
+    def clear_current_tab(self):
+        """清空当前标签页的内容"""
+        current_index = self.main_window.ui.tem_switch.currentIndex()
+        if current_index >= 0:
+            current_page_widget = self.main_window.ui.tem_switch.widget(current_index)
+            if isinstance(current_page_widget, QWidget):
+                # 兼容QPlainTextEdit和QTextEdit
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page_widget.findChild(QPlainTextEdit)
+                if not text_edit:
+                    text_edit = current_page_widget.findChild(QTextEdit)  # 后备方案
+                
+                if text_edit and hasattr(text_edit, 'clear'):
+                    text_edit.clear()
+                # 同时清空对应的缓冲区
+                if hasattr(self, 'worker') and self.worker:
+                    if current_index < len(self.worker.buffers):
+                        self.worker.buffers[current_index] = ""
+                    if hasattr(self.worker, 'colored_buffers') and current_index < len(self.worker.colored_buffers):
+                        self.worker.colored_buffers[current_index] = ""
+
+                    # 清空HTML缓冲区
+                    if hasattr(self.worker, 'html_buffers') and current_index < len(self.worker.html_buffers):
+                        self.worker.html_buffers[current_index] = ""
+
+
+
+    def _cleanup_ui_text(self):
+        """定期清理UI文本内容，防止无限累积"""
+        max_ui_text_length = MAX_UI_TEXT_LENGTH  # 1MB UI文本限制
+        
+        for i in range(MAX_TAB_SIZE):
+            try:
+                text_edit = self.main_window.ui.tem_switch.widget(i)
+                if hasattr(text_edit, 'toPlainText'):
+                    text_length = len(text_edit.toPlainText())
+                    if text_length > max_ui_text_length:
+                        # 激进清理：只保留最新的25%数据
+                        cursor = text_edit.textCursor()
+                        cursor.movePosition(QTextCursor.MoveOperation.Start)
+                        
+                        # 删除前75%的内容
+                        chars_to_remove = int(text_length * 0.75)
+                        cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor, chars_to_remove)
+                        cursor.removeSelectedText()
+                        
+                        # 移动到文档末尾
+                        cursor.movePosition(QTextCursor.MoveOperation.End)
+                        text_edit.setTextCursor(cursor)
+                        
+                        print(f"UI cleanup: TAB {i} text truncated from {text_length} to {len(text_edit.toPlainText())} chars")
+            except Exception as e:
+                # 忽略清理过程中的错误
+                pass
+
 
     @Slot()
     def handleBufferUpdate(self):
         # 智能更新：只刷新有数据变化的页面
         if not self.main_window:
             return
+            
+        # 定期清理UI文本内容，防止无限累积
+        if not hasattr(self, 'cleanup_counter'):
+            self.cleanup_counter = 0
+        self.cleanup_counter += 1
+        
+        # 每10次更新执行一次UI清理
+        if self.cleanup_counter % 10 == 0:
+            self._cleanup_ui_text()
             
         current_index = self.main_window.ui.tem_switch.currentIndex()
         
@@ -1744,12 +1885,21 @@ class Worker(QObject):
         super().__init__(parent)
         self.parent = parent
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
+        
+        # 智能缓冲区管理
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
+        self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
+        
+        # 缓冲区大小限制（QPlainTextEdit自动管理，无需手动历史缓冲）
+        self.MAX_DISPLAY_BUFFER_SIZE = MAX_UI_TEXT_LENGTH  # 1MB显示缓冲区
         
         # 性能优化：文件I/O缓冲
         self.log_buffers = {}  # 日志文件缓冲
         # 延迟创建定时器，确保在正确的线程中
         self.buffer_flush_timer = None
+        
+        # 性能计数器
+        self.update_counter = 0
 
     def start_flush_timer(self):
         """启动日志刷新定时器"""
@@ -1759,21 +1909,44 @@ class Worker(QObject):
             self.buffer_flush_timer.start(1000)  # 每秒刷新一次缓冲
 
     def flush_log_buffers(self):
-        """定期刷新日志缓冲到文件"""
-        for filepath, content in self.log_buffers.items():
-            if content:
-                try:
-                    with open(filepath, 'a', encoding='utf-8') as f:
-                        f.write(content)
-                    self.log_buffers[filepath] = ""
-                except Exception:
-                    pass
+        """定期刷新日志缓冲到文件（线程安全版本）"""
+        try:
+            # 创建字典的副本以避免运行时修改错误
+            log_buffers_copy = dict(self.log_buffers)
+            for filepath, content in log_buffers_copy.items():
+                if content:
+                    try:
+                        with open(filepath, 'a', encoding='utf-8') as f:
+                            f.write(content)
+                        # 安全地清空缓冲区
+                        if filepath in self.log_buffers:
+                            self.log_buffers[filepath] = ""
+                    except Exception:
+                        pass
+        except RuntimeError:
+            # 如果字典在迭代过程中被修改，跳过这次刷新
+            pass
 
     def write_to_log_buffer(self, filepath, content):
         """写入日志缓冲而不是直接写文件"""
         if filepath not in self.log_buffers:
             self.log_buffers[filepath] = ""
         self.log_buffers[filepath] += content
+
+
+
+    def _aggressive_manage_buffer_size(self, index):
+        """激进的缓冲区大小管理：立即限制大小"""
+        max_buffer_size = 8192  # 8KB限制，更激进
+        
+        # 检查普通缓冲区
+        if len(self.buffers[index]) > max_buffer_size:
+            # 只保留最新的数据
+            self.buffers[index] = self.buffers[index][-max_buffer_size:]
+            
+        # 检查彩色缓冲区
+        if hasattr(self, 'colored_buffers') and len(self.colored_buffers[index]) > max_buffer_size:
+            self.colored_buffers[index] = self.colored_buffers[index][-max_buffer_size:]
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
@@ -1791,10 +1964,35 @@ class Worker(QObject):
             # 性能优化：使用列表拼接替代字符串拼接
             buffer_parts = ["%02u> " % index, data]
             
-            self.buffers[index+1] += data
-            self.buffers[0] += ''.join(buffer_parts)
+            # 重新启用ANSI处理，使用安全的错误处理
+            try:
+                # 处理ANSI颜色：为UI显示保留颜色，为缓冲区存储纯文本
+                clean_data = ansi_processor.remove_ansi_codes(data)
+                clean_buffer_parts = ["%02u> " % index, clean_data]
+                
+                # 存储纯文本到buffers（用于日志和转发）
+                self.buffers[index+1] += clean_data
+                self.buffers[0] += ''.join(clean_buffer_parts)
+                
+                # 为UI显示创建带颜色的HTML格式文本
+                if hasattr(self, 'colored_buffers'):
+                    self.colored_buffers[index+1] += self._convert_ansi_to_html(data)
+                    self.colored_buffers[0] += self._convert_ansi_to_html(''.join(buffer_parts))
+                    
+            except Exception as e:
+                # 如果ANSI处理失败，回退到原始文本处理
+                self.buffers[index+1] += data
+                self.buffers[0] += ''.join(buffer_parts)
+                if hasattr(self, 'colored_buffers'):
+                    self.colored_buffers[index+1] += data
+                    self.colored_buffers[0] += ''.join(buffer_parts)
             
-            # 标记页面需要更新
+            # 激进的缓冲区大小管理：立即限制缓冲区大小
+            self._aggressive_manage_buffer_size(index+1)
+            self._aggressive_manage_buffer_size(0)
+            
+            # 标记页面需要更新（降低更新频率）
+            self.update_counter += 1
             if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
                 self.parent.main_window.page_dirty_flags[index+1] = True
                 self.parent.main_window.page_dirty_flags[0] = True
@@ -1816,6 +2014,44 @@ class Worker(QObject):
                 self.process_filter_lines(lines)
 
             self.finished.emit()
+
+    def _convert_ansi_to_html(self, text):
+        """将ANSI颜色代码转换为HTML格式"""
+        try:
+            # 检查是否包含ANSI控制符
+            if '\x1B[' not in text:
+                # 如果没有ANSI控制符，直接返回转义后的文本，保持换行
+                return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+            
+            segments = ansi_processor.parse_ansi_text(text)
+            html_parts = []
+            
+            for segment in segments:
+                text_part = segment['text']
+                color = segment['color']
+                background = segment['background']
+                
+                # 转义HTML特殊字符，并将换行符转换为<br>
+                text_part = text_part.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
+                
+                if color or background:
+                    style_parts = []
+                    if color:
+                        style_parts.append(f'color: {color}')
+                    if background:
+                        style_parts.append(f'background-color: {background}')
+                    
+                    style = '; '.join(style_parts)
+                    html_parts.append(f'<span style="{style}">{text_part}</span>')
+                else:
+                    html_parts.append(text_part)
+            
+            result = ''.join(html_parts)
+            return result
+        except Exception as e:
+            # 如果ANSI处理失败，返回清理后的纯文本
+            clean_text = ansi_processor.remove_ansi_codes(text)
+            return clean_text.replace('\n', '<br>')
 
     def process_filter_lines(self, lines):
         """优化的过滤处理逻辑"""
@@ -1885,13 +2121,16 @@ class PythonHighlighter(QSyntaxHighlighter):
         self.pattern = re.compile(r'\b(?:' + '|'.join(escaped_keywords) + r')\b')
 
     def highlightBlock(self, text):
-        if not self.pattern:
-            return
+        # 1. 首先处理关键词高亮
+        if self.pattern:
+            for match in self.pattern.finditer(text):
+                start_index = match.start()
+                match_length = match.end() - start_index
+                self.setFormat(start_index, match_length, self.keyword_format)
+        
 
-        for match in self.pattern.finditer(text):
-            start_index = match.start()
-            match_length = match.end() - start_index
-            self.setFormat(start_index, match_length, self.keyword_format)
+    
+
 
 def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
