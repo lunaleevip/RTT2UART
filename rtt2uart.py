@@ -71,8 +71,10 @@ class rtt_to_serial():
         self.jlink_log_callback = None
         
         # 串口转发设置
-        self.serial_forward_tab = -1  # -1表示禁用转发，其他值表示转发指定TAB的内容
+        self.serial_forward_tab = -1  # -1表示禁用转发
+        self.serial_forward_mode = 'LOG'  # 'LOG' 或 'DATA'
         self.serial_forward_buffer = {}  # 存储各个TAB的数据缓冲
+        self.current_tab_index = 0  # 当前显示的标签页索引
         
         # 设置日志文件名
         log_directory=None
@@ -103,17 +105,49 @@ class rtt_to_serial():
         if self.jlink_log_callback:
             self.jlink_log_callback(message)
     
-    def set_serial_forward_tab(self, tab_index):
-        """设置串口转发的TAB索引"""
+    def set_serial_forward_config(self, tab_index, mode='LOG'):
+        """设置串口转发的配置"""
         self.serial_forward_tab = tab_index
+        self.serial_forward_mode = mode
+        
         if tab_index == -1:
             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled"))
         else:
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding set to TAB: %s") % tab_index)
+            mode_text = QCoreApplication.translate("rtt2uart", "LOG Mode") if mode == 'LOG' else QCoreApplication.translate("rtt2uart", "DATA Mode")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding enabled: %s - %s") % (mode_text, str(tab_index)))
+    
+    def set_current_tab_index(self, tab_index):
+        """设置当前显示的标签页索引"""
+        self.current_tab_index = tab_index
+    
+    # 保持向后兼容
+    def set_serial_forward_tab(self, tab_index):
+        """保持向后兼容的方法"""
+        self.set_serial_forward_config(tab_index, 'LOG')
     
     def add_tab_data_for_forwarding(self, tab_index, data):
         """为TAB添加数据用于串口转发"""
-        if self.serial_forward_tab == tab_index and self.serial_forward_tab != -1:
+        if self.serial_forward_tab == -1:
+            return  # 转发已禁用
+        
+        should_forward = False
+        
+        if self.serial_forward_mode == 'LOG':
+            # LOG模式：根据选中的TAB转发
+            if self.serial_forward_tab == 'current_tab':
+                # 转发当前标签页
+                should_forward = (tab_index == self.current_tab_index)
+            elif isinstance(self.serial_forward_tab, int):
+                # 转发指定的TAB
+                should_forward = (tab_index == self.serial_forward_tab)
+        
+        elif self.serial_forward_mode == 'DATA':
+            # DATA模式：只转发RTT信道1的原始数据
+            if self.serial_forward_tab == 'rtt_channel_1':
+                # 只转发通道1的数据（tab_index == 1）
+                should_forward = (tab_index == 1)
+        
+        if should_forward:
             # 将数据转发到串口
             if self.serial.isOpen():
                 try:
@@ -124,10 +158,32 @@ class rtt_to_serial():
                         data_bytes = bytes(data)
                     
                     self.serial.write(data_bytes)
-                    logger.debug(f'Forwarded {len(data_bytes)} bytes from TAB {tab_index} to serial port')
+                    logger.debug(f'Forwarded {len(data_bytes)} bytes from TAB {tab_index} to serial port (mode: {self.serial_forward_mode})')
                 except Exception as e:
                     logger.error(f"Serial forward error: {e}")
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forward error: %s") % str(e))
+    
+    def add_raw_rtt_data_for_forwarding(self, channel, data):
+        """为RTT原始数据添加转发功能（DATA模式专用）"""
+        if (self.serial_forward_mode == 'DATA' and 
+            self.serial_forward_tab == 'rtt_channel_1' and 
+            channel == 1):
+            
+            if self.serial.isOpen():
+                try:
+                    # RTT原始数据直接转发
+                    if isinstance(data, (list, bytearray)):
+                        data_bytes = bytes(data)
+                    elif isinstance(data, str):
+                        data_bytes = data.encode('gbk', errors='ignore')
+                    else:
+                        data_bytes = data
+                    
+                    self.serial.write(data_bytes)
+                    logger.debug(f'Forwarded {len(data_bytes)} raw bytes from RTT channel {channel} to serial port')
+                except Exception as e:
+                    logger.error(f"Raw RTT data forward error: {e}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Raw RTT data forward error: %s") % str(e))
 
     def start(self):
         logger.debug('start rtt2uart')
@@ -368,7 +424,9 @@ class rtt_to_serial():
             connection_check_counter = 0
             connection_check_interval = 100  # 每100次循环检查一次连接状态
             last_connection_warning_time = 0
+            last_rtt_read_warning_time = 0  # RTT读取警告时间
             connection_warning_interval = 5.0  # 连接警告最少间隔5秒
+            rtt_read_warning_interval = 2.0  # RTT读取警告最少间隔2秒
             
             while self.thread_switch:
                 try:
@@ -406,7 +464,11 @@ class rtt_to_serial():
                             else:
                                 rtt_recv_log += recv_log
                         except pylink.errors.JLinkException as e:
-                            logger.warning(f'RTT read failed: {e}')
+                            current_time = time.time()
+                            if current_time - last_rtt_read_warning_time > rtt_read_warning_interval:
+                                logger.warning(f'RTT read failed: {e}')
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT read failed: %s") % str(e))
+                                last_rtt_read_warning_time = current_time
                             break
 
                     self.read_bytes0 += len(rtt_recv_log)
@@ -527,6 +589,10 @@ class rtt_to_serial():
         else:
             # 处理非法输入的情况
             tem_num = 0
+        
+        # 在DATA模式下，转发RTT原始数据（在处理之前）
+        if tem_num == 1:  # RTT信道1
+            self.add_raw_rtt_data_for_forwarding(1, string)
             
         self.main.addToBuffer(tem_num, string);
 
