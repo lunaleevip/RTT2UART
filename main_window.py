@@ -774,18 +774,61 @@ class RTTMainWindow(QMainWindow):
             jlink_logger.setLevel(logging.DEBUG)
             self.append_jlink_log(QCoreApplication.translate("main_window", "JLink verbose logging enabled - will show all debug information"))
             
-            # 可选：同时启用JLink的文件日志
-            if hasattr(self.connection_dialog, 'rtt2uart') and self.connection_dialog.rtt2uart and hasattr(self.connection_dialog.rtt2uart, 'jlink'):
-                try:
-                    self.connection_dialog.rtt2uart.jlink.set_log_file("jlink_debug.log")
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: jlink_debug.log"))
-                except Exception as e:
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
+            # 启用JLink文件日志到当前目录
+            self.enable_jlink_file_logging()
         else:
             self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Enable Verbose Log"))
             # 禁用详细日志 - 恢复为WARNING级别
             jlink_logger.setLevel(logging.WARNING)
             self.append_jlink_log(QCoreApplication.translate("main_window", "JLink verbose logging disabled - only showing warnings and errors"))
+            
+            # 禁用JLink文件日志
+            self.disable_jlink_file_logging()
+    
+    def enable_jlink_file_logging(self):
+        """启用JLink文件日志"""
+        try:
+            import os
+            # 使用当前工作目录，文件名为JLINK_DEBUG.TXT
+            log_file_path = os.path.join(os.getcwd(), "JLINK_DEBUG.TXT")
+            
+            # 如果已经有连接，立即启用文件日志
+            if (hasattr(self.connection_dialog, 'rtt2uart') and 
+                self.connection_dialog.rtt2uart and 
+                hasattr(self.connection_dialog.rtt2uart, 'jlink')):
+                try:
+                    self.connection_dialog.rtt2uart.jlink.set_log_file(log_file_path)
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % log_file_path)
+                except Exception as e:
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
+            else:
+                # 如果还没有连接，标记需要在连接时启用
+                self.pending_jlink_log_file = log_file_path
+                self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging will be enabled on next connection: %s") % log_file_path)
+                
+        except Exception as e:
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to setup file logging: %s") % str(e))
+    
+    def disable_jlink_file_logging(self):
+        """禁用JLink文件日志"""
+        try:
+            # 清除待启用的日志文件标记
+            if hasattr(self, 'pending_jlink_log_file'):
+                delattr(self, 'pending_jlink_log_file')
+            
+            # 如果有活动连接，禁用文件日志
+            if (hasattr(self.connection_dialog, 'rtt2uart') and 
+                self.connection_dialog.rtt2uart and 
+                hasattr(self.connection_dialog.rtt2uart, 'jlink')):
+                try:
+                    # 通过设置空字符串来禁用文件日志
+                    self.connection_dialog.rtt2uart.jlink.set_log_file("")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging disabled"))
+                except Exception as e:
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to disable file logging: %s") % str(e))
+                    
+        except Exception as e:
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Error disabling file logging: %s") % str(e))
     
     def append_jlink_log(self, message):
         """添加JLink日志消息"""
@@ -806,55 +849,182 @@ class RTTMainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, e):
+        """程序关闭事件处理 - 确保所有资源被正确清理"""
+        logger.info("开始程序关闭流程...")
+        
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
-        # 隐藏连接对话框，防止闪现
-        if self.connection_dialog:
-            self.connection_dialog.hide()
-        
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_dialog.start()
-
-        for i in range(MAX_TAB_SIZE):
-            current_page_widget = self.ui.tem_switch.widget(i)
-            if isinstance(current_page_widget, QWidget):
-                text_edit = current_page_widget.findChild(QTextEdit)
-                if text_edit:
-                    text_edit.clear()
-
-        if self.connection_dialog.rtt2uart and self.connection_dialog.rtt2uart.log_directory:
-            log_directory = self.connection_dialog.rtt2uart.log_directory
-            # 注释掉自动打开文件夹功能，避免关闭程序时弹出文件夹
-            # if log_directory and os.listdir(log_directory):
-            #     os.startfile(log_directory)
-            # else:
-            #     shutil.rmtree(log_directory)
+        try:
+            # 1. 停止所有RTT连接
+            if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+                if self.connection_dialog.start_state == True:
+                    logger.info("停止RTT连接...")
+                    try:
+                        # 正确调用stop方法而不是start方法
+                        self.connection_dialog.rtt2uart.stop()
+                        self.connection_dialog.start_state = False
+                        logger.info("RTT连接已停止")
+                    except Exception as ex:
+                        logger.error(f"停止RTT连接时出错: {ex}")
             
-            # 只清理空的日志目录，不自动打开
-            try:
-                if log_directory and os.path.exists(log_directory) and not os.listdir(log_directory):
-                    shutil.rmtree(log_directory)
-            except:
-                pass
-        self.connection_dialog.close()
-
-        # 获取当前进程的所有子进程
-        current_process = psutil.Process()
-        children = current_process.children(recursive=True)
-
-        # 关闭所有子进程
-        for child in children:
-            try:
-                child.terminate()  # 发送 SIGTERM 信号终止子进程
-                child.wait(timeout=1)  # 等待子进程退出
-                if child.is_running():
-                    # 如果子进程未能正常退出，发送 SIGKILL 信号强制终止子进程
-                    child.kill()
-                    child.wait()
-            except psutil.NoSuchProcess:
-                # 如果子进程已经退出，会抛出 NoSuchProcess 异常，忽略该异常
-                pass
+            # 2. 停止所有定时器
+            self._stop_all_timers()
+            
+            # 3. 强制终止所有工作线程
+            self._force_terminate_threads()
+            
+            # 4. 清理UI资源
+            self._cleanup_ui_resources()
+            
+            # 5. 清理日志目录
+            self._cleanup_log_directories()
+            
+            # 6. 关闭连接对话框
+            if self.connection_dialog:
+                self.connection_dialog.hide()
+                self.connection_dialog.close()
+            
+            # 7. 强制终止所有子进程
+            self._force_terminate_child_processes()
+            
+            # 8. 强制退出应用程序
+            self._force_quit_application()
+            
+        except Exception as ex:
+            logger.error(f"关闭程序时出错: {ex}")
+        finally:
+            # 确保窗口关闭
+            e.accept()
+            logger.info("程序关闭流程完成")
+    
+    def _stop_all_timers(self):
+        """停止所有定时器"""
+        try:
+            # 停止主窗口的定时器
+            if hasattr(self, 'update_timer') and self.update_timer:
+                self.update_timer.stop()
+            
+            # 停止连接对话框中的定时器
+            if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
+                worker = self.connection_dialog.worker
+                if hasattr(worker, 'buffer_flush_timer') and worker.buffer_flush_timer:
+                    worker.buffer_flush_timer.stop()
+                    logger.info("缓冲刷新定时器已停止")
+            
+            logger.info("所有定时器已停止")
+        except Exception as e:
+            logger.error(f"停止定时器时出错: {e}")
+    
+    def _force_terminate_threads(self):
+        """强制终止所有线程"""
+        try:
+            import time
+            
+            # 给线程一些时间自然结束
+            time.sleep(0.5)
+            
+            # 检查并强制终止仍在运行的线程
+            for thread in threading.enumerate():
+                if thread != threading.current_thread() and thread.is_alive():
+                    if not is_dummy_thread(thread):
+                        logger.warning(f"强制终止线程: {thread.name}")
+                        try:
+                            # 尝试优雅地停止线程
+                            thread.join(timeout=2.0)
+                            if thread.is_alive():
+                                logger.warning(f"线程 {thread.name} 未能优雅停止，将被强制终止")
+                                # 对于Python线程，我们无法直接杀死，但可以标记为daemon
+                                thread.daemon = True
+                        except Exception as e:
+                            logger.error(f"终止线程 {thread.name} 时出错: {e}")
+            
+            logger.info("线程清理完成")
+        except Exception as e:
+            logger.error(f"强制终止线程时出错: {e}")
+    
+    def _cleanup_ui_resources(self):
+        """清理UI资源"""
+        try:
+            # 清理文本编辑器内容
+            for i in range(MAX_TAB_SIZE):
+                current_page_widget = self.ui.tem_switch.widget(i)
+                if isinstance(current_page_widget, QWidget):
+                    text_edit = current_page_widget.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.clear()
+            
+            # 清理JLink日志
+            if hasattr(self, 'jlink_log_text'):
+                self.jlink_log_text.clear()
+            
+            logger.info("UI资源清理完成")
+        except Exception as e:
+            logger.error(f"清理UI资源时出错: {e}")
+    
+    def _cleanup_log_directories(self):
+        """清理日志目录"""
+        try:
+            if (self.connection_dialog and 
+                self.connection_dialog.rtt2uart and 
+                self.connection_dialog.rtt2uart.log_directory):
+                
+                log_directory = self.connection_dialog.rtt2uart.log_directory
+                if log_directory and os.path.exists(log_directory):
+                    if not os.listdir(log_directory):
+                        shutil.rmtree(log_directory)
+                        logger.info(f"已删除空日志目录: {log_directory}")
+            
+        except Exception as e:
+            logger.error(f"清理日志目录时出错: {e}")
+    
+    def _force_terminate_child_processes(self):
+        """强制终止所有子进程"""
+        try:
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+            
+            if children:
+                logger.info(f"发现 {len(children)} 个子进程，开始清理...")
+                
+                for child in children:
+                    try:
+                        logger.info(f"终止子进程: PID={child.pid}, 名称={child.name()}")
+                        child.terminate()
+                        child.wait(timeout=2)
+                        
+                        if child.is_running():
+                            logger.warning(f"强制杀死子进程: PID={child.pid}")
+                            child.kill()
+                            child.wait(timeout=1)
+                            
+                    except psutil.NoSuchProcess:
+                        # 进程已经不存在
+                        pass
+                    except Exception as e:
+                        logger.error(f"终止子进程时出错: {e}")
+                
+                logger.info("子进程清理完成")
+            
+        except Exception as e:
+            logger.error(f"强制终止子进程时出错: {e}")
+    
+    def _force_quit_application(self):
+        """强制退出应用程序"""
+        try:
+            # 获取应用程序实例
+            app = QApplication.instance()
+            if app:
+                logger.info("强制退出应用程序...")
+                # 设置退出代码并立即退出
+                app.quit()
+                # 如果quit()不起作用，使用更强制的方法
+                QTimer.singleShot(1000, lambda: os._exit(0))
+            
+        except Exception as e:
+            logger.error(f"强制退出应用程序时出错: {e}")
+            # 最后的手段：直接退出进程
+            os._exit(0)
 
     @Slot(int)
     def switchPage(self, index):
@@ -1264,6 +1434,8 @@ class ConnectionDialog(QDialog):
             self.buadrate_change_slot)
         self.ui.checkBox_serialno.stateChanged.connect(
             self.serial_no_change_slot)
+        self.ui.checkBox_resettarget.stateChanged.connect(
+            self.reset_target_change_slot)
         self.ui.radioButton_usb.clicked.connect(self.usb_selete_slot)
         self.ui.radioButton_existing.clicked.connect(
             self.existing_session_selete_slot)
@@ -1730,11 +1902,21 @@ class ConnectionDialog(QDialog):
                 else:
                     connect_para = None
                     
+                # 检查是否需要执行重置连接
+                if self.ui.checkBox_resettarget.isChecked():
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("🔄 检测到重置连接选项，开始执行连接重置...")
+                    self.perform_connection_reset()
+                    # 重置完成后取消勾选
+                    self.ui.checkBox_resettarget.setChecked(False)
+                    self.config.set_reset_target(False)
+                    self.config.save_config()
+                
                 self.start_state = True
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Stop"))
                 
                 self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
-                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], self.ui.checkBox_resettarget.isChecked())
+                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False)  # 重置后不再需要在rtt2uart中重置
 
                 self.rtt2uart.start()
                 
@@ -1745,6 +1927,16 @@ class ConnectionDialog(QDialog):
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Connection type: %s") % str(self.connect_type))
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.get_selected_port_name(), self.ui.comboBox_baudrate.currentText()))
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
+                
+                # 检查是否有待启用的JLink文件日志
+                if hasattr(self.main_window, 'pending_jlink_log_file'):
+                    try:
+                        self.rtt2uart.jlink.set_log_file(self.main_window.pending_jlink_log_file)
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % self.main_window.pending_jlink_log_file)
+                    except Exception as e:
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
                 
                 # 应用串口转发设置
                 if hasattr(self.ui, 'comboBox_SerialForward'):
@@ -1878,6 +2070,118 @@ class ConnectionDialog(QDialog):
             self.ui.lineEdit_serialno.setVisible(True)
         else:
             self.ui.lineEdit_serialno.setVisible(False)
+    
+    def reset_target_change_slot(self):
+        """重置连接选项变更处理"""
+        is_checked = self.ui.checkBox_resettarget.isChecked()
+        
+        # 保存设置
+        self.config.set_reset_target(is_checked)
+        self.config.save_config()
+        
+        # 只保存设置，不立即执行重置操作
+        # 重置操作将在点击"开始"按钮时执行
+    
+    def perform_connection_reset(self):
+        """执行连接重置操作"""
+        try:
+            # 显示重置信息
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log("🔄 开始执行连接重置...")
+            
+            # 1. 停止当前连接（如果存在）
+            if hasattr(self, 'rtt2uart') and self.rtt2uart is not None:
+                try:
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("📴 停止当前RTT连接...")
+                    self.rtt2uart.stop()
+                    self.rtt2uart = None
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("✅ RTT连接已停止")
+                except Exception as e:
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log(f"⚠️ 停止RTT连接时出错: {e}")
+            
+            # 2. 重置JLink连接
+            if hasattr(self, 'jlink') and self.jlink is not None:
+                try:
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("🔧 重置JLink连接...")
+                    
+                    # 关闭现有连接
+                    if self.jlink.connected():
+                        self.jlink.close()
+                    
+                    # 等待一下
+                    import time
+                    time.sleep(0.5)
+                    
+                    # 重新打开JLink
+                    self.jlink.open()
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("✅ JLink连接已重置")
+                        
+                except Exception as e:
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log(f"⚠️ 重置JLink连接时出错: {e}")
+                    
+                    # 如果重置失败，尝试重新创建JLink对象
+                    try:
+                        self.jlink = pylink.JLink()
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("🔄 JLink对象已重新创建")
+                    except Exception as e2:
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(f"❌ 重新创建JLink对象失败: {e2}")
+            
+            # 3. 重置串口连接（清除串口状态）
+            try:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("🔧 重置串口状态...")
+                
+                # 重新扫描串口
+                self.port_scan()
+                
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("✅ 串口状态已重置")
+                    
+            except Exception as e:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"⚠️ 重置串口状态时出错: {e}")
+            
+            # 4. 清理缓存和状态
+            try:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("🧹 清理缓存和状态...")
+                
+                # 重置连接状态
+                self.start_state = False
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+                
+                # 清理主窗口缓存（如果存在）
+                if hasattr(self.main_window, 'buffers'):
+                    for i in range(len(self.main_window.buffers)):
+                        self.main_window.buffers[i] = ""
+                
+                if hasattr(self.main_window, 'colored_buffers'):
+                    for i in range(len(self.main_window.colored_buffers)):
+                        self.main_window.colored_buffers[i] = ""
+                
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("✅ 缓存和状态已清理")
+                    
+            except Exception as e:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"⚠️ 清理缓存时出错: {e}")
+            
+            # 5. 完成重置
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log("🎉 连接重置完成！准备建立新连接...")
+            
+        except Exception as e:
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(f"❌ 连接重置失败: {e}")
+            logger.error(f'Connection reset failed: {e}', exc_info=True)
 
     def usb_selete_slot(self):
         self.connect_type = 'USB'

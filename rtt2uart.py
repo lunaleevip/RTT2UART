@@ -383,10 +383,15 @@ class rtt_to_serial():
 
                 try:
                     if self._reset == True:
-                        # 复位一下目标芯片，复位后不要停止芯片，保证后续操作的稳定性
+                        # 只执行目标芯片复位（连接重置已在主窗口中完成）
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Resetting target chip..."))
                         self.jlink.reset(halt=False)
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target chip reset completed"))
+                        
+                        # 等待目标芯片稳定
+                        import time
+                        time.sleep(0.3)
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Waiting for target stabilization..."))
 
                     # 连接目标芯片
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
@@ -435,21 +440,14 @@ class rtt_to_serial():
         
         
     def stop(self):
-        logger.debug('stop rtt2uart')
+        logger.debug('stop rtt2uart - 开始停止RTT服务')
 
-        # 停止线程
+        # 设置停止标志
         self.thread_switch = False
+        logger.debug('已设置线程停止标志')
         
-        # 等待线程结束，增加超时处理
-        if self.rtt_thread and self.rtt_thread.is_alive():
-            self.rtt_thread.join(1.0)  # 增加超时时间
-            if self.rtt_thread.is_alive():
-                logger.warning('RTT thread did not stop gracefully')
-
-        if self.rtt2uart and self.rtt2uart.is_alive():
-            self.rtt2uart.join(1.0)  # 增加超时时间
-            if self.rtt2uart.is_alive():
-                logger.warning('RTT2UART thread did not stop gracefully')
+        # 强制停止线程，增加更严格的超时处理
+        self._force_stop_threads()
         
         # 改进的 JLink 关闭逻辑
         if self._connect_inf != 'EXISTING':
@@ -461,10 +459,49 @@ class rtt_to_serial():
         # 检查并删除空的日志文件夹
         self._cleanup_empty_log_folder()
         
-        # 打包文件为ZIP压缩包
-        #zip_folder(os.path.join(self.log_directory), os.path.join(str(self.log_directory) + '.zip'))
-        # 删除文件夹
-        #shutil.rmtree(self.log_directory)
+        logger.debug('RTT服务停止完成')
+    
+    def _force_stop_threads(self):
+        """强制停止所有RTT线程"""
+        import time
+        
+        threads_to_stop = [
+            ('RTT读取线程', self.rtt_thread),
+            ('RTT2UART线程', self.rtt2uart)
+        ]
+        
+        for thread_name, thread in threads_to_stop:
+            if thread and thread.is_alive():
+                logger.info(f"正在停止{thread_name}...")
+                
+                # 第一次尝试：优雅停止
+                try:
+                    thread.join(timeout=2.0)
+                    if not thread.is_alive():
+                        logger.info(f"{thread_name}已优雅停止")
+                        continue
+                except Exception as e:
+                    logger.error(f"优雅停止{thread_name}时出错: {e}")
+                
+                # 第二次尝试：强制停止
+                logger.warning(f"{thread_name}未能优雅停止，尝试强制停止...")
+                try:
+                    # 设置为守护线程，这样主程序退出时会强制终止
+                    thread.daemon = True
+                    
+                    # 再次尝试join，但时间更短
+                    thread.join(timeout=1.0)
+                    
+                    if thread.is_alive():
+                        logger.error(f"{thread_name}仍在运行，将在主程序退出时被强制终止")
+                    else:
+                        logger.info(f"{thread_name}已强制停止")
+                        
+                except Exception as e:
+                    logger.error(f"强制停止{thread_name}时出错: {e}")
+        
+        # 给线程一些时间完成清理
+        time.sleep(0.2)
 
     def _safe_close_jlink(self):
         """安全关闭 JLink 连接"""
@@ -733,14 +770,14 @@ class rtt_to_serial():
                             
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')
-                        time.sleep(0.1)
+                        time.sleep(1)
                         
                 except pylink.errors.JLinkException as e:
                     logger.error(f"JLink error in RTT2UART thread: {e}")
-                    time.sleep(0.1)
+                    time.sleep(1)
                 except Exception as e:
                     logger.error(f"Unexpected error in RTT2UART thread: {e}")
-                    time.sleep(0.01)
+                    time.sleep(1)
 
 
     def insert_char(self, tem, string, new_line=False):
