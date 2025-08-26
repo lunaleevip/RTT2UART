@@ -26,6 +26,7 @@ from rtt2uart import rtt_to_serial
 import logging
 import pickle
 import os
+from config_manager import config_manager
 import subprocess
 import threading
 import shutil
@@ -89,6 +90,36 @@ baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
 MAX_TAB_SIZE = 24
+
+def get_speed_index_from_value(speed_value):
+    """根据速度值获取索引"""
+    try:
+        return speed_list.index(speed_value)
+    except ValueError:
+        # 如果找不到精确匹配，返回最接近的索引
+        closest_index = 0
+        min_diff = abs(speed_list[0] - speed_value)
+        for i, speed in enumerate(speed_list):
+            diff = abs(speed - speed_value)
+            if diff < min_diff:
+                min_diff = diff
+                closest_index = i
+        return closest_index
+
+def get_baudrate_index_from_value(baudrate_value):
+    """根据波特率值获取索引"""
+    try:
+        return baudrate_list.index(baudrate_value)
+    except ValueError:
+        # 如果找不到精确匹配，返回最接近的索引
+        closest_index = 0
+        min_diff = abs(baudrate_list[0] - baudrate_value)
+        for i, baudrate in enumerate(baudrate_list):
+            diff = abs(baudrate - baudrate_value)
+            if diff < min_diff:
+                min_diff = diff
+                closest_index = i
+        return closest_index
 MAX_UI_TEXT_LENGTH = 1024 * 1024  # 1MB UI文本限制
 MAX_TEXT_LENGTH = (int)(8e6) #缓存 8MB 的数据
 
@@ -249,6 +280,10 @@ class DeviceSelectDialog(QDialog):
         self.close()
 
 class EditableTabBar(QTabBar):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.main_window = None  # 将在主窗口中设置
+    
     def mouseDoubleClickEvent(self, event):
         index = self.tabAt(event.pos())
         if index >= 17:
@@ -259,6 +294,13 @@ class EditableTabBar(QTabBar):
                     self.setTabText(index, new_text)
                 else:
                     self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
+                
+                # 保存过滤器设置
+                if self.main_window and self.main_window.connection_dialog:
+                    filter_text = new_text if new_text else QCoreApplication.translate("main_window", "filter")
+                    if filter_text != QCoreApplication.translate("main_window", "filter"):
+                        self.main_window.connection_dialog.config.set_filter(index, filter_text)
+                        self.main_window.connection_dialog.config.save_config()
 
 class RTTMainWindow(QMainWindow):
     def __init__(self):
@@ -284,6 +326,13 @@ class RTTMainWindow(QMainWindow):
         # 先设置原有的UI
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self.central_widget)
+        
+        # 立即创建连接对话框以便加载配置
+        self.connection_dialog = ConnectionDialog(self)
+        # 连接成功信号
+        self.connection_dialog.connection_established.connect(self.on_connection_established)
+        # 连接断开信号
+        self.connection_dialog.connection_disconnected.connect(self.on_connection_disconnected)
         
         # 串口转发设置已移动到连接对话框中
         
@@ -376,7 +425,9 @@ class RTTMainWindow(QMainWindow):
         #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
-        self.ui.tem_switch.setTabBar(EditableTabBar())  # 使用自定义的可编辑标签栏
+        editable_tab_bar = EditableTabBar()
+        editable_tab_bar.main_window = self  # 设置主窗口引用
+        self.ui.tem_switch.setTabBar(editable_tab_bar)  # 使用自定义的可编辑标签栏
         
         # 清除整个TabWidget的工具提示
         self.ui.tem_switch.setToolTip("")
@@ -435,6 +486,7 @@ class RTTMainWindow(QMainWindow):
         self.dark_stylesheet = qdarkstyle.load_stylesheet_pyside6()
         
         self.ui.light_checkbox.stateChanged.connect(self.set_style)
+        self.ui.fontsize_box.valueChanged.connect(self.on_fontsize_changed)
         self.set_style()
         
         # 创建定时器并连接到槽函数
@@ -444,6 +496,9 @@ class RTTMainWindow(QMainWindow):
         
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
+        
+        # 立即加载并应用保存的配置
+        self._apply_saved_settings()
     
     # 串口转发功能已移动到连接对话框中
     
@@ -528,12 +583,7 @@ class RTTMainWindow(QMainWindow):
     
     def show_connection_dialog(self):
         """显示连接配置对话框"""
-        if not self.connection_dialog:
-            self.connection_dialog = ConnectionDialog(self)  # 设置主窗口为父窗口
-            # 连接成功信号
-            self.connection_dialog.connection_established.connect(self.on_connection_established)
-            # 连接断开信号
-            self.connection_dialog.connection_disconnected.connect(self.on_connection_disconnected)
+        # 连接对话框已在初始化时创建，直接显示即可
         
         # 显示对话框
         self.connection_dialog.show()
@@ -621,10 +671,20 @@ class RTTMainWindow(QMainWindow):
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
-            self.ui.cmd_buffer.addItems(settings['cmd'])
+            # 从INI配置加载命令历史
+            cmd_history = self.connection_dialog.config.get_command_history()
+            self.ui.cmd_buffer.addItems(cmd_history)
+            # 同步更新settings以保持兼容性
+            settings['cmd'] = cmd_history
             
+            # 从配置管理器加载筛选器设置
             for i in range(17, MAX_TAB_SIZE):
-                if settings['filter'][i-17]:
+                # 优先从INI配置加载筛选器
+                filter_content = self.connection_dialog.config.get_filter(i)
+                if filter_content:
+                    self.ui.tem_switch.setTabText(i, filter_content)
+                elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
+                    # 兼容旧格式
                     self.ui.tem_switch.setTabText(i, settings['filter'][i-17])
                     
             # 应用样式
@@ -844,6 +904,8 @@ class RTTMainWindow(QMainWindow):
                 self.ui.cmd_buffer.addItem(current_text)
                 if self.connection_dialog:
                     self.connection_dialog.settings['cmd'].append(current_text)
+                    # 同步保存到CMD.txt文件
+                    self.connection_dialog.config.add_command_to_history(current_text)
 
     def on_dis_connect_clicked(self):
         """断开连接，不显示连接对话框"""
@@ -901,9 +963,20 @@ class RTTMainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
         if self.connection_dialog:
             self.connection_dialog.settings['light_mode'] = self.ui.light_checkbox.isChecked()
+            # 同步保存到INI配置
+            self.connection_dialog.config.set_light_mode(self.ui.light_checkbox.isChecked())
+            self.connection_dialog.config.save_config()
         
         # 更新JLink日志区域的样式
         self._update_jlink_log_style()
+    
+    def on_fontsize_changed(self):
+        """字体大小变更时的处理"""
+        if self.connection_dialog:
+            self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
+            # 同步保存到INI配置
+            self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
+            self.connection_dialog.config.save_config()
     
     def _update_jlink_log_style(self):
         """更新JLink日志区域的样式以匹配当前主题"""
@@ -1009,13 +1082,9 @@ class RTTMainWindow(QMainWindow):
         # 更新状态栏
         self.update_status_bar()
         
-        if self.connection_dialog:
-            self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
-                
-            for i in range(17 , MAX_TAB_SIZE):
-                tagText = self.ui.tem_switch.tabText(i)
-                self.connection_dialog.settings['filter'][i-17] = tagText
-            
+        # 定时任务不应该保存配置，只更新显示信息
+        # 配置保存应该在用户实际修改设置时进行
+        
         # 确保工具提示设置正确 - 只有filter标签页才有工具提示
         self._ensure_correct_tooltips()
     
@@ -1050,10 +1119,17 @@ class RTTMainWindow(QMainWindow):
         self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
         if self.connection_dialog:
             self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
+            # 同步保存到INI配置
+            self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
+            self.connection_dialog.config.save_config()
+    
     def toggle_lock_v_checkbox(self):
         self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
         if self.connection_dialog:
             self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
+            # 同步保存到INI配置
+            self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
+            self.connection_dialog.config.save_config()
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
@@ -1085,17 +1161,37 @@ class ConnectionDialog(QDialog):
         self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART 连接配置"))
         self.setWindowModality(Qt.ApplicationModal)
         
-        self.setting_file_path = os.path.join(os.getcwd(), "settings")
+        # 使用新的配置管理器
+        self.config = config_manager
+        
+        # 尝试从旧的pickle文件迁移配置
+        old_settings_file = os.path.join(os.getcwd(), "settings")
+        if os.path.exists(old_settings_file):
+            if self.config.migrate_from_pickle(old_settings_file):
+                # 迁移成功后删除旧文件
+                try:
+                    os.remove(old_settings_file)
+                    print("旧配置文件已删除")
+                except:
+                    pass
 
         self.start_state = False
         self.target_device = None
         self.rtt2uart = None
         self.connect_type = None
-        # 默认Existing Session方式接入使能Auto reconnect
-        self.ui.checkBox__auto.setChecked(True)
-        # 默认选择'USB'方式接入
-        self.ui.radioButton_usb.setChecked(True)
-        self.usb_selete_slot()
+        
+        # 根据配置设置默认值
+        self.ui.checkBox__auto.setChecked(self.config.get_auto_reconnect())
+        
+        # 设置连接类型
+        conn_type = self.config.get_connection_type()
+        if conn_type == 'USB':
+            self.ui.radioButton_usb.setChecked(True)
+            self.usb_selete_slot()
+        elif conn_type == 'TCP/IP':
+            self.ui.radioButton_tcpip.setChecked(True)
+        elif conn_type == 'Existing':
+            self.ui.radioButton_existing.setChecked(True)
 
         self.ui.comboBox_Interface.addItem("JTAG")
         self.ui.comboBox_Interface.addItem("SWD")
@@ -1110,8 +1206,23 @@ class ConnectionDialog(QDialog):
 
         self.port_scan()
 
-        self.settings = {'device': [], 'device_index': 0, 'interface': 0,
-                         'speed': 0, 'port': 0, 'buadrate': 0, 'lock_h':1, 'lock_v':0, 'light_mode':0, 'fontsize':9, 'filter':[None] * (MAX_TAB_SIZE - 17), 'cmd':[], 'serial_forward_tab': -1, 'serial_forward_mode': 'LOG'}
+        # 兼容性：保留settings字典结构用于现有代码
+        self.settings = {
+            'device': self.config.get_device_list(),
+            'device_index': self.config.get_device_index(),
+            'interface': self.config.get_interface(),
+            'speed': get_speed_index_from_value(self.config.get_speed()),  # 转换为索引
+            'port': self.config.get_port_index(),
+            'buadrate': get_baudrate_index_from_value(self.config.get_baudrate()),  # 转换为索引
+            'lock_h': int(self.config.get_lock_horizontal()),
+            'lock_v': int(self.config.get_lock_vertical()),
+            'light_mode': int(self.config.get_light_mode()),
+            'fontsize': self.config.get_fontsize(),
+            'filter': [self.config.get_filter(i) if self.config.get_filter(i) else None for i in range(17, 33)],
+            'cmd': self.config.get_command_history(),
+            'serial_forward_tab': self.config.get_serial_forward_target_tab(),
+            'serial_forward_mode': self.config.get_serial_forward_mode()
+        }
 
         # 主窗口引用（由父窗口传入）
         self.main_window = parent
@@ -1130,46 +1241,11 @@ class ConnectionDialog(QDialog):
         self.worker.start_flush_timer()
         
 
-        # 检查是否存在上次配置，存在则加载
-        if os.path.exists(self.setting_file_path) == True:
-            with open(self.setting_file_path, 'rb') as f:
-                self.settings = pickle.load(f)
-
-            f.close()
-
-            # 应用上次配置
-            if len(self.settings['device']):
-                self.ui.comboBox_Device.addItems(self.settings['device'])
-                self.target_device = self.settings['device'][self.settings['device_index']]
-            self.ui.comboBox_Device.setCurrentIndex(
-                self.settings['device_index'])
-            self.ui.comboBox_Interface.setCurrentIndex(
-                self.settings['interface'])
-            self.ui.comboBox_Speed.setCurrentIndex(self.settings['speed'])
-            self.ui.comboBox_Port.setCurrentIndex(self.settings['port'])
-            self.ui.comboBox_baudrate.setCurrentIndex(
-                self.settings['buadrate'])
-            
-            # 这些设置将在主窗口创建后应用
-            # self.main_window.ui.LockH_checkBox.setChecked(self.settings['lock_h'])
-            # self.main_window.ui.LockV_checkBox.setChecked(self.settings['lock_v'])
-            # self.main_window.ui.light_checkbox.setChecked(self.settings['light_mode'])
-            # self.main_window.ui.fontsize_box.setValue(self.settings['fontsize'])
-            # self.main_window.ui.cmd_buffer.addItems(self.settings['cmd'])
-            # 
-            # for i in range(17 , MAX_TAB_SIZE):
-            #         tagText = self.main_window.ui.tem_switch.tabText(i)
-            #         if self.settings['filter'][i-17]:
-            #             self.main_window.ui.tem_switch.setTabText(i, self.settings['filter'][i-17])
-
-        else:
-            logger.info('Setting file not exist', exc_info=True)
-            self.ui.comboBox_Interface.setCurrentIndex(1)
-            self.settings['interface'] = 1
-            self.ui.comboBox_Speed.setCurrentIndex(19)
-            self.settings['speed'] = 19
-            self.ui.comboBox_baudrate.setCurrentIndex(16)
-            self.settings['buadrate'] = 16
+        # 应用从INI配置加载的设置到UI控件
+        self._load_ui_settings()
+        
+        # 根据配置文件中的实际值设置UI控件
+        self._apply_config_to_ui()
 
         # 信号-槽
         self.ui.pushButton_Start.clicked.connect(self.start)
@@ -1260,8 +1336,9 @@ class ConnectionDialog(QDialog):
             
             # 保存当前配置
             try:
-                with open(self.setting_file_path, 'wb') as f:
-                    pickle.dump(self.settings, f)
+                # 保存当前UI设置到INI配置
+                self._save_ui_settings()
+                self.config.save_config()
             except Exception as ex:
                 logger.warning(f"Failed to save settings: {ex}")
             
@@ -1301,6 +1378,164 @@ class ConnectionDialog(QDialog):
         self.ui.comboBox_SerialForward.currentIndexChanged.connect(self._on_serial_forward_changed)
         self.ui.radioButton_LOG.toggled.connect(self._on_forward_mode_changed)
         self.ui.radioButton_DATA.toggled.connect(self._on_forward_mode_changed)
+    
+    def _load_ui_settings(self):
+        """加载并应用UI设置"""
+        # 应用设备列表
+        device_list = self.config.get_device_list()
+        if device_list:
+            self.ui.comboBox_Device.addItems(device_list)
+            device_index = self.config.get_device_index()
+            if device_index < len(device_list):
+                self.target_device = device_list[device_index]
+                self.ui.comboBox_Device.setCurrentIndex(device_index)
+        
+        # 应用接口设置
+        self.ui.comboBox_Interface.setCurrentIndex(self.config.get_interface())
+        
+        # 应用速度设置
+        self.ui.comboBox_Speed.setCurrentIndex(self.config.get_speed())
+        
+        # 应用串口设置
+        self.ui.comboBox_Port.setCurrentIndex(self.config.get_port_index())
+        self.ui.comboBox_baudrate.setCurrentIndex(self.config.get_baudrate())
+        
+        # 应用其他设置
+        self.ui.checkBox_resettarget.setChecked(self.config.get_reset_target())
+        
+        # 应用序列号设置
+        self.ui.lineEdit_serialno.setText(self.config.get_serial_number())
+        self.ui.lineEdit_ip.setText(self.config.get_ip_address())
+        
+        # 如果没有保存的设置，使用合理的默认值
+        if not device_list:
+            self.ui.comboBox_Interface.setCurrentIndex(1)  # SWD
+            self.ui.comboBox_Speed.setCurrentIndex(19)     # 合适的速度
+            self.ui.comboBox_baudrate.setCurrentIndex(16)  # 115200
+            
+            # 保存默认设置
+            self.config.set_interface(1)
+            self.config.set_speed(4000)
+            self.config.set_baudrate(115200)
+    
+    def _apply_config_to_ui(self):
+        """根据配置文件中的实际值设置UI控件"""
+        try:
+            # 设置速度选择框
+            speed_value = self.config.get_speed()
+            speed_index = get_speed_index_from_value(speed_value)
+            if speed_index < self.ui.comboBox_Speed.count():
+                self.ui.comboBox_Speed.setCurrentIndex(speed_index)
+            
+            # 设置波特率选择框
+            baudrate_value = self.config.get_baudrate()
+            baudrate_index = get_baudrate_index_from_value(baudrate_value)
+            if baudrate_index < self.ui.comboBox_baudrate.count():
+                self.ui.comboBox_baudrate.setCurrentIndex(baudrate_index)
+            
+            # 设置接口选择框
+            interface_index = self.config.get_interface()
+            if interface_index < self.ui.comboBox_Interface.count():
+                self.ui.comboBox_Interface.setCurrentIndex(interface_index)
+            
+            # 设置端口选择框
+            port_index = self.config.get_port_index()
+            if port_index < self.ui.comboBox_Port.count():
+                self.ui.comboBox_Port.setCurrentIndex(port_index)
+                
+        except Exception as e:
+            print(f"应用配置到UI时出错: {e}")
+    
+    def _save_ui_settings(self):
+        """保存当前UI设置到配置"""
+        try:
+            # 保存设备设置
+            if hasattr(self, 'target_device') and self.target_device:
+                current_devices = [self.ui.comboBox_Device.itemText(i) for i in range(self.ui.comboBox_Device.count())]
+                self.config.set_device_list(current_devices)
+                self.config.set_device_index(self.ui.comboBox_Device.currentIndex())
+            
+            # 保存接口和速度设置
+            self.config.set_interface(self.ui.comboBox_Interface.currentIndex())
+            self.config.set_speed(speed_list[self.ui.comboBox_Speed.currentIndex()])
+            
+            # 保存串口设置
+            self.config.set_port_index(self.ui.comboBox_Port.currentIndex())
+            self.config.set_baudrate(baudrate_list[self.ui.comboBox_baudrate.currentIndex()])
+            self.config.set_reset_target(self.ui.checkBox_resettarget.isChecked())
+            
+            # 保存连接类型
+            if self.ui.radioButton_usb.isChecked():
+                self.config.set_connection_type('USB')
+            elif self.ui.radioButton_tcpip.isChecked():
+                self.config.set_connection_type('TCP/IP')
+            elif self.ui.radioButton_existing.isChecked():
+                self.config.set_connection_type('Existing')
+            
+            # 保存序列号和IP设置
+            self.config.set_serial_number(self.ui.lineEdit_serialno.text())
+            self.config.set_ip_address(self.ui.lineEdit_ip.text())
+            self.config.set_auto_reconnect(self.ui.checkBox__auto.isChecked())
+            
+            # 保存当前选中的端口名
+            current_port_text = self.ui.comboBox_Port.currentText()
+            if " - " in current_port_text:
+                port_name = current_port_text.split(" - ")[0]
+            else:
+                port_name = current_port_text
+            self.config.set_port_name(port_name)
+            
+            # 保存串口转发设置
+            if hasattr(self.ui, 'comboBox_SerialForward'):
+                self.config.set_serial_forward_target_tab(
+                    self.ui.comboBox_SerialForward.itemData(self.ui.comboBox_SerialForward.currentIndex()) or -1
+                )
+                
+                if hasattr(self.ui, 'radioButton_LOG') and self.ui.radioButton_LOG.isChecked():
+                    self.config.set_serial_forward_mode('LOG')
+                elif hasattr(self.ui, 'radioButton_DATA') and self.ui.radioButton_DATA.isChecked():
+                    self.config.set_serial_forward_mode('DATA')
+            
+            # 如果有主窗口，保存主窗口的UI设置
+            if self.main_window:
+                self._save_main_window_settings()
+            
+        except Exception as e:
+            logger.warning(f"保存UI设置失败: {e}")
+    
+    def _save_main_window_settings(self):
+        """保存主窗口的UI设置"""
+        try:
+            if hasattr(self.main_window.ui, 'light_checkbox'):
+                self.config.set_light_mode(self.main_window.ui.light_checkbox.isChecked())
+            
+            if hasattr(self.main_window.ui, 'fontsize_box'):
+                self.config.set_fontsize(self.main_window.ui.fontsize_box.value())
+            
+            if hasattr(self.main_window.ui, 'LockH_checkBox'):
+                self.config.set_lock_horizontal(self.main_window.ui.LockH_checkBox.isChecked())
+            
+            if hasattr(self.main_window.ui, 'LockV_checkBox'):
+                self.config.set_lock_vertical(self.main_window.ui.LockV_checkBox.isChecked())
+            
+            # 保存过滤器设置
+            if hasattr(self.main_window.ui, 'tem_switch'):
+                for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
+                    tab_text = self.main_window.ui.tem_switch.tabText(i)
+                    if tab_text != QCoreApplication.translate("main_window", "filter"):
+                        self.config.set_filter(i, tab_text)
+            
+            # 保存命令历史
+            if hasattr(self.main_window.ui, 'cmd_buffer'):
+                commands = []
+                for i in range(self.main_window.ui.cmd_buffer.count()):
+                    cmd_text = self.main_window.ui.cmd_buffer.itemText(i)
+                    if cmd_text.strip():
+                        commands.append(cmd_text)
+                # 命令历史通过config_manager单独管理，这里不需要特别处理
+                
+        except Exception as e:
+            logger.warning(f"保存主窗口设置失败: {e}")
     
     def _update_serial_forward_combo(self):
         """更新串口转发选择框的内容"""
@@ -1407,6 +1642,10 @@ class ConnectionDialog(QDialog):
         # 保存设置
         self.settings['serial_forward_tab'] = selected_tab
         self.settings['serial_forward_mode'] = forward_mode
+        
+        # 同步保存到INI配置
+        self.config.set_serial_forward_target_tab(selected_tab)
+        self.config.set_serial_forward_mode(forward_mode)
         
         # 显示状态信息
         if selected_tab == -1:
@@ -1596,24 +1835,43 @@ class ConnectionDialog(QDialog):
         index = self.ui.comboBox_Device.findText(self.target_device)
         if index != -1:
             self.ui.comboBox_Device.setCurrentIndex(index)
+            # 保存设备选择到配置文件
+            self.config.set_device_list(self.settings['device'])
+            self.config.set_device_index(index)
+            self.config.save_config()
         # 刷新显示
         self.ui.comboBox_Device.update()
         
     def device_change_slot(self, index):
         self.settings['device_index'] = index
         self.target_device = self.ui.comboBox_Device.currentText()
+        # 同步保存到INI配置
+        self.config.set_device_index(index)
+        self.config.save_config()
 
     def interface_change_slot(self, index):
         self.settings['interface'] = index
+        # 同步保存到INI配置
+        self.config.set_interface(index)
+        self.config.save_config()
 
     def speed_change_slot(self, index):
         self.settings['speed'] = index
+        # 同步保存到INI配置
+        self.config.set_speed(speed_list[index])  # 保存实际值而不是索引
+        self.config.save_config()
 
     def port_change_slot(self, index):
         self.settings['port'] = index
+        # 同步保存到INI配置
+        self.config.set_port_index(index)
+        self.config.save_config()
 
     def buadrate_change_slot(self, index):
         self.settings['buadrate'] = index
+        # 同步保存到INI配置
+        self.config.set_baudrate(baudrate_list[index])  # 保存实际值而不是索引
+        self.config.save_config()
 
     def serial_no_change_slot(self):
         if self.ui.checkBox_serialno.isChecked():

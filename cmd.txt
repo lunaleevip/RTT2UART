@@ -1,3 +1,12 @@
+﻿UTF-8 test command with 中文
+新的UTF-8测试命令
+mg=中文消息
+pdm=init#pdm=start
 ver?
-mg=���Ĳ���
-prfm=ffff
+test command 2
+测试命令1
+长命令长命令长命令长命令长命令长命令长命令长命令长命令长命令
+特殊字符!@#$%^&*()
+mixed中英文command混合
+test english command
+测试中文命令1
