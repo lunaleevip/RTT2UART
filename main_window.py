@@ -209,16 +209,90 @@ class DeviceSelectDialog(QDialog):
             # 在设备选择对话框中连接到双击事件
             self.ui.tableView.doubleClicked.connect(self.accept)
             
+        # 📋 修复：连接对话框按钮的信号
+        self.ui.buttonBox.accepted.connect(self.accept)
+        self.ui.buttonBox.rejected.connect(self.reject)
+            
     def get_jlink_devices_list_file(self):
-        if os.path.exists(r'JLinkDevicesBuildIn.xml') == True:
+        """获取JLink设备数据库文件路径，支持开发环境和打包后的资源访问"""
+        
+        # 开发环境：优先从当前目录读取
+        if os.path.exists('JLinkDevicesBuildIn.xml'):
             return os.path.abspath('JLinkDevicesBuildIn.xml')
-        else:
-            raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+        
+        # 打包后环境：从资源目录读取
+        try:
+            # PyInstaller会将资源文件解压到sys._MEIPASS目录
+            if hasattr(sys, '_MEIPASS'):
+                resource_path = os.path.join(sys._MEIPASS, 'JLinkDevicesBuildIn.xml')
+                if os.path.exists(resource_path):
+                    return resource_path
+            
+            # 尝试从当前可执行文件目录读取
+            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            exe_resource_path = os.path.join(exe_dir, 'JLinkDevicesBuildIn.xml')
+            if os.path.exists(exe_resource_path):
+                return exe_resource_path
+                
+        except Exception as e:
+            logger.warning(f"Failed to locate JLinkDevicesBuildIn.xml from resources: {e}")
+        
+        # 如果都找不到，抛出异常
+        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+    
+    def _device_database_exists(self):
+        """检查设备数据库文件是否存在"""
+        try:
+            self.get_jlink_devices_list_file()
+            return True
+        except Exception:
+            return False
+    
+    def _get_jlink_command_file_path(self):
+        """获取JLinkCommandFile.jlink文件路径"""
+        
+        # 开发环境：优先从当前目录读取
+        if os.path.exists('JLinkCommandFile.jlink'):
+            return os.path.abspath('JLinkCommandFile.jlink')
+        
+        # 打包后环境：从资源目录读取
+        try:
+            # PyInstaller会将资源文件解压到sys._MEIPASS目录
+            if hasattr(sys, '_MEIPASS'):
+                resource_path = os.path.join(sys._MEIPASS, 'JLinkCommandFile.jlink')
+                if os.path.exists(resource_path):
+                    return resource_path
+            
+            # 尝试从当前可执行文件目录读取
+            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            exe_resource_path = os.path.join(exe_dir, 'JLinkCommandFile.jlink')
+            if os.path.exists(exe_resource_path):
+                return exe_resource_path
+                
+        except Exception as e:
+            logger.warning(f"Failed to locate JLinkCommandFile.jlink from resources: {e}")
+        
+        # 如果都找不到，返回默认路径（向后兼容）
+        return 'JLinkCommandFile.jlink'
 
     def parse_jlink_devices_list_file(self, path):
-        parsefile = open(path, 'r')
-
-        tree = ET.ElementTree(file=parsefile)
+        """解析JLink设备数据库文件"""
+        try:
+            # 尝试使用UTF-8编码打开文件
+            with open(path, 'r', encoding='utf-8') as parsefile:
+                tree = ET.ElementTree(file=parsefile)
+        except UnicodeDecodeError:
+            # 如果UTF-8失败，尝试使用系统默认编码
+            try:
+                with open(path, 'r', encoding='gbk') as parsefile:
+                    tree = ET.ElementTree(file=parsefile)
+            except UnicodeDecodeError:
+                # 最后尝试使用ISO-8859-1编码
+                with open(path, 'r', encoding='iso-8859-1') as parsefile:
+                    tree = ET.ElementTree(file=parsefile)
+        except Exception as e:
+            logger.error(f"Failed to open JLinkDevicesBuildIn.xml: {e}")
+            raise Exception(QCoreApplication.translate("main_window", "Failed to parse device database file!"))
 
         jlink_devices_list = []
 
@@ -277,7 +351,7 @@ class DeviceSelectDialog(QDialog):
     # 在设备选择对话框类中添加一个方法来处理确定按钮的操作
     def accept(self):
         self.refresh_selected_device()
-        self.close()
+        super().accept()  # 调用父类的accept()以正确设置对话框结果
 
 class EditableTabBar(QTabBar):
     def __init__(self, parent=None):
@@ -842,6 +916,29 @@ class RTTMainWindow(QMainWindow):
         # 自动滚动到底部
         scrollbar = self.jlink_log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def _handle_connection_lost(self):
+        """处理JLink连接丢失事件"""
+        try:
+            self.append_jlink_log("⚠️ 处理JLink连接丢失事件...")
+            
+            # 更新连接状态显示
+            if self.connection_dialog:
+                # 重置连接状态
+                self.connection_dialog.start_state = False
+                self.connection_dialog.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+                
+                # 发送连接断开信号
+                self.connection_dialog.connection_disconnected.emit()
+                
+                # 🔄 立即更新状态栏显示
+                self.update_status_bar()
+                
+                self.append_jlink_log("✅ 连接状态已重置，可以重新连接")
+            
+        except Exception as e:
+            self.append_jlink_log(f"❌ 处理连接丢失时出错: {e}")
+            logger.error(f"Error in _handle_connection_lost: {e}")
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
@@ -864,6 +961,10 @@ class RTTMainWindow(QMainWindow):
                         # 正确调用stop方法而不是start方法
                         self.connection_dialog.rtt2uart.stop()
                         self.connection_dialog.start_state = False
+                        
+                        # 🔄 更新状态栏显示
+                        self.update_status_bar()
+                        
                         logger.info("RTT连接已停止")
                     except Exception as ex:
                         logger.error(f"停止RTT连接时出错: {ex}")
@@ -1448,7 +1549,7 @@ class ConnectionDialog(QDialog):
 
         try:
             # 导出器件列表文件
-            if self.jlink._library._path is not None and os.path.exists(r'JLinkDevicesBuildIn.xml') == False:
+            if self.jlink._library._path is not None and not self._device_database_exists():
                 path_env = os.path.dirname(self.jlink._library._path)
                 env = os.environ
 
@@ -1456,7 +1557,9 @@ class ConnectionDialog(QDialog):
                     jlink_env = {'PATH': path_env}
                     env.update(jlink_env)
 
-                    cmd = 'JLink.exe -CommandFile JLinkCommandFile.jlink'
+                    # 获取JLinkCommandFile.jlink的正确路径
+                    jlink_cmd_file = self._get_jlink_command_file_path()
+                    cmd = f'JLink.exe -CommandFile "{jlink_cmd_file}"'
 
                     startupinfo = subprocess.STARTUPINFO()
                     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -1467,10 +1570,12 @@ class ConnectionDialog(QDialog):
 
                 elif sys.platform.startswith('linux'):
                     jlink_env = {}
-                    cmd = 'JLinkExe -CommandFile JLinkCommandFile.jlink'
+                    jlink_cmd_file = self._get_jlink_command_file_path()
+                    cmd = f'JLinkExe -CommandFile "{jlink_cmd_file}"'
                 elif sys.platform.startswith('darwin'):
                     jlink_env = {}
-                    cmd = 'JLinkExe -CommandFile JLinkCommandFile.jlink'
+                    jlink_cmd_file = self._get_jlink_command_file_path()
+                    cmd = f'JLinkExe -CommandFile "{jlink_cmd_file}"'
 
         except Exception as e:
             logging.error(f'can not export devices xml file, error info: {e}')
@@ -1915,7 +2020,7 @@ class ConnectionDialog(QDialog):
                 self.start_state = True
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Stop"))
                 
-                self.rtt2uart = rtt_to_serial(self.ui, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
+                self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False)  # 重置后不再需要在rtt2uart中重置
 
                 self.rtt2uart.start()
@@ -2002,6 +2107,10 @@ class ConnectionDialog(QDialog):
                 # 发送连接断开信号
                 self.connection_disconnected.emit()
                 
+                # 🔄 立即更新主窗口状态栏显示
+                if self.main_window and hasattr(self.main_window, 'update_status_bar'):
+                    self.main_window.update_status_bar()
+                
                 # 断开连接时不自动显示连接对话框
                 # 用户可以通过菜单或快捷键手动打开连接设置
                 pass
@@ -2016,23 +2125,31 @@ class ConnectionDialog(QDialog):
 
     def target_device_selete(self):
         device_ui = DeviceSelectDialog()
-        device_ui.exec()
-        self.target_device = device_ui.get_target_device()
-
-        if self.target_device and self.target_device not in self.settings['device']:
-            self.settings['device'].append(self.target_device)
-            self.ui.comboBox_Device.addItem(self.target_device)
+        result = device_ui.exec()
         
-        # 选择新添加的项目
-        index = self.ui.comboBox_Device.findText(self.target_device)
-        if index != -1:
-            self.ui.comboBox_Device.setCurrentIndex(index)
-            # 保存设备选择到配置文件
-            self.config.set_device_list(self.settings['device'])
-            self.config.set_device_index(index)
-            self.config.save_config()
-        # 刷新显示
-        self.ui.comboBox_Device.update()
+        # 📋 修复：只有用户确认选择（不是取消）且选择了有效设备时才更新
+        if result == QDialog.Accepted:
+            selected_device = device_ui.get_target_device()
+            
+            # 只有选择了有效设备才更新
+            if selected_device:
+                self.target_device = selected_device
+
+                if self.target_device not in self.settings['device']:
+                    self.settings['device'].append(self.target_device)
+                    self.ui.comboBox_Device.addItem(self.target_device)
+                
+                # 选择新添加的项目
+                index = self.ui.comboBox_Device.findText(self.target_device)
+                if index != -1:
+                    self.ui.comboBox_Device.setCurrentIndex(index)
+                    # 保存设备选择到配置文件
+                    self.config.set_device_list(self.settings['device'])
+                    self.config.set_device_index(index)
+                    self.config.save_config()
+                # 刷新显示
+                self.ui.comboBox_Device.update()
+        # 如果用户取消或没有选择设备，保持原有的设备选择不变
         
     def device_change_slot(self, index):
         self.settings['device_index'] = index
@@ -2082,12 +2199,136 @@ class ConnectionDialog(QDialog):
         # 只保存设置，不立即执行重置操作
         # 重置操作将在点击"开始"按钮时执行
     
+    def detect_jlink_conflicts(self):
+        """检测JLink驱动冲突"""
+        try:
+            import psutil
+            import os
+            
+            current_pid = os.getpid()
+            jlink_processes = []
+            
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    if proc.info['pid'] != current_pid and proc.info['name']:
+                        name_lower = proc.info['name'].lower()
+                        # 检测常见的JLink相关程序
+                        jlink_keywords = ['jlink', 'j-link', 'jflash', 'j-flash', 'commander', 'segger']
+                        if any(keyword in name_lower for keyword in jlink_keywords):
+                            jlink_processes.append({
+                                'pid': proc.info['pid'],
+                                'name': proc.info['name'],
+                                'exe': proc.info.get('exe', 'Unknown')
+                            })
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            return jlink_processes
+            
+        except Exception as e:
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(f"⚠️ 检测JLink冲突时出错: {e}")
+            return []
+    
+    def force_release_jlink_driver(self):
+        """强制释放JLink驱动"""
+        try:
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log("🔧 执行强制JLink驱动释放...")
+            
+            # 1. 检测冲突进程
+            conflicts = self.detect_jlink_conflicts()
+            if conflicts:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"🔍 检测到 {len(conflicts)} 个JLink相关进程:")
+                    for proc in conflicts:
+                        self.main_window.append_jlink_log(f"   - {proc['name']} (PID: {proc['pid']})")
+                    self.main_window.append_jlink_log("💡 这些程序可能正在占用JLink驱动")
+            
+            # 2. 尝试通过Windows API强制释放驱动
+            try:
+                import ctypes
+                from ctypes import wintypes
+                
+                # 定义Windows API常量
+                GENERIC_READ = 0x80000000
+                GENERIC_WRITE = 0x40000000
+                OPEN_EXISTING = 3
+                INVALID_HANDLE_VALUE = -1
+                
+                # 尝试打开JLink设备句柄来检测占用情况
+                kernel32 = ctypes.windll.kernel32
+                
+                # 常见的JLink设备路径
+                jlink_paths = [
+                    r"\\.\JLink",
+                    r"\\.\JLinkARM", 
+                    r"\\.\SEGGER",
+                ]
+                
+                for device_path in jlink_paths:
+                    try:
+                        handle = kernel32.CreateFileW(
+                            device_path,
+                            GENERIC_READ | GENERIC_WRITE,
+                            0,  # 不共享
+                            None,
+                            OPEN_EXISTING,
+                            0,
+                            None
+                        )
+                        
+                        if handle != INVALID_HANDLE_VALUE:
+                            kernel32.CloseHandle(handle)
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log(f"✅ 成功访问设备: {device_path}")
+                        else:
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log(f"⚠️ 无法访问设备: {device_path} (可能被占用)")
+                                
+                    except Exception as e:
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(f"⚠️ 检查设备 {device_path} 时出错: {e}")
+                
+            except Exception as e:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"⚠️ Windows API驱动检查失败: {e}")
+            
+            # 3. 尝试重新枚举USB设备
+            try:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("🔄 重新枚举USB设备...")
+                
+                # 通过重新扫描串口来触发USB设备重新枚举
+                import serial.tools.list_ports
+                ports_before = list(serial.tools.list_ports.comports())
+                
+                # 等待一下让系统稳定
+                import time
+                time.sleep(0.5)
+                
+                ports_after = list(serial.tools.list_ports.comports())
+                
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"📊 USB设备重新枚举完成 (发现 {len(ports_after)} 个串口)")
+                
+            except Exception as e:
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log(f"⚠️ USB设备重新枚举失败: {e}")
+            
+            return True
+            
+        except Exception as e:
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(f"❌ 强制释放JLink驱动失败: {e}")
+            return False
+
     def perform_connection_reset(self):
-        """执行连接重置操作"""
+        """执行强化的连接重置操作 - 解决JLink驱动抢占问题"""
         try:
             # 显示重置信息
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("🔄 开始执行连接重置...")
+                self.main_window.append_jlink_log("🔄 开始执行强化连接重置...")
             
             # 1. 停止当前连接（如果存在）
             if hasattr(self, 'rtt2uart') and self.rtt2uart is not None:
@@ -2102,37 +2343,85 @@ class ConnectionDialog(QDialog):
                     if hasattr(self.main_window, 'append_jlink_log'):
                         self.main_window.append_jlink_log(f"⚠️ 停止RTT连接时出错: {e}")
             
-            # 2. 重置JLink连接
+            # 2. 强制释放JLink驱动（解决驱动抢占问题）
             if hasattr(self, 'jlink') and self.jlink is not None:
                 try:
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("🔧 重置JLink连接...")
+                        self.main_window.append_jlink_log("🔧 强制释放JLink驱动...")
                     
-                    # 关闭现有连接
-                    if self.jlink.connected():
-                        self.jlink.close()
-                    
-                    # 等待一下
-                    import time
-                    time.sleep(0.5)
-                    
-                    # 重新打开JLink
-                    self.jlink.open()
-                    if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("✅ JLink连接已重置")
-                        
-                except Exception as e:
-                    if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log(f"⚠️ 重置JLink连接时出错: {e}")
-                    
-                    # 如果重置失败，尝试重新创建JLink对象
+                    # 强制断开所有连接
                     try:
+                        if self.jlink.connected():
+                            self.jlink.close()
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("📴 JLink连接已断开")
+                    except:
+                        pass  # 忽略断开时的错误
+                    
+                    # 强制清理JLink对象
+                    try:
+                        del self.jlink
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("🗑️ JLink对象已删除")
+                    except:
+                        pass
+                    
+                    self.jlink = None
+                    
+                    # 等待驱动释放
+                    import time
+                    time.sleep(1.0)  # 增加等待时间
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("⏳ 等待驱动释放...")
+                    
+                    # 强制垃圾回收
+                    import gc
+                    gc.collect()
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("🧹 执行垃圾回收")
+                    
+                    # 执行强制驱动释放
+                    self.force_release_jlink_driver()
+                    
+                    # 重新创建JLink对象
+                    try:
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("🔄 重新创建JLink对象...")
+                        
                         self.jlink = pylink.JLink()
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("🔄 JLink对象已重新创建")
+                            self.main_window.append_jlink_log("✅ JLink对象重新创建成功")
+                        
+                        # 尝试打开连接验证
+                        try:
+                            self.jlink.open()
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log("✅ JLink驱动重置成功，可以正常连接")
+                            # 立即关闭，等待后续正常连接流程
+                            self.jlink.close()
+                        except Exception as e:
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log(f"⚠️ JLink连接测试失败: {e}")
+                                self.main_window.append_jlink_log("💡 提示: 可能仍有其他程序占用JLink")
+                                
+                                # 再次检测冲突并给出具体建议
+                                conflicts = self.detect_jlink_conflicts()
+                                if conflicts:
+                                    self.main_window.append_jlink_log("🔍 发现以下JLink相关程序正在运行:")
+                                    for proc in conflicts:
+                                        self.main_window.append_jlink_log(f"   - {proc['name']} (PID: {proc['pid']})")
+                                    self.main_window.append_jlink_log("💡 请关闭这些程序后重试连接")
+                                else:
+                                    self.main_window.append_jlink_log("💡 建议重新插拔JLink设备后重试")
+                        
                     except Exception as e2:
                         if hasattr(self.main_window, 'append_jlink_log'):
                             self.main_window.append_jlink_log(f"❌ 重新创建JLink对象失败: {e2}")
+                        self.jlink = None
+                        
+                except Exception as e:
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log(f"⚠️ 强制释放JLink驱动时出错: {e}")
             
             # 3. 重置串口连接（清除串口状态）
             try:
@@ -2158,6 +2447,10 @@ class ConnectionDialog(QDialog):
                 self.start_state = False
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
                 
+                # 🔄 更新主窗口状态栏显示
+                if self.main_window and hasattr(self.main_window, 'update_status_bar'):
+                    self.main_window.update_status_bar()
+                
                 # 清理主窗口缓存（如果存在）
                 if hasattr(self.main_window, 'buffers'):
                     for i in range(len(self.main_window.buffers)):
@@ -2174,9 +2467,13 @@ class ConnectionDialog(QDialog):
                 if hasattr(self.main_window, 'append_jlink_log'):
                     self.main_window.append_jlink_log(f"⚠️ 清理缓存时出错: {e}")
             
-            # 5. 完成重置
+            # 5. 强化的驱动重置完成
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("🎉 连接重置完成！准备建立新连接...")
+                self.main_window.append_jlink_log("🎉 强化连接重置完成！")
+                self.main_window.append_jlink_log("💡 如果仍然无法连接，请:")
+                self.main_window.append_jlink_log("   1. 关闭所有JLink相关程序(J-Link Commander、J-Flash等)")
+                self.main_window.append_jlink_log("   2. 重新插拔JLink设备")
+                self.main_window.append_jlink_log("   3. 然后重试连接")
             
         except Exception as e:
             if hasattr(self.main_window, 'append_jlink_log'):
@@ -2265,26 +2562,38 @@ class ConnectionDialog(QDialog):
                                       self.worker.colored_buffers[index])
                     
                     if has_colored_data and len(self.worker.colored_buffers[index]) > 0:
-                        # 🚀 方案A：高性能ANSI彩色显示（使用QTextCursor+QTextCharFormat）
-                        colored_data = self.worker.colored_buffers[index]
-                        if len(colored_data) > max_insert_length:
-                            colored_data = colored_data[-max_insert_length:]
+                        # 🚀 方案A：高性能ANSI彩色显示（使用增量数据）
+                        incremental_colored_data = self.worker.colored_buffers[index]
+                        if len(incremental_colored_data) > max_insert_length:
+                            incremental_colored_data = incremental_colored_data[-max_insert_length:]
                         
-                        # 使用高性能原生Qt格式化，传入tab索引用于清屏控制
-                        self._insert_ansi_text_fast(text_edit, colored_data, index)
+                        # 使用高性能原生Qt格式化，只追加新数据
+                        self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
                             text_edit.verticalScrollBar().maximum())
                     
                     elif self.worker.buffers[index]:
-                        # 🚀 方案B：高性能纯文本显示（使用QPlainTextEdit模式）
-                        data_to_insert = self.worker.buffers[index]
-                        if len(data_to_insert) > max_insert_length:
-                            data_to_insert = data_to_insert[-max_insert_length:]
+                        # 🚀 方案B：智能ANSI处理（切换TAB时重新处理ANSI颜色）
+                        accumulated_data = self.worker.buffers[index]
                         
-                        # 使用QTextEdit的高性能纯文本插入
-                        text_edit.insertPlainText(data_to_insert)
+                        # 如果数据过长，只显示最新部分
+                        if len(accumulated_data) > max_insert_length:
+                            display_data = accumulated_data[-max_insert_length:]
+                        else:
+                            display_data = accumulated_data
+                        
+                        # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
+                        if self.worker._has_ansi_codes(display_data):
+                            # 清空文本框并使用ANSI彩色显示
+                            text_edit.clear()
+                            colored_html = self.worker._convert_ansi_to_html(display_data)
+                            self._insert_ansi_text_fast(text_edit, colored_html, index)
+                        else:
+                            # 纯文本显示
+                            text_edit.clear()
+                            text_edit.insertPlainText(display_data)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -2300,11 +2609,13 @@ class ConnectionDialog(QDialog):
                         self.worker.colored_buffers[index] = ""
                     print(f"文本更新异常: {e}")  # 调试信息
                 
-                # 清空当前缓冲区（数据已经显示）
-                self.worker.buffers[index] = ""
-                # 标记页面需要更新
+                # 📋 使用正确的显示模式：累积显示全部数据
+                # 只清空增量缓冲区（colored_buffers），保留累积缓冲区（buffers）
+                # 这样每次显示的是完整的累积数据，而不是增量数据
+                
+                # 标记页面已更新，无需再次更新
                 if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'page_dirty_flags'):
-                    self.main_window.page_dirty_flags[index] = True
+                    self.main_window.page_dirty_flags[index] = False
 
                 # 激进的文本长度管理：每次都检查并严格控制
                 text_length = len(text_edit.toPlainText())
@@ -2546,6 +2857,80 @@ class Worker(QObject):
             self.log_buffers[filepath] = ""
         self.log_buffers[filepath] += content
 
+    def write_data_to_buffer_log(self, buffer_index, data, log_suffix=""):
+        """📋 统一日志写入方法：将数据写入指定buffer对应的日志文件
+        
+        Args:
+            buffer_index: buffer索引 (0=ALL页面, 1-16=通道页面, 17+=筛选页面)
+            data: 要写入的数据（应该与对应buffer内容一致）
+            log_suffix: 日志文件后缀 (如果为空，使用buffer_index)
+        """
+        try:
+            if (hasattr(self.parent, 'rtt2uart') and 
+                self.parent.rtt2uart):
+                
+                # 构造日志文件路径
+                if log_suffix:
+                    log_filepath = f"{self.parent.rtt2uart.rtt_log_filename}_{log_suffix}.log"
+                else:
+                    log_filepath = f"{self.parent.rtt2uart.rtt_log_filename}_{buffer_index}.log"
+                
+                # 直接写入数据，确保与buffer内容一致
+                if data:
+                    self.write_to_log_buffer(log_filepath, data)
+                    
+        except Exception as e:
+            logger.error(f"Failed to write data to buffer {buffer_index} log: {e}")
+
+    def _has_ansi_codes(self, text):
+        """检查文本是否包含ANSI控制符"""
+        try:
+            # 使用正则表达式检测ANSI控制符
+            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            return bool(ansi_pattern.search(text))
+        except Exception:
+            return False
+
+    def _convert_ansi_to_html(self, text):
+        """将ANSI控制符转换为HTML格式"""
+        try:
+            # 简化的ANSI到HTML转换
+            # 这里可以根据需要扩展更多颜色支持
+            
+            # 移除ANSI控制符并保留纯文本（简化版本）
+            # 实际项目中可以实现完整的ANSI到HTML转换
+            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            
+            # 简单的颜色替换示例
+            html_text = text
+            
+            # 改进的ANSI匹配：处理更多结束符情况
+            # 红色文本  
+            html_text = re.sub(r'\x1B\[31m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: red;">\1</span>', html_text)
+            html_text = re.sub(r'\x1B\[1;31m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #FF0000;">\1</span>', html_text)
+            
+            # 绿色文本
+            html_text = re.sub(r'\x1B\[32m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: green;">\1</span>', html_text)
+            html_text = re.sub(r'\x1B\[1;32m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #00FF00;">\1</span>', html_text)
+            
+            # 黄色文本
+            html_text = re.sub(r'\x1B\[33m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #808000;">\1</span>', html_text)
+            html_text = re.sub(r'\x1B\[1;33m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #FFFF00;">\1</span>', html_text)
+            
+            # 蓝色文本
+            html_text = re.sub(r'\x1B\[34m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: blue;">\1</span>', html_text)
+            html_text = re.sub(r'\x1B\[1;34m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #0000FF;">\1</span>', html_text)
+            
+            # 移除其他未处理的ANSI控制符
+            html_text = ansi_pattern.sub('', html_text)
+            
+            return html_text
+            
+        except Exception as e:
+            # 如果转换失败，返回移除ANSI后的纯文本
+            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+            return ansi_pattern.sub('', text)
+
 
 
     def _aggressive_manage_buffer_size(self, index):
@@ -2617,14 +3002,13 @@ class Worker(QObject):
                 # 转发所有数据（TAB 0）包含通道前缀
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
-            # 优化：使用缓冲写入日志
-            log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + str(index) + '.log'
-            self.write_to_log_buffer(log_filepath, data)
+            # 📋 统一日志处理：通道数据写入对应的日志文件（使用通道号0~15）
+            self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
-            # 优化过滤逻辑：减少嵌套循环
-            if data.strip():  # 只处理非空数据
-                lines = [line for line in data.split('\n') if line.strip()]
-                self.process_filter_lines(lines)
+            # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
+            if clean_data.strip():  # 只处理非空数据
+                clean_lines = [line for line in clean_data.split('\n') if line.strip()]
+                self.process_filter_lines(clean_lines)
 
             self.finished.emit()
 
@@ -2683,12 +3067,9 @@ class Worker(QObject):
                     if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
                         self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
                     
-                    # 缓冲写入搜索日志（移除ANSI后保存）
+                    # 📋 统一日志处理：筛选数据写入对应的日志文件
                     new_path = replace_special_characters(search_word)
-                    search_log_filepath = self.parent.rtt2uart.rtt_log_filename + '_' + new_path + '.log'
-                    # 写入日志时移除ANSI控制符
-                    clean_line = ansi_processor.remove_ansi_codes(line)
-                    self.write_to_log_buffer(search_log_filepath, clean_line + '\n')
+                    self.write_data_to_buffer_log(i, filtered_data, new_path)
 
 def replace_special_characters(path, replacement='_'):
     # 定义需要替换的特殊字符的正则表达式模式

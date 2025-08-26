@@ -217,16 +217,73 @@ class rtt_to_serial():
         if self.jlink_log_callback:
             self.jlink_log_callback(message)
     
+    def _auto_stop_on_connection_lost(self):
+        """连接丢失时自动停止RTT功能"""
+        try:
+            self._log_to_gui("🔄 连接丢失，正在自动停止RTT功能...")
+            
+            # 设置线程停止标志
+            self.thread_switch = False
+            
+            # 通知主窗口连接已断开
+            if hasattr(self.main, '_handle_connection_lost'):
+                try:
+                    # 使用Qt的信号机制安全地通知主线程
+                    from PySide6.QtCore import QMetaObject, Qt
+                    QMetaObject.invokeMethod(
+                        self.main, 
+                        "_handle_connection_lost", 
+                        Qt.QueuedConnection
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to notify main window of connection loss: {e}")
+            
+            self._log_to_gui("✅ RTT功能已自动停止")
+            
+        except Exception as e:
+            logger.error(f"Error in _auto_stop_on_connection_lost: {e}")
+            self._log_to_gui(f"❌ 自动停止RTT时出错: {e}")
+    
     def set_serial_forward_config(self, tab_index, mode='LOG'):
         """设置串口转发的配置"""
+        old_tab_index = self.serial_forward_tab
         self.serial_forward_tab = tab_index
         self.serial_forward_mode = mode
         
+        # 📋 动态管理串口状态
         if tab_index == -1:
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled"))
+            # 禁用转发，关闭串口
+            if hasattr(self, 'serial') and self.serial and self.serial.isOpen():
+                try:
+                    self.serial.close()
+                    logger.info('串口转发已禁用，串口已关闭')
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled, COM port closed"))
+                except Exception as e:
+                    logger.error(f'关闭串口失败: {e}')
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to close COM port: %s") % str(e))
+            else:
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled"))
         else:
+            # 启用转发，打开串口（如果还没打开）
+            if hasattr(self, 'serial') and self.serial and not self.serial.isOpen():
+                try:
+                    # 设置串口参数并打开串口
+                    self.serial.port = self.port
+                    self.serial.baudrate = self.baudrate
+                    self.serial.timeout = 3
+                    self.serial.write_timeout = 3
+                    self.serial.open()
+                    logger.info(f'串口转发已启用，串口 {self.port} 打开成功')
+                except Exception as e:
+                    logger.error(f'打开串口失败: {e}')
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to open COM port %s: %s") % (self.port, str(e)))
+                    return
+            
             mode_text = QCoreApplication.translate("rtt2uart", "LOG Mode") if mode == 'LOG' else QCoreApplication.translate("rtt2uart", "DATA Mode")
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding enabled: %s - %s") % (mode_text, str(tab_index)))
+            if self.serial and self.serial.isOpen():
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding enabled: %s - %s (COM: %s)") % (mode_text, str(tab_index), self.port))
+            else:
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding enabled: %s - %s (COM port failed)") % (mode_text, str(tab_index)))
     
     def set_current_tab_index(self, tab_index):
         """设置当前显示的标签页索引"""
@@ -415,17 +472,22 @@ class rtt_to_serial():
             logger.error(f'Start RTT failed: {e}', exc_info=True)
             raise
 
-        try:
-            if self.serial.isOpen() == False:
-                # 设置串口参数并打开串口
-                self.serial.port = self.port
-                self.serial.baudrate = self.baudrate
-                self.serial.timeout = 3
-                self.serial.write_timeout = 3
-                self.serial.open()
-        except:
-            logger.error('Open serial failed', exc_info=True)
-            raise
+        # 📋 修复：只有启用串口转发时才打开串口
+        if self.serial_forward_tab != -1:  # -1表示禁用转发
+            try:
+                if self.serial.isOpen() == False:
+                    # 设置串口参数并打开串口
+                    self.serial.port = self.port
+                    self.serial.baudrate = self.baudrate
+                    self.serial.timeout = 3
+                    self.serial.write_timeout = 3
+                    self.serial.open()
+                    logger.info(f'串口转发已启用，串口 {self.port} 打开成功')
+            except:
+                logger.error('Open serial failed', exc_info=True)
+                raise
+        else:
+            logger.info('串口转发已禁用，跳过串口打开')
         
         self.thread_switch = True
         self.rtt_thread = threading.Thread(target=self.rtt_thread_exec)
@@ -630,15 +692,25 @@ class rtt_to_serial():
                                 if current_time - last_connection_warning_time > connection_warning_interval:
                                     logger.warning('JLink connection lost in RTT thread')
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT thread"))
+                                    self._log_to_gui("🚨 检测到JLink连接丢失，自动停止RTT功能")
                                     last_connection_warning_time = current_time
-                                time.sleep(0.5)  # 连接丢失时增加休眠时间
-                                continue
-                        except pylink.errors.JLinkException:
+                                
+                                # 连接丢失时自动停止RTT功能
+                                self._auto_stop_on_connection_lost()
+                                break  # 退出循环
+                        except pylink.errors.JLinkException as e:
                             current_time = time.time()
                             if current_time - last_connection_warning_time > connection_warning_interval:
                                 logger.warning('Cannot check JLink status in RTT thread')
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Cannot check JLink status in RTT thread"))
                                 last_connection_warning_time = current_time
+                            
+                            # 检查是否是连接丢失错误
+                            if "connection has been lost" in str(e).lower():
+                                self._log_to_gui("🚨 JLink连接已丢失，自动停止RTT功能")
+                                self._auto_stop_on_connection_lost()
+                                break  # 退出循环
+                            
                             time.sleep(0.5)
                             continue
                     
@@ -658,47 +730,61 @@ class rtt_to_serial():
                                 logger.warning(f'RTT read failed: {e}')
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT read failed: %s") % str(e))
                                 last_rtt_read_warning_time = current_time
+                            
+                            # 检查是否是连接丢失错误，如果是则自动停止
+                            if "connection has been lost" in str(e).lower():
+                                self._log_to_gui("🚨 RTT读取检测到JLink连接丢失，自动停止RTT功能")
+                                self._auto_stop_on_connection_lost()
+                                return  # 退出整个线程函数
+                            
                             break
 
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
                 
-                    if rtt_log_len:
-                        # 将接收到的数据写入日志文件（删除ANSI控制符并清理格式）
-                        log_bytes = bytearray(rtt_recv_log)
-                        try:
-                            # 删除ANSI控制符
-                            clean_text = ansi_processor.remove_ansi_codes(log_bytes)
-                            # 清理不可见字符，保留可打印字符和换行符
-                            clean_text = ''.join(char for char in clean_text if char.isprintable() or char in '\n\r\t')
-                            # 统一换行符格式
-                            clean_text = clean_text.replace('\r\n', '\n').replace('\r', '\n')
-                            log_file.write(clean_text.encode('gbk', errors='ignore'))
-                        except Exception as e:
-                            # 如果处理失败，写入原始数据
-                            log_file.write(log_bytes)
-                        log_file.flush()  # 确保及时写入
+                    # 📋 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
+                    if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
+                        # 获取当前ALL标签页的增量数据（buffers[0]包含格式化的数据，如"00> xxx"）
+                        current_buffer_size = len(self.main.buffers[0])
+                        if hasattr(self, '_last_buffer_size'):
+                            if current_buffer_size > self._last_buffer_size:
+                                # 获取新增的数据（ALL页面buffer已经是清理过的纯文本）
+                                new_data = self.main.buffers[0][self._last_buffer_size:]
+                                if new_data.strip():
+                                    try:
+                                        # ALL页面的buffer已经是清理过的纯文本，直接写入
+                                        log_file.write(new_data.encode('gbk', errors='ignore'))
+                                        log_file.flush()
+                                    except Exception as e:
+                                        logger.error(f"Failed to write ALL buffer data: {e}")
+                        self._last_buffer_size = current_buffer_size
+                    else:
+                        # 首次运行时初始化
+                        if not hasattr(self, '_last_buffer_size'):
+                            self._last_buffer_size = 0
 
-                        skip_next_byte = False
-                        temp_buff = bytearray()
+                    # 处理原始RTT数据以解析通道信息
+                    log_bytes = bytearray(rtt_recv_log)
+                    skip_next_byte = False
+                    temp_buff = bytearray()
                     
-                        for i in range(rtt_log_len):
-                            if skip_next_byte:
-                                self.tem = chr(log_bytes[i])
-                                skip_next_byte = False
-                                continue
-                        
-                            if log_bytes[i] == 255:
-                                skip_next_byte = True
-                                if temp_buff:  # 只有非空时才处理
-                                    self.insert_char(self.tem, temp_buff)
-                                    temp_buff.clear()
-                                continue
-                        
-                            temp_buff.append(log_bytes[i])
-                        
-                        if temp_buff:  # 只有非空时才处理
-                            self.insert_char(self.tem, temp_buff)
+                    for i in range(rtt_log_len):
+                        if skip_next_byte:
+                            self.tem = chr(log_bytes[i])
+                            skip_next_byte = False
+                            continue
+                    
+                        if log_bytes[i] == 255:
+                            skip_next_byte = True
+                            if temp_buff:  # 只有非空时才处理
+                                self.insert_char(self.tem, temp_buff)
+                                temp_buff.clear()
+                            continue
+                    
+                        temp_buff.append(log_bytes[i])
+                    
+                    if temp_buff:  # 只有非空时才处理
+                        self.insert_char(self.tem, temp_buff)
                     else:
                         # 没有数据时短暂休眠，避免过度占用CPU
                         time.sleep(0.001)  # 1ms
@@ -734,15 +820,25 @@ class rtt_to_serial():
                                 if current_time - last_connection_warning_time > connection_warning_interval:
                                     logger.warning('JLink connection lost in RTT2UART thread')
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT2UART thread"))
+                                    self._log_to_gui("🚨 检测到JLink连接丢失，自动停止RTT功能")
                                     last_connection_warning_time = current_time
-                                time.sleep(0.5)  # 连接丢失时增加休眠时间
-                                continue
-                        except pylink.errors.JLinkException:
+                                
+                                # 连接丢失时自动停止RTT功能
+                                self._auto_stop_on_connection_lost()
+                                break  # 退出循环
+                        except pylink.errors.JLinkException as e:
                             current_time = time.time()
                             if current_time - last_connection_warning_time > connection_warning_interval:
                                 logger.warning('Cannot check JLink status in RTT2UART thread')
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Cannot check JLink status in RTT2UART thread"))
                                 last_connection_warning_time = current_time
+                            
+                            # 检查是否是连接丢失错误
+                            if "connection has been lost" in str(e).lower():
+                                self._log_to_gui("🚨 JLink连接已丢失，自动停止RTT功能")
+                                self._auto_stop_on_connection_lost()
+                                break  # 退出循环
+                            
                             time.sleep(0.5)
                             continue
                     
@@ -770,6 +866,13 @@ class rtt_to_serial():
                             
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')
+                        
+                        # 检查是否是连接丢失错误，如果是则自动停止
+                        if "connection has been lost" in str(e).lower():
+                            self._log_to_gui("🚨 RTT2UART读取检测到JLink连接丢失，自动停止RTT功能")
+                            self._auto_stop_on_connection_lost()
+                            break  # 退出循环
+                        
                         time.sleep(1)
                         
                 except pylink.errors.JLinkException as e:
@@ -795,7 +898,8 @@ class rtt_to_serial():
         #     self.serial_forward_mode == 'DATA' and 
         #     self.serial_forward_tab == 'rtt_channel_1'):
         #     self.add_raw_rtt_data_for_forwarding(1, string)
-            
+        
+        
         self.main.addToBuffer(tem_num, string);
 
         # if tem == ord('1'):
