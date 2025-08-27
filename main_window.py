@@ -2513,6 +2513,11 @@ class ConnectionDialog(QDialog):
     def switchPage(self, index):
         # 获取当前选定的页面索引并显示相应的缓冲区数据
         from PySide6.QtGui import QTextCursor
+        
+        # 断开连接后不更新页面内容，保留历史数据供查看
+        if not hasattr(self, 'start_state') or not self.start_state:
+            return
+            
         if len(self.worker.buffers[index]) <= 0:
             return
         
@@ -2599,13 +2604,15 @@ class ConnectionDialog(QDialog):
                         text_edit.verticalScrollBar().setValue(
                             text_edit.verticalScrollBar().maximum())
                     
-                    # 清空已处理的缓冲区
-                    if hasattr(self.worker, 'colored_buffers'):
+                    # 只在连接状态下清空已处理的缓冲区，断开连接后保留数据供查看
+                    if (hasattr(self.worker, 'colored_buffers') and 
+                        hasattr(self, 'start_state') and self.start_state):
                         self.worker.colored_buffers[index] = ""
                         
                 except Exception as e:
-                    # 异常处理：清空缓冲区避免数据堆积
-                    if hasattr(self.worker, 'colored_buffers'):
+                    # 异常处理：只在连接状态下清空缓冲区避免数据堆积
+                    if (hasattr(self.worker, 'colored_buffers') and 
+                        hasattr(self, 'start_state') and self.start_state):
                         self.worker.colored_buffers[index] = ""
                     print(f"文本更新异常: {e}")  # 调试信息
                 
@@ -2617,25 +2624,7 @@ class ConnectionDialog(QDialog):
                 if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'page_dirty_flags'):
                     self.main_window.page_dirty_flags[index] = False
 
-                # 激进的文本长度管理：每次都检查并严格控制
-                text_length = len(text_edit.toPlainText())
-                max_allowed_length = MAX_UI_TEXT_LENGTH  # 1MB限制，更激进
-                
-                if text_length > max_allowed_length:
-                    # 激进截取：只保留最新的50%数据
-                    cursor = text_edit.textCursor()
-                    cursor.movePosition(QTextCursor.MoveOperation.Start)
-                    
-                    # 删除前50%的内容
-                    chars_to_remove = int(text_length * 0.5)
-                    cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor, chars_to_remove)
-                    cursor.removeSelectedText()
-                    
-                    # 移动到文档末尾
-                    cursor.movePosition(QTextCursor.MoveOperation.End)
-                    text_edit.setTextCursor(cursor)
-                    
-                    print(f"Text truncated: {text_length} -> {len(text_edit.toPlainText())} chars")
+                # 使用滑动文本块机制，不需要手动清理UI文本
 
                 # 恢复滚动条的值
                 if self.main_window.ui.LockV_checkBox.isChecked():
@@ -2742,33 +2731,7 @@ class ConnectionDialog(QDialog):
             clean_text = ansi_processor.remove_ansi_codes(text)
             text_edit.insertPlainText(clean_text)
 
-    def _cleanup_ui_text(self):
-        """定期清理UI文本内容，防止无限累积"""
-        max_ui_text_length = MAX_UI_TEXT_LENGTH  # 1MB UI文本限制
-        
-        for i in range(MAX_TAB_SIZE):
-            try:
-                text_edit = self.main_window.ui.tem_switch.widget(i)
-                if hasattr(text_edit, 'toPlainText'):
-                    text_length = len(text_edit.toPlainText())
-                    if text_length > max_ui_text_length:
-                        # 激进清理：只保留最新的25%数据
-                        cursor = text_edit.textCursor()
-                        cursor.movePosition(QTextCursor.MoveOperation.Start)
-                        
-                        # 删除前75%的内容
-                        chars_to_remove = int(text_length * 0.75)
-                        cursor.movePosition(QTextCursor.MoveOperation.NextCharacter, QTextCursor.MoveMode.KeepAnchor, chars_to_remove)
-                        cursor.removeSelectedText()
-                        
-                        # 移动到文档末尾
-                        cursor.movePosition(QTextCursor.MoveOperation.End)
-                        text_edit.setTextCursor(cursor)
-                        
-                        print(f"UI cleanup: TAB {i} text truncated from {text_length} to {len(text_edit.toPlainText())} chars")
-            except Exception as e:
-                # 忽略清理过程中的错误
-                pass
+    # _cleanup_ui_text方法已移除，使用滑动文本块机制替代
 
 
     @Slot()
@@ -2777,14 +2740,7 @@ class ConnectionDialog(QDialog):
         if not self.main_window:
             return
             
-        # 定期清理UI文本内容，防止无限累积
-        if not hasattr(self, 'cleanup_counter'):
-            self.cleanup_counter = 0
-        self.cleanup_counter += 1
-        
-        # 每10次更新执行一次UI清理
-        if self.cleanup_counter % 10 == 0:
-            self._cleanup_ui_text()
+        # 使用滑动文本块机制，不需要定期清理UI文本
             
         current_index = self.main_window.ui.tem_switch.currentIndex()
         
@@ -2814,8 +2770,7 @@ class Worker(QObject):
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
         self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
         
-        # 缓冲区大小限制（QPlainTextEdit自动管理，无需手动历史缓冲）
-        self.MAX_DISPLAY_BUFFER_SIZE = MAX_UI_TEXT_LENGTH  # 1MB显示缓冲区
+        # 使用滑动文本块机制，QPlainTextEdit自动管理历史缓冲
         
         # 性能优化：文件I/O缓冲
         self.log_buffers = {}  # 日志文件缓冲
@@ -2933,18 +2888,7 @@ class Worker(QObject):
 
 
 
-    def _aggressive_manage_buffer_size(self, index):
-        """激进的缓冲区大小管理：立即限制大小"""
-        max_buffer_size = 8192  # 8KB限制，更激进
-        
-        # 检查普通缓冲区
-        if len(self.buffers[index]) > max_buffer_size:
-            # 只保留最新的数据
-            self.buffers[index] = self.buffers[index][-max_buffer_size:]
-            
-        # 检查彩色缓冲区
-        if hasattr(self, 'colored_buffers') and len(self.colored_buffers[index]) > max_buffer_size:
-            self.colored_buffers[index] = self.colored_buffers[index][-max_buffer_size:]
+    # _aggressive_manage_buffer_size方法已移除，使用滑动文本块机制替代
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
@@ -2985,9 +2929,7 @@ class Worker(QObject):
                     self.colored_buffers[index+1] += data
                     self.colored_buffers[0] += ''.join(buffer_parts)
             
-            # 激进的缓冲区大小管理：立即限制缓冲区大小
-            self._aggressive_manage_buffer_size(index+1)
-            self._aggressive_manage_buffer_size(0)
+            # 使用滑动文本块机制，不需要激进的缓冲区大小限制
             
             # 标记页面需要更新（降低更新频率）
             self.update_counter += 1
