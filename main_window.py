@@ -2514,9 +2514,8 @@ class ConnectionDialog(QDialog):
         # 获取当前选定的页面索引并显示相应的缓冲区数据
         from PySide6.QtGui import QTextCursor
         
-        # 断开连接后不更新页面内容，保留历史数据供查看
-        if not hasattr(self, 'start_state') or not self.start_state:
-            return
+        # 断开连接后仍可显示缓存数据，但不清空缓存
+        is_connected = hasattr(self, 'start_state') and self.start_state
             
         if len(self.worker.buffers[index]) <= 0:
             return
@@ -2550,7 +2549,7 @@ class ConnectionDialog(QDialog):
                     self.main_window.highlighter[index].setKeywords([self.main_window.ui.tem_switch.tabText(index)])
                     if self.main_window.tabText[index] != self.main_window.ui.tem_switch.tabText(index):
                         self.main_window.tabText[index] = self.main_window.ui.tem_switch.tabText(index)
-                        text_edit.clear()
+                        # 不再自动清空筛选页面，保留历史数据
                 elif index != 2:
                     keywords = []
                     for i in range(MAX_TAB_SIZE):
@@ -2591,13 +2590,11 @@ class ConnectionDialog(QDialog):
                         
                         # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
                         if self.worker._has_ansi_codes(display_data):
-                            # 清空文本框并使用ANSI彩色显示
-                            text_edit.clear()
+                            # 使用ANSI彩色显示（不清空现有内容，追加显示）
                             colored_html = self.worker._convert_ansi_to_html(display_data)
                             self._insert_ansi_text_fast(text_edit, colored_html, index)
                         else:
-                            # 纯文本显示
-                            text_edit.clear()
+                            # 纯文本显示（不清空现有内容，追加显示）
                             text_edit.insertPlainText(display_data)
                         
                         # 自动滚动到底部
@@ -2605,14 +2602,12 @@ class ConnectionDialog(QDialog):
                             text_edit.verticalScrollBar().maximum())
                     
                     # 只在连接状态下清空已处理的缓冲区，断开连接后保留数据供查看
-                    if (hasattr(self.worker, 'colored_buffers') and 
-                        hasattr(self, 'start_state') and self.start_state):
+                    if hasattr(self.worker, 'colored_buffers') and is_connected:
                         self.worker.colored_buffers[index] = ""
                         
                 except Exception as e:
                     # 异常处理：只在连接状态下清空缓冲区避免数据堆积
-                    if (hasattr(self.worker, 'colored_buffers') and 
-                        hasattr(self, 'start_state') and self.start_state):
+                    if hasattr(self.worker, 'colored_buffers') and is_connected:
                         self.worker.colored_buffers[index] = ""
                     print(f"文本更新异常: {e}")  # 调试信息
                 
