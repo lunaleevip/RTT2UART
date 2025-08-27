@@ -1201,6 +1201,13 @@ class RTTMainWindow(QMainWindow):
             text_edit = current_page_widget.findChild(QTextEdit)
             if text_edit:
                 text_edit.clear()
+                
+                # 重置对应页面的显示长度追踪
+                if (hasattr(self, 'connection_dialog') and 
+                    self.connection_dialog and 
+                    hasattr(self.connection_dialog, 'worker') and 
+                    hasattr(self.connection_dialog.worker, 'displayed_lengths')):
+                    self.connection_dialog.worker.displayed_lengths[index] = 0
 
     def on_openfolder_clicked(self):
         # 在连接状态下打开当前的日志目录
@@ -2104,6 +2111,10 @@ class ConnectionDialog(QDialog):
                 
                 self.rtt2uart.stop()
                 
+                # 重置增量更新追踪
+                if hasattr(self.worker, 'displayed_lengths'):
+                    self.worker.displayed_lengths = [0] * MAX_TAB_SIZE
+                
                 # 发送连接断开信号
                 self.connection_disconnected.emit()
                 
@@ -2566,36 +2577,54 @@ class ConnectionDialog(QDialog):
                                       self.worker.colored_buffers[index])
                     
                     if has_colored_data and len(self.worker.colored_buffers[index]) > 0:
-                        # 🚀 方案A：高性能ANSI彩色显示（使用增量数据）
-                        incremental_colored_data = self.worker.colored_buffers[index]
-                        if len(incremental_colored_data) > max_insert_length:
-                            incremental_colored_data = incremental_colored_data[-max_insert_length:]
+                        # 🚀 方案A：真正的增量更新 - 只处理新增数据
+                        full_colored_data = self.worker.colored_buffers[index]
+                        displayed_length = self.worker.displayed_lengths[index]
                         
-                        # 使用高性能原生Qt格式化，只追加新数据
-                        self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
+                        # 只获取新增的数据部分
+                        if len(full_colored_data) > displayed_length:
+                            incremental_colored_data = full_colored_data[displayed_length:]
+                            
+                            # 限制单次插入的数据量，避免UI卡顿
+                            if len(incremental_colored_data) > max_insert_length:
+                                incremental_colored_data = incremental_colored_data[-max_insert_length:]
+                                # 更新显示长度为实际显示的位置
+                                self.worker.displayed_lengths[index] = len(full_colored_data) - max_insert_length + len(incremental_colored_data)
+                            else:
+                                # 更新显示长度为全部数据长度
+                                self.worker.displayed_lengths[index] = len(full_colored_data)
+                            
+                            # 使用高性能原生Qt格式化，只追加新数据
+                            self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
                             text_edit.verticalScrollBar().maximum())
                     
                     elif self.worker.buffers[index]:
-                        # 🚀 方案B：智能ANSI处理（切换TAB时重新处理ANSI颜色）
-                        accumulated_data = self.worker.buffers[index]
+                        # 🚀 方案B：增量纯文本处理
+                        full_buffer_data = self.worker.buffers[index]
+                        displayed_length = self.worker.displayed_lengths[index]
                         
-                        # 如果数据过长，只显示最新部分
-                        if len(accumulated_data) > max_insert_length:
-                            display_data = accumulated_data[-max_insert_length:]
-                        else:
-                            display_data = accumulated_data
-                        
-                        # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
-                        if self.worker._has_ansi_codes(display_data):
-                            # 使用ANSI彩色显示（不清空现有内容，追加显示）
-                            colored_html = self.worker._convert_ansi_to_html(display_data)
-                            self._insert_ansi_text_fast(text_edit, colored_html, index)
-                        else:
-                            # 纯文本显示（不清空现有内容，追加显示）
-                            text_edit.insertPlainText(display_data)
+                        # 只获取新增的数据部分
+                        if len(full_buffer_data) > displayed_length:
+                            incremental_data = full_buffer_data[displayed_length:]
+                            
+                            # 限制单次插入的数据量
+                            if len(incremental_data) > max_insert_length:
+                                incremental_data = incremental_data[-max_insert_length:]
+                                self.worker.displayed_lengths[index] = len(full_buffer_data) - max_insert_length + len(incremental_data)
+                            else:
+                                self.worker.displayed_lengths[index] = len(full_buffer_data)
+                            
+                            # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
+                            if self.worker._has_ansi_codes(incremental_data):
+                                # 使用ANSI彩色显示（追加新数据）
+                                colored_html = self.worker._convert_ansi_to_html(incremental_data)
+                                self._insert_ansi_text_fast(text_edit, colored_html, index)
+                            else:
+                                # 纯文本显示（追加新数据）
+                                text_edit.insertPlainText(incremental_data)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -2764,6 +2793,9 @@ class Worker(QObject):
         # 智能缓冲区管理
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
         self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
+        
+        # 增量更新追踪：记录每个页面已显示的数据长度
+        self.displayed_lengths = [0] * MAX_TAB_SIZE
         
         # 使用滑动文本块机制，QPlainTextEdit自动管理历史缓冲
         
