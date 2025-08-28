@@ -2894,7 +2894,7 @@ class Worker(QObject):
         # 🚀 Turbo模式：批量处理缓冲
         self.batch_buffers = [bytearray() for _ in range(16)]  # 批量缓冲区
         self.batch_timers = [None for _ in range(16)]  # 每个通道的批量计时器
-        self.turbo_mode = True  # 默认启用Turbo模式
+        self.turbo_mode = False  # 默认启用Turbo模式
         self.batch_delay = 20   # 批量延迟20ms（降低延迟，提升响应性）
     
     def set_turbo_mode(self, enabled, batch_delay=20):
