@@ -2888,9 +2888,9 @@ class Worker(QObject):
         self.batch_buffers = [bytearray() for _ in range(16)]  # 批量缓冲区
         self.batch_timers = [None for _ in range(16)]  # 每个通道的批量计时器
         self.turbo_mode = True  # 默认启用Turbo模式
-        self.batch_delay = 50   # 批量延迟50ms
+        self.batch_delay = 20   # 批量延迟20ms（降低延迟，提升响应性）
     
-    def set_turbo_mode(self, enabled, batch_delay=50):
+    def set_turbo_mode(self, enabled, batch_delay=20):
         """设置Turbo模式"""
         self.turbo_mode = enabled
         self.batch_delay = batch_delay
@@ -3018,6 +3018,11 @@ class Worker(QObject):
         if self.turbo_mode and len(string) < 1024:  # 小数据包使用批量处理
             self.batch_buffers[index] += string
             
+            # 🚀 优化：如果批量缓冲区太大，立即处理避免延迟过久
+            if len(self.batch_buffers[index]) > 4096:  # 4KB阈值
+                self._process_batch_buffer(index)
+                return
+            
             # 设置批量处理定时器
             if self.batch_timers[index] is not None:
                 self.batch_timers[index].stop()
@@ -3039,6 +3044,21 @@ class Worker(QObject):
             batch_data = bytes(self.batch_buffers[index])
             self.batch_buffers[index].clear()
             self._process_buffer_data(index, batch_data)
+            
+            # 🚀 Turbo模式优化：批量处理后强制触发UI更新
+            if hasattr(self.parent, 'main_window') and self.parent.main_window:
+                if hasattr(self.parent.main_window, 'page_dirty_flags'):
+                    # 标记相关页面需要更新
+                    self.parent.main_window.page_dirty_flags[index + 1] = True  # 对应通道页面
+                    self.parent.main_window.page_dirty_flags[0] = True  # ALL页面
+                    
+                    # 如果当前显示的是这些页面，立即更新
+                    current_index = self.parent.main_window.ui.tem_switch.currentIndex()
+                    if current_index == index + 1 or current_index == 0:
+                        QTimer.singleShot(0, lambda: self.parent.switchPage(current_index))
+                        
+                # 🚀 强制触发缓冲区更新处理
+                QTimer.singleShot(0, lambda: self.parent.handleBufferUpdate())
     
     def _process_buffer_data(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
