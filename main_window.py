@@ -32,6 +32,7 @@ import threading
 import shutil
 import re
 import psutil
+from performance_test import show_performance_test
 
 class JLinkLogHandler(logging.Handler):
     """自定义JLink日志处理器，将日志输出到GUI"""
@@ -627,6 +628,22 @@ class RTTMainWindow(QMainWindow):
         style_action.triggered.connect(self.toggle_style_checkbox)
         tools_menu.addAction(style_action)
         
+        tools_menu.addSeparator()
+        
+        # 性能测试动作
+        perf_test_action = QAction(QCoreApplication.translate("main_window", "性能测试(&P)..."), self)
+        perf_test_action.triggered.connect(self.show_performance_test)
+        tools_menu.addAction(perf_test_action)
+        
+        tools_menu.addSeparator()
+        
+        # 🚀 Turbo模式切换
+        self.turbo_mode_action = QAction(QCoreApplication.translate("main_window", "🚀 Turbo模式(&T)"), self)
+        self.turbo_mode_action.setCheckable(True)
+        self.turbo_mode_action.setChecked(True)  # 默认启用
+        self.turbo_mode_action.triggered.connect(self.toggle_turbo_mode)
+        tools_menu.addAction(self.turbo_mode_action)
+        
         # 帮助菜单
         help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "帮助(&H)"))
         
@@ -642,6 +659,11 @@ class RTTMainWindow(QMainWindow):
         # 连接状态标签
         self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "未连接"))
         self.status_bar.addWidget(self.connection_status_label)
+        
+        # 🚀 Turbo模式状态标签
+        self.turbo_status_label = QLabel("🚀 Turbo: ON")
+        self.turbo_status_label.setStyleSheet("color: #00AA00; font-weight: bold;")
+        self.status_bar.addPermanentWidget(self.turbo_status_label)
         
         # 数据统计标签
         self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "读取: 0 | 写入: 0"))
@@ -659,6 +681,38 @@ class RTTMainWindow(QMainWindow):
                                                    "XexunRTT v2.0\n\n"
                                                    "RTT调试工具\n\n"
                                                    "基于 PySide6 开发"))
+    
+    def show_performance_test(self):
+        """显示性能测试窗口"""
+        try:
+            self.perf_test_widget = show_performance_test(self)
+            self.perf_test_widget.log_message("性能测试工具已启动")
+            self.perf_test_widget.log_message("注意：请确保已连接设备并开始RTT调试")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"启动性能测试失败：{str(e)}")
+    
+    def toggle_turbo_mode(self):
+        """切换Turbo模式"""
+        enabled = self.turbo_mode_action.isChecked()
+        
+        # 应用到ConnectionDialog的worker
+        if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
+            self.connection_dialog.worker.set_turbo_mode(enabled)
+            
+        # 显示状态消息
+        status = "启用" if enabled else "禁用"
+        self.append_jlink_log(f"🚀 Turbo模式已{status}")
+        
+        # 更新状态栏
+        if hasattr(self, 'turbo_status_label'):
+            self.turbo_status_label.setText(f"🚀 Turbo: {'ON' if enabled else 'OFF'}")
+            # 更新颜色
+            color = "#00AA00" if enabled else "#AA0000"
+            self.turbo_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        
+        # 使用append_jlink_log而不是log_message
+        if hasattr(self, 'append_jlink_log'):
+            self.append_jlink_log(f"Turbo模式已{status}，{'批量处理数据以提升性能' if enabled else '逐行处理数据以保持精确性'}")
     
     def show_connection_dialog(self):
         """显示连接配置对话框"""
@@ -1225,9 +1279,16 @@ class RTTMainWindow(QMainWindow):
     def populateComboBox(self):
         # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
         try:
-            with open('cmd.txt', 'r', encoding='gbk') as file:
-                for line in file:
-                    self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+            # 首先尝试UTF-8编码，失败后尝试GBK编码
+            try:
+                with open('cmd.txt', 'r', encoding='utf-8') as file:
+                    for line in file:
+                        self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+            except UnicodeDecodeError:
+                # 如果UTF-8解码失败，尝试GBK编码
+                with open('cmd.txt', 'r', encoding='gbk') as file:
+                    for line in file:
+                        self.ui.cmd_buffer.addItem(line.strip())
         except FileNotFoundError:
             print("File 'cmd.txt' not found.")
         except Exception as e:
@@ -2139,6 +2200,37 @@ class ConnectionDialog(QDialog):
                 pass
     
     # 删除了不再需要的_apply_saved_settings_to_main_window方法
+    
+    def get_jlink_devices_list_file(self):
+        """获取JLink设备数据库文件路径，支持开发环境和打包后的资源访问"""
+        # 1. 首先尝试读取开发环境中的资源文件
+        try:
+            # 尝试从resources_rc中获取JLinkDevicesBuildIn.xml
+            import resources_rc
+            
+            # 检查资源文件是否存在于当前工作目录中
+            current_dir = os.getcwd()
+            db_file_path = os.path.join(current_dir, "JLinkDevicesBuildIn.xml")
+            
+            if os.path.exists(db_file_path):
+                logger.info(f"Using local device database: {db_file_path}")
+                return db_file_path
+            
+        except ImportError:
+            logger.warning("resources_rc module not found, trying alternative methods")
+        except Exception as e:
+            logger.warning(f"Failed to locate JLinkDevicesBuildIn.xml from resources: {e}")
+        
+        # 如果都找不到，抛出异常
+        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+    
+    def _device_database_exists(self):
+        """检查设备数据库文件是否存在"""
+        try:
+            self.get_jlink_devices_list_file()
+            return True
+        except Exception:
+            return False
 
     def target_device_selete(self):
         device_ui = DeviceSelectDialog()
@@ -2791,6 +2883,24 @@ class Worker(QObject):
         
         # 性能计数器
         self.update_counter = 0
+        
+        # 🚀 Turbo模式：批量处理缓冲
+        self.batch_buffers = [bytearray() for _ in range(16)]  # 批量缓冲区
+        self.batch_timers = [None for _ in range(16)]  # 每个通道的批量计时器
+        self.turbo_mode = True  # 默认启用Turbo模式
+        self.batch_delay = 50   # 批量延迟50ms
+    
+    def set_turbo_mode(self, enabled, batch_delay=50):
+        """设置Turbo模式"""
+        self.turbo_mode = enabled
+        self.batch_delay = batch_delay
+        
+        # 如果禁用turbo模式，立即处理所有待处理的批量数据
+        if not enabled:
+            for i in range(16):
+                if self.batch_timers[i] is not None:
+                    self.batch_timers[i].stop()
+                    self._process_batch_buffer(i)
 
     def start_flush_timer(self):
         """启动日志刷新定时器"""
@@ -2904,6 +3014,33 @@ class Worker(QObject):
 
     @Slot(int, str)
     def addToBuffer(self, index, string):
+        # 🚀 Turbo模式：智能批量处理
+        if self.turbo_mode and len(string) < 1024:  # 小数据包使用批量处理
+            self.batch_buffers[index] += string
+            
+            # 设置批量处理定时器
+            if self.batch_timers[index] is not None:
+                self.batch_timers[index].stop()
+            else:
+                self.batch_timers[index] = QTimer()
+                self.batch_timers[index].timeout.connect(
+                    lambda idx=index: self._process_batch_buffer(idx)
+                )
+            
+            self.batch_timers[index].start(self.batch_delay)
+            return
+        
+        # 标准模式或大数据包：直接处理
+        self._process_buffer_data(index, string)
+    
+    def _process_batch_buffer(self, index):
+        """处理批量缓冲区"""
+        if len(self.batch_buffers[index]) > 0:
+            batch_data = bytes(self.batch_buffers[index])
+            self.batch_buffers[index].clear()
+            self._process_buffer_data(index, batch_data)
+    
+    def _process_buffer_data(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
         self.byte_buffer[index] += string
 
