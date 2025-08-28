@@ -635,14 +635,15 @@ class RTTMainWindow(QMainWindow):
         perf_test_action.triggered.connect(self.show_performance_test)
         tools_menu.addAction(perf_test_action)
         
-        tools_menu.addSeparator()
-        
-        # 🚀 Turbo模式切换
-        self.turbo_mode_action = QAction(QCoreApplication.translate("main_window", "🚀 Turbo模式(&T)"), self)
-        self.turbo_mode_action.setCheckable(True)
-        self.turbo_mode_action.setChecked(True)  # 默认启用
-        self.turbo_mode_action.triggered.connect(self.toggle_turbo_mode)
-        tools_menu.addAction(self.turbo_mode_action)
+        # 注释掉Turbo模式菜单（功能保留，界面隐藏）
+        # tools_menu.addSeparator()
+        # 
+        # # 🚀 Turbo模式切换
+        # self.turbo_mode_action = QAction(QCoreApplication.translate("main_window", "🚀 Turbo模式(&T)"), self)
+        # self.turbo_mode_action.setCheckable(True)
+        # self.turbo_mode_action.setChecked(True)  # 默认启用
+        # self.turbo_mode_action.triggered.connect(self.toggle_turbo_mode)
+        # tools_menu.addAction(self.turbo_mode_action)
         
         # 帮助菜单
         help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "帮助(&H)"))
@@ -660,10 +661,11 @@ class RTTMainWindow(QMainWindow):
         self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "未连接"))
         self.status_bar.addWidget(self.connection_status_label)
         
-        # 🚀 Turbo模式状态标签
-        self.turbo_status_label = QLabel("🚀 Turbo: ON")
-        self.turbo_status_label.setStyleSheet("color: #00AA00; font-weight: bold;")
-        self.status_bar.addPermanentWidget(self.turbo_status_label)
+        # 注释掉Turbo模式状态标签（功能保留，界面隐藏）
+        # # 🚀 Turbo模式状态标签
+        # self.turbo_status_label = QLabel("🚀 Turbo: ON")
+        # self.turbo_status_label.setStyleSheet("color: #00AA00; font-weight: bold;")
+        # self.status_bar.addPermanentWidget(self.turbo_status_label)
         
         # 数据统计标签
         self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "读取: 0 | 写入: 0"))
@@ -692,27 +694,32 @@ class RTTMainWindow(QMainWindow):
             QMessageBox.warning(self, "错误", f"启动性能测试失败：{str(e)}")
     
     def toggle_turbo_mode(self):
-        """切换Turbo模式"""
-        enabled = self.turbo_mode_action.isChecked()
+        """切换Turbo模式（隐藏UI，功能保留）"""
+        # 注释掉UI相关代码，但保留核心功能
+        # enabled = self.turbo_mode_action.isChecked()
+        
+        # 由于UI已隐藏，这里可以通过其他方式控制，暂时保持启用状态
+        enabled = True
         
         # 应用到ConnectionDialog的worker
         if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
             self.connection_dialog.worker.set_turbo_mode(enabled)
             
-        # 显示状态消息
-        status = "启用" if enabled else "禁用"
-        self.append_jlink_log(f"🚀 Turbo模式已{status}")
-        
-        # 更新状态栏
-        if hasattr(self, 'turbo_status_label'):
-            self.turbo_status_label.setText(f"🚀 Turbo: {'ON' if enabled else 'OFF'}")
-            # 更新颜色
-            color = "#00AA00" if enabled else "#AA0000"
-            self.turbo_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
-        
-        # 使用append_jlink_log而不是log_message
-        if hasattr(self, 'append_jlink_log'):
-            self.append_jlink_log(f"Turbo模式已{status}，{'批量处理数据以提升性能' if enabled else '逐行处理数据以保持精确性'}")
+        # 注释掉状态消息和状态栏更新（UI已隐藏）
+        # # 显示状态消息
+        # status = "启用" if enabled else "禁用"
+        # self.append_jlink_log(f"🚀 Turbo模式已{status}")
+        # 
+        # # 更新状态栏
+        # if hasattr(self, 'turbo_status_label'):
+        #     self.turbo_status_label.setText(f"🚀 Turbo: {'ON' if enabled else 'OFF'}")
+        #     # 更新颜色
+        #     color = "#00AA00" if enabled else "#AA0000"
+        #     self.turbo_status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        # 
+        # # 使用append_jlink_log而不是log_message
+        # if hasattr(self, 'append_jlink_log'):
+        #     self.append_jlink_log(f"Turbo模式已{status}，{'批量处理数据以提升性能' if enabled else '逐行处理数据以保持精确性'}")
     
     def show_connection_dialog(self):
         """显示连接配置对话框"""
