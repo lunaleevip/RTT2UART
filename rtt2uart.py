@@ -1,4 +1,10 @@
 import logging
+try:
+    # 优先使用性能配置
+    from performance_config import DataProcessingConfig as _DPConf
+    _RTT_READ_BUFFER_SIZE = getattr(_DPConf, 'RTT_READ_BUFFER_SIZE', 4096)
+except Exception:
+    _RTT_READ_BUFFER_SIZE = 4096
 import pylink
 import time
 import serial
@@ -784,16 +790,21 @@ class rtt_to_serial():
                             time.sleep(0.5)
                             continue
                     
-                    rtt_recv_log = []
+                    # 使用 bytearray 累积数据，避免 list 拼接与后续多次拷贝
+                    rtt_recv_log = bytearray()
                     # 优化：一次性读取更多数据，减少系统调用
                     max_read_attempts = 5
                     for _ in range(max_read_attempts):
                         try:
-                            recv_log = self.jlink.rtt_read(0, 4096)  # 增加缓冲区大小
+                            recv_log = self.jlink.rtt_read(0, 4096)
                             if not recv_log:
                                 break
                             else:
-                                rtt_recv_log += recv_log
+                                # recv_log 是 list[int] 或 bytes，统一扩展到 bytearray
+                                if isinstance(recv_log, (bytes, bytearray)):
+                                    rtt_recv_log.extend(recv_log)
+                                else:
+                                    rtt_recv_log.extend(bytearray(recv_log))
                         except pylink.errors.JLinkException as e:
                             current_time = time.time()
                             if current_time - last_rtt_read_warning_time > rtt_read_warning_interval:
@@ -811,50 +822,74 @@ class rtt_to_serial():
 
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
-                
+
                     # 📋 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
                     if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
-                        # 获取当前ALL标签页的增量数据（buffers[0]包含格式化的数据，如"00> xxx"）
-                        current_buffer_size = len(self.main.buffers[0])
-                        if hasattr(self, '_last_buffer_size'):
-                            if current_buffer_size > self._last_buffer_size:
-                                # 获取新增的数据（ALL页面buffer已经是清理过的纯文本）
-                                new_data = self.main.buffers[0][self._last_buffer_size:]
-                                if new_data.strip():
-                                    try:
-                                        # ALL页面的buffer已经是清理过的纯文本，直接写入
-                                        log_file.write(new_data.encode('gbk', errors='ignore'))
-                                        log_file.flush()
-                                    except Exception as e:
-                                        logger.error(f"Failed to write ALL buffer data: {e}")
-                        self._last_buffer_size = current_buffer_size
+                        try:
+                            # 兼容分块缓冲结构：self.main.buffers[0] 为 List[str]
+                            all_chunks = self.main.buffers[0]
+
+                            # 计算总长度并基于上次长度取增量
+                            def _extract_increment(chunks, last_size):
+                                remaining = last_size
+                                total_len = 0
+                                out_parts = []
+                                for part in chunks:
+                                    plen = len(part)
+                                    total_len += plen
+                                    if remaining >= plen:
+                                        remaining -= plen
+                                        continue
+                                    if remaining > 0:
+                                        out_parts.append(part[remaining:])
+                                        remaining = 0
+                                    else:
+                                        out_parts.append(part)
+                                return ''.join(out_parts), total_len
+
+                            last_size = getattr(self, '_last_buffer_size', 0)
+                            new_data, current_total_size = _extract_increment(all_chunks, last_size)
+
+                            if new_data.strip():
+                                try:
+                                    # ALL页面的buffer已经是清理过的纯文本，直接写入
+                                    log_file.write(new_data.encode('gbk', errors='ignore'))
+                                    log_file.flush()
+                                except Exception as e:
+                                    logger.error(f"Failed to write ALL buffer data: {e}")
+
+                            self._last_buffer_size = current_total_size
+                        except Exception as e:
+                            logger.error(f"ALL buffer incremental write failed: {e}")
                     else:
                         # 首次运行时初始化
                         if not hasattr(self, '_last_buffer_size'):
                             self._last_buffer_size = 0
 
-                    # 处理原始RTT数据以解析通道信息
-                    log_bytes = bytearray(rtt_recv_log)
-                    skip_next_byte = False
-                    temp_buff = bytearray()
-                    
-                    for i in range(rtt_log_len):
-                        if skip_next_byte:
-                            self.tem = chr(log_bytes[i])
-                            skip_next_byte = False
-                            continue
-                    
-                        if log_bytes[i] == 255:
-                            skip_next_byte = True
-                            if temp_buff:  # 只有非空时才处理
-                                self.insert_char(self.tem, temp_buff)
-                                temp_buff.clear()
-                            continue
-                    
-                        temp_buff.append(log_bytes[i])
-                    
-                    if temp_buff:  # 只有非空时才处理
-                        self.insert_char(self.tem, temp_buff)
+                    # 处理原始RTT数据以解析通道信息（零拷贝分帧优化）
+                    if not hasattr(self, '_pending_chunk_buf'):
+                        self._pending_chunk_buf = bytearray()
+                    temp_buff = self._pending_chunk_buf
+                    # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
+                    parts = bytes(rtt_recv_log).split(b'\xff')
+                    # 第一段是延续的 payload
+                    if parts:
+                        temp_buff.extend(parts[0])
+                        # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
+                        for seg in parts[1:]:
+                            if len(temp_buff) > 0:
+                                try:
+                                    # 传递 bytes，避免主线程把 bytearray 当作 str 处理
+                                    self.insert_char(self.tem, bytes(temp_buff))
+                                finally:
+                                    temp_buff.clear()
+                            if not seg:
+                                continue
+                            # 切换通道
+                            self.tem = chr(seg[0])
+                            if len(seg) > 1:
+                                temp_buff.extend(seg[1:])
+                    # 循环结束后，temp_buff 保留未完整结束的一段，等待下一批拼接
                     else:
                         # 没有数据时短暂休眠，避免过度占用CPU
                         time.sleep(0.001)  # 1ms
@@ -913,7 +948,7 @@ class rtt_to_serial():
                             continue
                     
                     try:
-                        rtt_recv_data = self.jlink.rtt_read(1, 1024)
+                        rtt_recv_data = self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE)
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):
