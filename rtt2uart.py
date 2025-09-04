@@ -217,6 +217,76 @@ class rtt_to_serial():
         if self.jlink_log_callback:
             self.jlink_log_callback(message)
     
+    def _auto_reset_jlink_connection(self):
+        """🔄 自动重置JLink连接"""
+        try:
+            self._log_to_gui("🔄 开始自动重置JLink连接...")
+            
+            # 1. 关闭RTT
+            try:
+                if hasattr(self.jlink, 'rtt_stop'):
+                    self.jlink.rtt_stop()
+                    self._log_to_gui("✅ RTT已停止")
+            except Exception as e:
+                logger.warning(f"Failed to stop RTT during reset: {e}")
+            
+            # 2. 断开目标连接
+            try:
+                if hasattr(self.jlink, 'close'):
+                    self.jlink.close()
+                    self._log_to_gui("✅ JLink连接已关闭")
+            except Exception as e:
+                logger.warning(f"Failed to close JLink during reset: {e}")
+            
+            # 3. 等待一段时间
+            import time
+            time.sleep(1.0)
+            
+            # 4. 重新创建JLink对象
+            try:
+                self.jlink = pylink.JLink()
+                self._log_to_gui("✅ JLink对象重新创建")
+            except Exception as e:
+                self._log_to_gui(f"❌ 重新创建JLink对象失败: {e}")
+                return False
+            
+            # 5. 重新连接
+            try:
+                # 重新打开JLink
+                if self._connect_inf == 'USB':
+                    self.jlink.open(self._connect_para)
+                else:
+                    self.jlink.open()
+                self._log_to_gui("✅ JLink重新打开成功")
+                
+                # 重新设置速率
+                self.jlink.set_speed(self._speed)
+                self._log_to_gui(f"✅ JLink速率重新设置: {self._speed} kHz")
+                
+                # 重新设置接口
+                self.jlink.set_tif(self._interface)
+                self._log_to_gui(f"✅ JLink接口重新设置: {self._interface}")
+                
+                # 重新连接目标
+                self.jlink.connect(self.device)
+                self._log_to_gui(f"✅ 目标设备重新连接: {self.device}")
+                
+                # 重新启动RTT
+                self.jlink.rtt_start()
+                self._log_to_gui("✅ RTT重新启动成功")
+                
+                self._log_to_gui("🎉 JLink连接重置完成！")
+                return True
+                
+            except Exception as e:
+                self._log_to_gui(f"❌ JLink重新连接失败: {e}")
+                return False
+                
+        except Exception as e:
+            self._log_to_gui(f"❌ JLink连接重置过程出错: {e}")
+            logger.error(f"Error in _auto_reset_jlink_connection: {e}")
+            return False
+    
     def _auto_stop_on_connection_lost(self):
         """连接丢失时自动停止RTT功能"""
         try:
@@ -867,16 +937,47 @@ class rtt_to_serial():
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')
                         
-                        # 检查是否是连接丢失错误，如果是则自动停止
-                        if "connection has been lost" in str(e).lower():
-                            self._log_to_gui("🚨 RTT2UART读取检测到JLink连接丢失，自动停止RTT功能")
-                            self._auto_stop_on_connection_lost()
-                            break  # 退出循环
+                        # 🔄 检查是否是需要自动重置的错误
+                        error_str = str(e).lower()
+                        if ("connection has been lost" in error_str or 
+                            "could not connect" in error_str or
+                            "no connection" in error_str or
+                            "connection failed" in error_str or
+                            "device not found" in error_str):
+                            
+                            self._log_to_gui("🚨 检测到JLink连接错误，尝试自动重置连接...")
+                            
+                            # 🔄 尝试自动重置JLink连接
+                            if self._auto_reset_jlink_connection():
+                                self._log_to_gui("✅ JLink连接重置成功，继续RTT数据读取")
+                                continue  # 重置成功，继续循环
+                            else:
+                                self._log_to_gui("❌ JLink连接重置失败，停止RTT功能")
+                                self._auto_stop_on_connection_lost()
+                                break  # 重置失败，退出循环
                         
                         time.sleep(1)
                         
                 except pylink.errors.JLinkException as e:
                     logger.error(f"JLink error in RTT2UART thread: {e}")
+                    
+                    # 🔄 检查是否是需要自动重置的严重错误
+                    error_str = str(e).lower()
+                    if ("connection has been lost" in error_str or 
+                        "could not connect" in error_str or
+                        "no connection" in error_str or
+                        "connection failed" in error_str):
+                        
+                        self._log_to_gui("🚨 检测到严重JLink连接错误，尝试自动重置...")
+                        
+                        if self._auto_reset_jlink_connection():
+                            self._log_to_gui("✅ JLink连接重置成功")
+                            continue  # 重置成功，继续
+                        else:
+                            self._log_to_gui("❌ JLink连接重置失败，停止RTT功能")
+                            self._auto_stop_on_connection_lost()
+                            break
+                    
                     time.sleep(1)
                 except Exception as e:
                     logger.error(f"Unexpected error in RTT2UART thread: {e}")

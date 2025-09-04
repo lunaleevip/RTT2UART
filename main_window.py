@@ -2910,36 +2910,133 @@ class Worker(QObject):
                     self._process_batch_buffer(i)
 
     def start_flush_timer(self):
-        """启动日志刷新定时器"""
+        """启动日志刷新定时器（增强版本）"""
         if self.buffer_flush_timer is None:
             self.buffer_flush_timer = QTimer()
             self.buffer_flush_timer.timeout.connect(self.flush_log_buffers)
-            self.buffer_flush_timer.start(1000)  # 每秒刷新一次缓冲
+            # 🚀 更频繁的刷新，避免缓冲区积累过多数据
+            self.buffer_flush_timer.start(500)  # 每500ms刷新一次缓冲
+            
+        # 🔧 立即执行一次刷新，确保启动时的数据能及时写入
+        QTimer.singleShot(100, self.flush_log_buffers)
 
     def flush_log_buffers(self):
-        """定期刷新日志缓冲到文件（线程安全版本）"""
+        """定期刷新日志缓冲到文件（增强版本）"""
         try:
             # 创建字典的副本以避免运行时修改错误
             log_buffers_copy = dict(self.log_buffers)
+            
+            # 🔧 限制同时打开的文件数量，避免文件句柄耗尽
+            max_files_per_flush = 10
+            processed_files = 0
+            
             for filepath, content in log_buffers_copy.items():
-                if content:
+                if content and processed_files < max_files_per_flush:
                     try:
-                        with open(filepath, 'a', encoding='utf-8') as f:
+                        # 🛡️ 检查文件路径有效性
+                        import os
+                        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                        
+                        # 🚀 使用更安全的文件写入方式
+                        with open(filepath, 'a', encoding='utf-8', buffering=8192) as f:
                             f.write(content)
+                            f.flush()  # 强制刷新到磁盘
+                            
                         # 安全地清空缓冲区
                         if filepath in self.log_buffers:
                             self.log_buffers[filepath] = ""
-                    except Exception:
-                        pass
+                            
+                        processed_files += 1
+                        
+                    except (OSError, IOError, PermissionError) as e:
+                        # 🚨 文件写入失败，记录错误但不中断其他文件的处理
+                        logger.error(f"Failed to write log file {filepath}: {e}")
+                        # 保留缓冲区数据，下次再试
+                        continue
+                    except Exception as e:
+                        logger.error(f"Unexpected error writing log file {filepath}: {e}")
+                        continue
+                        
+            # 🧹 定期清理过大的缓冲区（防止内存泄漏）
+            self._cleanup_oversized_buffers()
+            
         except RuntimeError:
             # 如果字典在迭代过程中被修改，跳过这次刷新
             pass
+        except Exception as e:
+            logger.error(f"Error in flush_log_buffers: {e}")
+    
+    def _cleanup_oversized_buffers(self):
+        """清理过大的日志缓冲区"""
+        try:
+            max_buffer_size = 1024 * 1024  # 1MB限制
+            for filepath in list(self.log_buffers.keys()):
+                if len(self.log_buffers[filepath]) > max_buffer_size:
+                    # 强制写入过大的缓冲区
+                    try:
+                        with open(filepath, 'a', encoding='utf-8') as f:
+                            f.write(self.log_buffers[filepath])
+                            f.flush()
+                        self.log_buffers[filepath] = ""
+                        logger.warning(f"Force flushed oversized buffer for {filepath}")
+                    except Exception as e:
+                        # 如果写入失败，截断缓冲区避免内存耗尽
+                        self.log_buffers[filepath] = self.log_buffers[filepath][-max_buffer_size//2:]
+                        logger.error(f"Truncated oversized buffer for {filepath}: {e}")
+        except Exception as e:
+            logger.error(f"Error in _cleanup_oversized_buffers: {e}")
 
     def write_to_log_buffer(self, filepath, content):
-        """写入日志缓冲而不是直接写文件"""
-        if filepath not in self.log_buffers:
-            self.log_buffers[filepath] = ""
-        self.log_buffers[filepath] += content
+        """写入日志缓冲而不是直接写文件（增强版本）"""
+        try:
+            if filepath not in self.log_buffers:
+                self.log_buffers[filepath] = ""
+            
+            # 🚀 检查缓冲区大小，避免单个文件缓冲区过大
+            max_single_buffer = 512 * 1024  # 512KB限制
+            if len(self.log_buffers[filepath]) > max_single_buffer:
+                # 立即写入到文件
+                try:
+                    import os
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                    with open(filepath, 'a', encoding='utf-8') as f:
+                        f.write(self.log_buffers[filepath])
+                        f.flush()
+                    self.log_buffers[filepath] = ""
+                except Exception as e:
+                    # 写入失败，截断缓冲区
+                    self.log_buffers[filepath] = self.log_buffers[filepath][-max_single_buffer//2:]
+                    logger.error(f"Buffer overflow, truncated for {filepath}: {e}")
+            
+            self.log_buffers[filepath] += content
+            
+            # 🔧 检查总缓冲区数量，避免文件过多
+            if len(self.log_buffers) > 100:  # 限制同时缓冲的文件数量
+                self._emergency_flush_oldest_buffers()
+                
+        except Exception as e:
+            logger.error(f"Error in write_to_log_buffer for {filepath}: {e}")
+    
+    def _emergency_flush_oldest_buffers(self):
+        """紧急刷新最老的缓冲区"""
+        try:
+            # 按文件名排序，刷新前50个文件的缓冲区
+            sorted_files = sorted(self.log_buffers.keys())
+            for filepath in sorted_files[:50]:
+                if self.log_buffers[filepath]:
+                    try:
+                        import os
+                        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                        with open(filepath, 'a', encoding='utf-8') as f:
+                            f.write(self.log_buffers[filepath])
+                            f.flush()
+                        self.log_buffers[filepath] = ""
+                    except Exception as e:
+                        logger.error(f"Emergency flush failed for {filepath}: {e}")
+                        # 删除无法写入的缓冲区
+                        del self.log_buffers[filepath]
+        except Exception as e:
+            logger.error(f"Error in _emergency_flush_oldest_buffers: {e}")
 
     def write_data_to_buffer_log(self, buffer_index, data, log_suffix=""):
         """📋 统一日志写入方法：将数据写入指定buffer对应的日志文件
