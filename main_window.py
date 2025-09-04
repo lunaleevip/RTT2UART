@@ -63,7 +63,11 @@ class JLinkLogHandler(logging.Handler):
             timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
             formatted_message = f"[{timestamp}] {message}"
             
-            self.text_widget.append(formatted_message)
+            # 兼容 QPlainTextEdit 与 QTextEdit
+            if hasattr(self.text_widget, 'appendPlainText'):
+                self.text_widget.appendPlainText(formatted_message)
+            else:
+                self.text_widget.append(formatted_message)
             
             # 自动滚动到底部
             scrollbar = self.text_widget.verticalScrollBar()
@@ -514,8 +518,9 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            # 🎨 智能双模式：QTextEdit支持ANSI颜色 + 性能优化
-            text_edit = QTextEdit(page)  # 使用QTextEdit支持HTML格式化
+            # 🎨 默认使用QPlainTextEdit（高性能纯文本），必要时再回退QTextEdit
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = QPlainTextEdit(page)
             text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
@@ -531,7 +536,7 @@ class RTTMainWindow(QMainWindow):
             text_edit.setFont(font)
             
             layout = QVBoxLayout(page)  # 创建布局管理器
-            layout.addWidget(text_edit)  # 将 QTextEdit 添加到布局中
+            layout.addWidget(text_edit)  # 将 QPlainTextEdit 添加到布局中
             self.highlighter[i] = PythonHighlighter(text_edit.document())
             
             if i == 0:
@@ -870,8 +875,9 @@ class RTTMainWindow(QMainWindow):
         
         layout.addLayout(header_layout)
         
-        # 创建JLink日志文本框
-        self.jlink_log_text = QTextEdit()
+        # 创建JLink日志文本框（使用QPlainTextEdit提高性能）
+        from PySide6.QtWidgets import QPlainTextEdit
+        self.jlink_log_text = QPlainTextEdit()
         self.jlink_log_text.setReadOnly(True)
         self.jlink_log_text.setMinimumHeight(120)
         self.jlink_log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -977,8 +983,11 @@ class RTTMainWindow(QMainWindow):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         formatted_message = f"[{timestamp}] {message}"
         
-        # 在GUI线程中更新文本
-        self.jlink_log_text.append(formatted_message)
+        # 在GUI线程中更新文本（兼容 QPlainTextEdit）
+        if hasattr(self.jlink_log_text, 'appendPlainText'):
+            self.jlink_log_text.appendPlainText(formatted_message)
+        else:
+            self.jlink_log_text.append(formatted_message)
         
         # 自动滚动到底部
         scrollbar = self.jlink_log_text.verticalScrollBar()
@@ -1232,7 +1241,8 @@ class RTTMainWindow(QMainWindow):
             self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
             current_page_widget = self.ui.tem_switch.widget(2)
             if isinstance(current_page_widget, QWidget):
-                text_edit = current_page_widget.findChild(QTextEdit)
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     self.highlighter[2].setKeywords([current_text])
                     
@@ -1265,7 +1275,8 @@ class RTTMainWindow(QMainWindow):
         index = self.ui.tem_switch.currentIndex()
         current_page_widget = self.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
-            text_edit = current_page_widget.findChild(QTextEdit)
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
             if text_edit:
                 text_edit.clear()
 
@@ -1456,8 +1467,9 @@ class RTTMainWindow(QMainWindow):
                 page_widget = self.ui.tem_switch.widget(i)
                 if page_widget:
                     page_widget.setToolTip("")
-                    # 查找页面中的QTextEdit并清除其工具提示
-                    text_edit = page_widget.findChild(QTextEdit)
+                    # 查找页面中的文本编辑器并清除其工具提示
+                    from PySide6.QtWidgets import QPlainTextEdit
+                    text_edit = page_widget.findChild(QPlainTextEdit) or page_widget.findChild(QTextEdit)
                     if text_edit:
                         text_edit.setToolTip("")
                 
@@ -2571,11 +2583,17 @@ class ConnectionDialog(QDialog):
                 # 清理主窗口缓存（如果存在）
                 if hasattr(self.main_window, 'buffers'):
                     for i in range(len(self.main_window.buffers)):
-                        self.main_window.buffers[i] = ""
+                        try:
+                            self.main_window.buffers[i].clear()
+                        except Exception:
+                            self.main_window.buffers[i] = []
                 
                 if hasattr(self.main_window, 'colored_buffers'):
                     for i in range(len(self.main_window.colored_buffers)):
-                        self.main_window.colored_buffers[i] = ""
+                        try:
+                            self.main_window.colored_buffers[i].clear()
+                        except Exception:
+                            self.main_window.colored_buffers[i] = []
                 
                 if hasattr(self.main_window, 'append_jlink_log'):
                     self.main_window.append_jlink_log("✅ 缓存和状态已清理")
@@ -2642,11 +2660,11 @@ class ConnectionDialog(QDialog):
             
         current_page_widget = self.main_window.ui.tem_switch.widget(index)
         if isinstance(current_page_widget, QWidget):
-            # 优先使用QTextEdit支持ANSI颜色显示
-            text_edit = current_page_widget.findChild(QTextEdit)
+            # 优先使用QPlainTextEdit（高性能），回退到QTextEdit
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = current_page_widget.findChild(QPlainTextEdit)
             if not text_edit:
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page_widget.findChild(QPlainTextEdit)  # 后备方案
+                text_edit = current_page_widget.findChild(QTextEdit)
             
             font = QFont("Consolas", self.main_window.ui.fontsize_box.value())  # 使用等宽字体
             font.setFixedPitch(True)
@@ -2683,29 +2701,38 @@ class ConnectionDialog(QDialog):
                         
                         # 根据容量利用率调整插入长度
                         if utilization > 80:  # 高利用率
-                            max_insert_length = 4096   # 4KB
+                            max_insert_length = 2048   # 2KB（更保守，降低每次插入量）
                         elif utilization > 60:  # 中等利用率
-                            max_insert_length = 8192   # 8KB
+                            max_insert_length = 4096   # 4KB
                         else:  # 低利用率
-                            max_insert_length = 16384  # 16KB
+                            max_insert_length = 8192   # 8KB
                     else:
-                        max_insert_length = 16384  # 默认值
+                        max_insert_length = 8192  # 默认更保守
                     
                     # 检查是否有ANSI彩色数据
                     has_colored_data = (hasattr(self.worker, 'colored_buffers') and 
-                                      self.worker.colored_buffers[index])
+                                      len(self.worker.colored_buffers[index]) > 0)
                     
-                    if has_colored_data and len(self.worker.colored_buffers[index]) > 0:
-                        # 🚀 方案A：高性能ANSI彩色显示（使用增量数据）
-                        incremental_colored_data = self.worker.colored_buffers[index]
-                        if len(incremental_colored_data) > max_insert_length:
-                            incremental_colored_data = incremental_colored_data[-max_insert_length:]
-                        
-                        # 📈 性能监控：UI更新开始
-                        ui_start_time = time.time()
-                        
-                        # 使用高性能原生Qt格式化，只追加新数据
-                        self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
+                    if self.worker.enable_color_buffers and has_colored_data and len(self.worker.colored_buffers[index]) > 0:
+                        # QPlainTextEdit 直接用纯文本“增量”
+                        from PySide6.QtWidgets import QPlainTextEdit
+                        if isinstance(text_edit, QPlainTextEdit):
+                            incremental_plain, current_total = self.worker._extract_increment_from_chunks(
+                                self.worker.buffers[index],
+                                self.worker.display_lengths[index],
+                                max_insert_length
+                            )
+                            ui_start_time = time.time()
+                            if incremental_plain:
+                                text_edit.insertPlainText(incremental_plain)
+                                self.worker.display_lengths[index] = current_total
+                        else:
+                            # QTextEdit 保持彩色路径
+                            incremental_colored_data = ''.join(self.worker.colored_buffers[index])
+                            if len(incremental_colored_data) > max_insert_length:
+                                incremental_colored_data = incremental_colored_data[-max_insert_length:]
+                            ui_start_time = time.time()
+                            self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -2717,27 +2744,45 @@ class ConnectionDialog(QDialog):
                             data_size = len(incremental_colored_data) // 1024  # KB
                             logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                     
-                    elif self.worker.buffers[index]:
-                        # 🚀 方案B：智能ANSI处理（切换TAB时重新处理ANSI颜色）
-                        accumulated_data = self.worker.buffers[index]
-                        
-                        # 如果数据过长，只显示最新部分
-                        if len(accumulated_data) > max_insert_length:
-                            display_data = accumulated_data[-max_insert_length:]
-                        else:
-                            display_data = accumulated_data
-                        
-                        # 📈 性能监控：UI更新开始
+                    elif len(self.worker.buffers[index]) > 0:
+                        # 🚀 方案B：智能处理 — QPlainTextEdit 增量纯文本
+                        from PySide6.QtWidgets import QPlainTextEdit
                         ui_start_time = time.time()
-                        
-                        # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
-                        if self.worker._has_ansi_codes(display_data):
-                            # 使用ANSI彩色显示（不清空现有内容，追加显示）
-                            colored_html = self.worker._convert_ansi_to_html(display_data)
-                            self._insert_ansi_text_fast(text_edit, colored_html, index)
+                        if isinstance(text_edit, QPlainTextEdit):
+                            # 快进逻辑：积压过多时直接从尾部显示，避免显示严重滞后
+                            backlog = self.worker.buffer_lengths[index] - self.worker.display_lengths[index]
+                            if backlog > self.worker.backlog_fast_forward_threshold:
+                                # 直接跳到尾部
+                                tail_bytes = self.worker.fast_forward_tail
+                                accumulated = ''.join(self.worker.buffers[index])
+                                tail_text = accumulated[-tail_bytes:]
+                                text_edit.insertPlainText(ansi_processor.remove_ansi_codes(tail_text))
+                                self.worker.display_lengths[index] = self.worker.buffer_lengths[index]
+                                ui_start_time = time.time()
+                                # 自动滚动到底部
+                                text_edit.verticalScrollBar().setValue(
+                                    text_edit.verticalScrollBar().maximum())
+                                ui_time = (time.time() - ui_start_time) * 1000
+                            else:
+                                incremental_text, current_total = self.worker._extract_increment_from_chunks(
+                                    self.worker.buffers[index],
+                                    self.worker.display_lengths[index],
+                                    max_insert_length
+                                )
+                            if incremental_text:
+                                text_edit.insertPlainText(ansi_processor.remove_ansi_codes(incremental_text))
+                                self.worker.display_lengths[index] = current_total
                         else:
-                            # 纯文本显示（不清空现有内容，追加显示）
-                            text_edit.insertPlainText(display_data)
+                            accumulated_data = ''.join(self.worker.buffers[index])
+                            if len(accumulated_data) > max_insert_length:
+                                display_data = accumulated_data[-max_insert_length:]
+                            else:
+                                display_data = accumulated_data
+                            if self.worker._has_ansi_codes(display_data):
+                                colored_html = self.worker._convert_ansi_to_html(display_data)
+                                self._insert_ansi_text_fast(text_edit, colored_html, index)
+                            else:
+                                text_edit.insertPlainText(display_data)
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
@@ -2751,7 +2796,8 @@ class ConnectionDialog(QDialog):
                     
                     # 只在连接状态下清空已处理的缓冲区，断开连接后保留数据供查看
                     if hasattr(self.worker, 'colored_buffers') and is_connected:
-                        self.worker.colored_buffers[index] = ""
+                        self.worker.colored_buffer_lengths[index] = 0
+                        self.worker.colored_buffers[index].clear()
                         
                 except Exception as e:
                     # 异常处理：只在连接状态下清空缓冲区避免数据堆积
@@ -2788,20 +2834,28 @@ class ConnectionDialog(QDialog):
         if current_index >= 1 and current_index <= 16:
             current_page_widget = self.main_window.ui.tem_switch.widget(current_index)
             if isinstance(current_page_widget, QWidget):
-                # 优先使用QTextEdit支持ANSI颜色显示
-                text_edit = current_page_widget.findChild(QTextEdit)
+                # 优先使用QPlainTextEdit（高性能），回退到QTextEdit
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page_widget.findChild(QPlainTextEdit)
                 if not text_edit:
-                    from PySide6.QtWidgets import QPlainTextEdit
-                    text_edit = current_page_widget.findChild(QPlainTextEdit)  # 后备方案
+                    text_edit = current_page_widget.findChild(QTextEdit)
                 
                 if text_edit and hasattr(text_edit, 'clear'):
                     text_edit.clear()
                 # 同时清空对应的缓冲区
                 if hasattr(self, 'worker') and self.worker:
                     if current_index < len(self.worker.buffers):
-                        self.worker.buffers[current_index] = ""
+                        try:
+                            self.worker.buffer_lengths[current_index] = 0
+                            self.worker.buffers[current_index].clear()
+                        except Exception:
+                            self.worker.buffers[current_index] = []
                     if hasattr(self.worker, 'colored_buffers') and current_index < len(self.worker.colored_buffers):
-                        self.worker.colored_buffers[current_index] = ""
+                        try:
+                            self.worker.colored_buffer_lengths[current_index] = 0
+                            self.worker.colored_buffers[current_index].clear()
+                        except Exception:
+                            self.worker.colored_buffers[current_index] = []
 
                     # 清空HTML缓冲区
                     if hasattr(self.worker, 'html_buffers') and current_index < len(self.worker.html_buffers):
@@ -2820,6 +2874,16 @@ class ConnectionDialog(QDialog):
     def _insert_ansi_text_fast(self, text_edit, text, tab_index=None):
         """高性能ANSI文本插入 - 使用QTextCursor和QTextCharFormat"""
         try:
+            # 在 QPlainTextEdit 上直接降级为纯文本，彻底避免富文本格式化开销
+            try:
+                from PySide6.QtWidgets import QPlainTextEdit
+                if isinstance(text_edit, QPlainTextEdit):
+                    clean_text = ansi_processor.remove_ansi_codes(text)
+                    text_edit.insertPlainText(clean_text)
+                    return
+            except Exception:
+                pass
+
             # 检查是否包含ANSI控制符
             if '\x1B[' not in text:
                 # 纯文本，直接插入（最高性能）
@@ -2882,6 +2946,16 @@ class ConnectionDialog(QDialog):
         # 📈 记录刷新事件
         if hasattr(self.worker, 'refresh_count'):
             self.worker.refresh_count += 1
+        
+        # UI 刷新节流：限制最小刷新间隔，避免高频更新导致卡顿
+        try:
+            now_ms = int(time.time() * 1000)
+            if hasattr(self.worker, '_last_ui_update_ms') and hasattr(self.worker, 'min_ui_update_interval_ms'):
+                if now_ms - self.worker._last_ui_update_ms < self.worker.min_ui_update_interval_ms:
+                    return
+                self.worker._last_ui_update_ms = now_ms
+        except Exception:
+            pass
             
         # 智能更新：只刷新有数据变化的页面
         if not self.main_window:
@@ -2927,9 +3001,14 @@ class Worker(QObject):
         self.parent = parent
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         
-        # 🚀 智能缓冲区管理 - 预分配 + 成倍扩容机制
-        self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
-        self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
+        # 🚀 高性能分块缓冲：避免字符串 O(n^2) 级累加
+        self.buffers = [[] for _ in range(MAX_TAB_SIZE)]  # 以列表分块存储
+        self.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]  # 彩色数据分块
+        # 为每个缓冲维护长度计数，避免每次追加都遍历求和
+        self.buffer_lengths = [0] * MAX_TAB_SIZE
+        self.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+        # 纯文本显示的已显示长度（按字节计数），用于增量提取，避免每次 join 全量
+        self.display_lengths = [0] * MAX_TAB_SIZE
         
         # 🎯 成倍扩容配置 (100K->200K->400K->800K->1.6M->3.2M->6.4M)
         self.buffer_capacities = [0] * MAX_TAB_SIZE  # 当前容量
@@ -2938,14 +3017,9 @@ class Worker(QObject):
         self.max_capacity = 6400 * 1024     # 最大容量 6.4MB
         self.growth_factor = 2               # 扩容系数
         
-        # 预分配初始缓冲区
+        # 初始化容量记录
         for i in range(MAX_TAB_SIZE):
-            self.buffers[i] = ' ' * self.initial_capacity  # 预分配100KB
-            self.buffers[i] = ''  # 清空内容但保留容量
             self.buffer_capacities[i] = self.initial_capacity
-            
-            self.colored_buffers[i] = ' ' * self.initial_capacity
-            self.colored_buffers[i] = ''
             self.colored_buffer_capacities[i] = self.initial_capacity
         
         # 使用滑动文本块机制，QPlainTextEdit自动管理历史缓冲
@@ -2969,6 +3043,14 @@ class Worker(QObject):
         self.refresh_count = 0
         self.last_log_time = time.time()
         self.log_interval = 5.0  # 每5秒记录一次性能日志
+        # UI 刷新节流（ms）
+        self.min_ui_update_interval_ms = 20
+        self._last_ui_update_ms = 0
+        # 大量积压时的“追尾显示”参数
+        self.backlog_fast_forward_threshold = 256 * 1024  # 积压超过256KB时快进
+        self.fast_forward_tail = 64 * 1024                 # 只显示末尾64KB
+        # 是否启用彩色缓冲（保持原行为=启用）
+        self.enable_color_buffers = True
     
     def set_turbo_mode(self, enabled, batch_delay=20):
         """设置Turbo模式"""
@@ -3277,7 +3359,7 @@ class Worker(QObject):
             
             # 使用滑动文本块机制，不需要激进的缓冲区大小限制
             
-            # 标记页面需要更新（降低更新频率）
+            # 标记页面需要更新（恢复原行为：当前页 + ALL）
             self.update_counter += 1
             if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
                 self.parent.main_window.page_dirty_flags[index+1] = True
@@ -3303,7 +3385,7 @@ class Worker(QObject):
     def _append_to_buffer(self, index, data):
         """🚀 智能缓冲区追加：预分配 + 成倍扩容机制"""
         if index < len(self.buffers):
-            current_length = len(self.buffers[index])
+            current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
             
             # 🚀 检查是否需要扩容
@@ -3318,16 +3400,24 @@ class Worker(QObject):
                                f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.buffer_capacities[index] >= self.max_capacity:
                     # 已达最大容量，清理旧数据
-                    trim_size = self.max_capacity // 2  # 保疙3.2MB
-                    self.buffers[index] = self.buffers[index][-trim_size:]
-                    logger.info(f"[TRIM] Buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+                    trim_size = self.max_capacity // 2  # 保留3.2MB
+                    # 从头部移除旧块直到长度不超过目标
+                    while self.buffer_lengths[index] > trim_size and self.buffers[index]:
+                        removed = self.buffers[index].pop(0)
+                        rem_len = len(removed)
+                        self.buffer_lengths[index] -= rem_len
+                        # 调整对应显示偏移，避免因头部裁剪导致显示滞后
+                        self.display_lengths[index] = max(0, self.display_lengths[index] - rem_len)
+                    logger.info(f"[TRIM] Buffer {index} trimmed to {self.buffer_lengths[index]//1024}KB (max capacity reached)")
             
-            self.buffers[index] += data
+            # 分块追加，避免大字符串反复拷贝
+            self.buffers[index].append(data)
+            self.buffer_lengths[index] += len(data)
     
     def _append_to_colored_buffer(self, index, data):
         """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制"""
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
-            current_length = len(self.colored_buffers[index])
+            current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
             
             # 🚀 检查是否需要扩容
@@ -3342,29 +3432,24 @@ class Worker(QObject):
                                f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.colored_buffer_capacities[index] >= self.max_capacity:
                     # 已达最大容量，清理旧数据
-                    trim_size = self.max_capacity // 2  # 保疙3.2MB
-                    self.colored_buffers[index] = self.colored_buffers[index][-trim_size:]
-                    logger.info(f"[TRIM] Colored buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+                    trim_size = self.max_capacity // 2  # 保留3.2MB
+                    while self.colored_buffer_lengths[index] > trim_size and self.colored_buffers[index]:
+                        removed = self.colored_buffers[index].pop(0)
+                        self.colored_buffer_lengths[index] -= len(removed)
+                    logger.info(f"[TRIM] Colored buffer {index} trimmed to {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)")
             
-            self.colored_buffers[index] += data
+            # 分块追加
+            self.colored_buffers[index].append(data)
+            self.colored_buffer_lengths[index] += len(data)
             
             # 📈 性能监控：记录数据增长
             self._log_performance_metrics()
     
     def get_buffer_memory_usage(self):
         """📈 获取缓冲区内存使用情况"""
-        total_size = 0
-        max_size = 0
-        for i, buffer in enumerate(self.buffers):
-            size = len(buffer)
-            total_size += size
-            if size > max_size:
-                max_size = size
-        
-        colored_size = 0
-        if hasattr(self, 'colored_buffers'):
-            for buffer in self.colored_buffers:
-                colored_size += len(buffer)
+        total_size = sum(self.buffer_lengths)
+        max_size = max(self.buffer_lengths) if self.buffer_lengths else 0
+        colored_size = sum(self.colored_buffer_lengths) if hasattr(self, 'colored_buffer_lengths') else 0
         
         return {
             'total_buffer_size': total_size,
@@ -3374,6 +3459,28 @@ class Worker(QObject):
             'total_capacity': sum(self.buffer_capacities) + sum(self.colored_buffer_capacities),
             'capacity_utilization': (total_size + colored_size) / (sum(self.buffer_capacities) + sum(self.colored_buffer_capacities)) * 100 if sum(self.buffer_capacities) > 0 else 0
         }
+
+    def _extract_increment_from_chunks(self, chunks, last_size, max_bytes=None):
+        """从分块列表中提取自 last_size 起的增量数据，并返回(new_text, current_total_size)。
+        可选 max_bytes 限制返回文本的最大字节数（从尾部截取）。"""
+        remaining = last_size
+        total_len = 0
+        out_parts = []
+        for part in chunks:
+            plen = len(part)
+            total_len += plen
+            if remaining >= plen:
+                remaining -= plen
+                continue
+            if remaining > 0:
+                out_parts.append(part[remaining:])
+                remaining = 0
+            else:
+                out_parts.append(part)
+        new_text = ''.join(out_parts)
+        if max_bytes is not None and len(new_text) > max_bytes:
+            new_text = new_text[-max_bytes:]
+        return new_text, total_len
     
     def _calculate_new_capacity(self, current_capacity, required_size):
         """📈 计算新的缓冲区容量：成倍扩容机制"""
@@ -3456,13 +3563,16 @@ class Worker(QObject):
             for i, search_word in search_words:
                 if search_word in line:
                     filtered_data = line + '\n'
-                    self.buffers[i] += filtered_data
+                    # 分块追加，避免大字符串反复拷贝
+                    if i < len(self.buffers):
+                        self.buffers[i].append(filtered_data)
                     
                     # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
                     if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
                         # 创建带高亮的彩色数据
                         highlighted_line = self._highlight_filter_text(line, search_word)
-                        self.colored_buffers[i] += highlighted_line + '\n'
+                        if i < len(self.colored_buffers):
+                            self.colored_buffers[i].append(highlighted_line + '\n')
                     
                     # 标记页面需要更新
                     if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
