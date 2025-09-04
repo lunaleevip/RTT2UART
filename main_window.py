@@ -2675,7 +2675,14 @@ class ConnectionDialog(QDialog):
                     
                 # 🎨 智能ANSI颜色支持 + 高性能文本处理
                 try:
-                    max_insert_length = 16384  # 16KB单次插入限制
+                    # 🎯 动态调整插入长度：根据缓冲区大小智能限制
+                    buffer_size = len(self.worker.colored_buffers[index]) if hasattr(self.worker, 'colored_buffers') else 0
+                    if buffer_size > 2 * 1024 * 1024:  # 2MB以上使用更小的插入块
+                        max_insert_length = 4096   # 4KB
+                    elif buffer_size > 1024 * 1024:  # 1MB以上
+                        max_insert_length = 8192   # 8KB
+                    else:
+                        max_insert_length = 16384  # 16KB
                     
                     # 检查是否有ANSI彩色数据
                     has_colored_data = (hasattr(self.worker, 'colored_buffers') and 
@@ -2860,10 +2867,22 @@ class ConnectionDialog(QDialog):
             self.switchPage(current_index)
             self.main_window.page_dirty_flags[current_index] = False
         
-        # 批量更新其他有变化的页面（限制每次最多更新3个）
+        # 🚀 智能批量更新：根据系统负载动态调整
+        if hasattr(self.worker, 'get_buffer_memory_usage'):
+            memory_info = self.worker.get_buffer_memory_usage()
+            # 大数据量时减少同时更新的页面数
+            if memory_info['total_memory_mb'] > 10:  # 10MB以上
+                max_updates = 1  # 只更新当前页面
+            elif memory_info['total_memory_mb'] > 5:  # 5MB以上
+                max_updates = 2
+            else:
+                max_updates = 3  # 正常情况
+        else:
+            max_updates = 3
+        
         updated_count = 0
         for i in range(MAX_TAB_SIZE):
-            if i != current_index and self.main_window.page_dirty_flags[i] and updated_count < 3:
+            if i != current_index and self.main_window.page_dirty_flags[i] and updated_count < max_updates:
                 self.switchPage(i)
                 self.main_window.page_dirty_flags[i] = False
                 updated_count += 1
@@ -2877,9 +2896,13 @@ class Worker(QObject):
         self.parent = parent
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         
-        # 智能缓冲区管理
+        # 🚀 智能缓冲区管理 - 防止内存无限增长
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
         self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
+        
+        # 🎯 缓冲区大小限制配置
+        self.max_buffer_size = 2 * 1024 * 1024  # 2MB限制，防止界面卡顿
+        self.buffer_trim_size = 1 * 1024 * 1024  # 清理后保留1MB
         
         # 使用滑动文本块机制，QPlainTextEdit自动管理历史缓冲
         
@@ -3185,22 +3208,22 @@ class Worker(QObject):
                 clean_data = ansi_processor.remove_ansi_codes(data)
                 clean_buffer_parts = ["%02u> " % index, clean_data]
                 
-                # 存储纯文本到buffers（用于日志和转发）
-                self.buffers[index+1] += clean_data
-                self.buffers[0] += ''.join(clean_buffer_parts)
+                # 🚀 智能缓冲区管理：存储纯文本到buffers（用于日志和转发）
+                self._append_to_buffer(index+1, clean_data)
+                self._append_to_buffer(0, ''.join(clean_buffer_parts))
                 
                 # 为UI显示创建带颜色的HTML格式文本
                 if hasattr(self, 'colored_buffers'):
-                    self.colored_buffers[index+1] += self._convert_ansi_to_html(data)
-                    self.colored_buffers[0] += self._convert_ansi_to_html(''.join(buffer_parts))
+                    self._append_to_colored_buffer(index+1, self._convert_ansi_to_html(data))
+                    self._append_to_colored_buffer(0, self._convert_ansi_to_html(''.join(buffer_parts)))
                     
             except Exception as e:
                 # 如果ANSI处理失败，回退到原始文本处理
-                self.buffers[index+1] += data
-                self.buffers[0] += ''.join(buffer_parts)
+                self._append_to_buffer(index+1, data)
+                self._append_to_buffer(0, ''.join(buffer_parts))
                 if hasattr(self, 'colored_buffers'):
-                    self.colored_buffers[index+1] += data
-                    self.colored_buffers[0] += ''.join(buffer_parts)
+                    self._append_to_colored_buffer(index+1, data)
+                    self._append_to_colored_buffer(0, ''.join(buffer_parts))
             
             # 使用滑动文本块机制，不需要激进的缓冲区大小限制
             
@@ -3226,6 +3249,50 @@ class Worker(QObject):
                 self.process_filter_lines(clean_lines)
 
             self.finished.emit()
+    
+    def _append_to_buffer(self, index, data):
+        """🚀 智能缓冲区追加：防止内存无限增长"""
+        if index < len(self.buffers):
+            self.buffers[index] += data
+            
+            # 🎯 检查缓冲区大小，超出限制时智能清理
+            if len(self.buffers[index]) > self.max_buffer_size:
+                # 保留后半部分数据，确保连续性
+                self.buffers[index] = self.buffers[index][-self.buffer_trim_size:]
+                logger.info(f"Buffer {index} trimmed to {self.buffer_trim_size} bytes for performance")
+    
+    def _append_to_colored_buffer(self, index, data):
+        """🎨 智能彩色缓冲区追加：防止内存无限增长"""
+        if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
+            self.colored_buffers[index] += data
+            
+            # 🎯 检查彩色缓冲区大小，超出限制时智能清理
+            if len(self.colored_buffers[index]) > self.max_buffer_size:
+                # 保留后半部分数据，确保连续性
+                self.colored_buffers[index] = self.colored_buffers[index][-self.buffer_trim_size:]
+                logger.info(f"Colored buffer {index} trimmed to {self.buffer_trim_size} bytes for performance")
+    
+    def get_buffer_memory_usage(self):
+        """📈 获取缓冲区内存使用情况"""
+        total_size = 0
+        max_size = 0
+        for i, buffer in enumerate(self.buffers):
+            size = len(buffer)
+            total_size += size
+            if size > max_size:
+                max_size = size
+        
+        colored_size = 0
+        if hasattr(self, 'colored_buffers'):
+            for buffer in self.colored_buffers:
+                colored_size += len(buffer)
+        
+        return {
+            'total_buffer_size': total_size,
+            'max_single_buffer': max_size,
+            'colored_buffer_size': colored_size,
+            'total_memory_mb': (total_size + colored_size) / (1024 * 1024)
+        }
 
     def _highlight_filter_text(self, line, search_word):
         """为筛选文本添加高亮显示"""
