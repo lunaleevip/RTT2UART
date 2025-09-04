@@ -2802,7 +2802,11 @@ class ConnectionDialog(QDialog):
                 except Exception as e:
                     # 异常处理：只在连接状态下清空缓冲区避免数据堆积
                     if hasattr(self.worker, 'colored_buffers') and is_connected:
-                        self.worker.colored_buffers[index] = ""
+                        try:
+                            self.worker.colored_buffer_lengths[index] = 0
+                            self.worker.colored_buffers[index].clear()
+                        except Exception:
+                            self.worker.colored_buffers[index] = []
                     print(f"文本更新异常: {e}")  # 调试信息
                 
                 # 📋 使用正确的显示模式：累积显示全部数据
@@ -3385,6 +3389,10 @@ class Worker(QObject):
     def _append_to_buffer(self, index, data):
         """🚀 智能缓冲区追加：预分配 + 成倍扩容机制"""
         if index < len(self.buffers):
+            # 防御：如果被外部代码误置为字符串，立即恢复为分块列表
+            if not isinstance(self.buffers[index], list):
+                self.buffers[index] = []
+                self.buffer_lengths[index] = 0
             current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
             
@@ -3417,6 +3425,10 @@ class Worker(QObject):
     def _append_to_colored_buffer(self, index, data):
         """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制"""
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
+            # 防御：如果被误置为字符串，恢复为分块列表
+            if not isinstance(self.colored_buffers[index], list):
+                self.colored_buffers[index] = []
+                self.colored_buffer_lengths[index] = 0
             current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
             
