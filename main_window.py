@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 import pylink
 from rtt2uart import rtt_to_serial
 import logging
+import time
 import pickle
 import os
 from config_manager import config_manager
@@ -2700,12 +2701,21 @@ class ConnectionDialog(QDialog):
                         if len(incremental_colored_data) > max_insert_length:
                             incremental_colored_data = incremental_colored_data[-max_insert_length:]
                         
+                        # 📈 性能监控：UI更新开始
+                        ui_start_time = time.time()
+                        
                         # 使用高性能原生Qt格式化，只追加新数据
                         self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
                             text_edit.verticalScrollBar().maximum())
+                        
+                        # 📈 性能监控：UI更新结束
+                        ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
+                        if ui_time > 50:  # 大于50ms记录警告
+                            data_size = len(incremental_colored_data) // 1024  # KB
+                            logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                     
                     elif self.worker.buffers[index]:
                         # 🚀 方案B：智能ANSI处理（切换TAB时重新处理ANSI颜色）
@@ -2717,6 +2727,9 @@ class ConnectionDialog(QDialog):
                         else:
                             display_data = accumulated_data
                         
+                        # 📈 性能监控：UI更新开始
+                        ui_start_time = time.time()
+                        
                         # 🎨 检查是否包含ANSI控制符，如果有则转换为彩色显示
                         if self.worker._has_ansi_codes(display_data):
                             # 使用ANSI彩色显示（不清空现有内容，追加显示）
@@ -2725,6 +2738,12 @@ class ConnectionDialog(QDialog):
                         else:
                             # 纯文本显示（不清空现有内容，追加显示）
                             text_edit.insertPlainText(display_data)
+                        
+                        # 📈 性能监控：UI更新结束
+                        ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
+                        if ui_time > 50:  # 大于50ms记录警告
+                            data_size = len(display_data) // 1024  # KB
+                            logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -2860,6 +2879,10 @@ class ConnectionDialog(QDialog):
 
     @Slot()
     def handleBufferUpdate(self):
+        # 📈 记录刷新事件
+        if hasattr(self.worker, 'refresh_count'):
+            self.worker.refresh_count += 1
+            
         # 智能更新：只刷新有数据变化的页面
         if not self.main_window:
             return
@@ -2940,6 +2963,12 @@ class Worker(QObject):
         self.batch_timers = [None for _ in range(16)]  # 每个通道的批量计时器
         self.turbo_mode = False  # 默认启用Turbo模式
         self.batch_delay = 20   # 批量延迟20ms（降低延迟，提升响应性）
+        
+        # 📈 性能监控变量
+        self.last_refresh_time = time.time()
+        self.refresh_count = 0
+        self.last_log_time = time.time()
+        self.log_interval = 5.0  # 每5秒记录一次性能日志
     
     def set_turbo_mode(self, enabled, batch_delay=20):
         """设置Turbo模式"""
@@ -3284,12 +3313,14 @@ class Worker(QObject):
                     # 成倍扩容
                     old_capacity = self.buffer_capacities[index]
                     self.buffer_capacities[index] = new_capacity
-                    logger.info(f"📈 Buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB")
+                    memory_info = self.get_buffer_memory_usage()
+                    logger.info(f"[EXPAND] Buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB, "
+                               f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.buffer_capacities[index] >= self.max_capacity:
                     # 已达最大容量，清理旧数据
                     trim_size = self.max_capacity // 2  # 保疙3.2MB
                     self.buffers[index] = self.buffers[index][-trim_size:]
-                    logger.info(f"✂️ Buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+                    logger.info(f"[TRIM] Buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
             
             self.buffers[index] += data
     
@@ -3306,14 +3337,19 @@ class Worker(QObject):
                     # 成倍扩容
                     old_capacity = self.colored_buffer_capacities[index]
                     self.colored_buffer_capacities[index] = new_capacity
-                    logger.info(f"🎨 Colored buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB")
+                    memory_info = self.get_buffer_memory_usage()
+                    logger.info(f"[EXPAND] Colored buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB, "
+                               f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.colored_buffer_capacities[index] >= self.max_capacity:
                     # 已达最大容量，清理旧数据
                     trim_size = self.max_capacity // 2  # 保疙3.2MB
                     self.colored_buffers[index] = self.colored_buffers[index][-trim_size:]
-                    logger.info(f"✂️ Colored buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+                    logger.info(f"[TRIM] Colored buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
             
             self.colored_buffers[index] += data
+            
+            # 📈 性能监控：记录数据增长
+            self._log_performance_metrics()
     
     def get_buffer_memory_usage(self):
         """📈 获取缓冲区内存使用情况"""
@@ -3349,6 +3385,37 @@ class Worker(QObject):
         
         # 不超过最大容量
         return min(new_capacity, self.max_capacity)
+    
+    def _log_performance_metrics(self):
+        """📈 记录性能指标：刷新率和数据量"""
+        current_time = time.time()
+        
+        # 每5秒记录一次性能日志
+        if current_time - self.last_log_time >= self.log_interval:
+            memory_info = self.get_buffer_memory_usage()
+            
+            # 计算刷新率
+            time_elapsed = current_time - self.last_log_time
+            refresh_rate = self.refresh_count / time_elapsed if time_elapsed > 0 else 0
+            
+            # 记录性能指标
+            logger.info(f"[PERF] 性能监控 - 刷新率: {refresh_rate:.1f}Hz, "
+                       f"总数据量: {memory_info['total_memory_mb']:.1f}MB, "
+                       f"容量利用率: {memory_info['capacity_utilization']:.1f}%, "
+                       f"最大单缓冲: {memory_info['max_single_buffer']//1024:.0f}KB")
+            
+            # 检查性能阈值
+            if memory_info['total_memory_mb'] > 0.8:  # 800KB以上
+                if refresh_rate < 10:  # 刷新率低于10Hz
+                    logger.warning(f"[WARN] 性能警告 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 刷新率下降至: {refresh_rate:.1f}Hz")
+                    
+            if memory_info['total_memory_mb'] > 2.0:  # 2MB以上
+                if refresh_rate < 5:  # 刷新率低于5Hz
+                    logger.error(f"[CRIT] 性能严重 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 刷新率严重下降至: {refresh_rate:.1f}Hz")
+            
+            # 重置计数器
+            self.refresh_count = 0
+            self.last_log_time = current_time
 
     def _highlight_filter_text(self, line, search_word):
         """为筛选文本添加高亮显示"""
