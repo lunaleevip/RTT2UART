@@ -1,4 +1,5 @@
 @echo off
+chcp 65001
 REM 激活虚拟环境并运行调试
 echo 激活虚拟环境...
 call env\Scripts\activate.bat
