@@ -2675,14 +2675,20 @@ class ConnectionDialog(QDialog):
                     
                 # 🎨 智能ANSI颜色支持 + 高性能文本处理
                 try:
-                    # 🎯 动态调整插入长度：根据缓冲区大小智能限制
-                    buffer_size = len(self.worker.colored_buffers[index]) if hasattr(self.worker, 'colored_buffers') else 0
-                    if buffer_size > 2 * 1024 * 1024:  # 2MB以上使用更小的插入块
-                        max_insert_length = 4096   # 4KB
-                    elif buffer_size > 1024 * 1024:  # 1MB以上
-                        max_insert_length = 8192   # 8KB
+                    # 🎯 动态调整插入长度：根据缓冲区容量利用率智能限制
+                    if hasattr(self.worker, 'get_buffer_memory_usage'):
+                        memory_info = self.worker.get_buffer_memory_usage()
+                        utilization = memory_info.get('capacity_utilization', 0)
+                        
+                        # 根据容量利用率调整插入长度
+                        if utilization > 80:  # 高利用率
+                            max_insert_length = 4096   # 4KB
+                        elif utilization > 60:  # 中等利用率
+                            max_insert_length = 8192   # 8KB
+                        else:  # 低利用率
+                            max_insert_length = 16384  # 16KB
                     else:
-                        max_insert_length = 16384  # 16KB
+                        max_insert_length = 16384  # 默认值
                     
                     # 检查是否有ANSI彩色数据
                     has_colored_data = (hasattr(self.worker, 'colored_buffers') and 
@@ -2867,16 +2873,18 @@ class ConnectionDialog(QDialog):
             self.switchPage(current_index)
             self.main_window.page_dirty_flags[current_index] = False
         
-        # 🚀 智能批量更新：根据系统负载动态调整
+        # 🚀 智能批量更新：根据容量利用率动态调整
         if hasattr(self.worker, 'get_buffer_memory_usage'):
             memory_info = self.worker.get_buffer_memory_usage()
-            # 大数据量时减少同时更新的页面数
-            if memory_info['total_memory_mb'] > 10:  # 10MB以上
+            utilization = memory_info.get('capacity_utilization', 0)
+            
+            # 根据容量利用率调整更新策略
+            if utilization > 80:  # 高利用率，减少更新
                 max_updates = 1  # 只更新当前页面
-            elif memory_info['total_memory_mb'] > 5:  # 5MB以上
+            elif utilization > 60:  # 中等利用率
                 max_updates = 2
-            else:
-                max_updates = 3  # 正常情况
+            else:  # 低利用率，正常更新
+                max_updates = 3
         else:
             max_updates = 3
         
@@ -2896,13 +2904,26 @@ class Worker(QObject):
         self.parent = parent
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         
-        # 🚀 智能缓冲区管理 - 防止内存无限增长
+        # 🚀 智能缓冲区管理 - 预分配 + 成倍扩容机制
         self.buffers = [""] * MAX_TAB_SIZE  # 创建MAX_TAB_SIZE个缓冲区
         self.colored_buffers = [""] * MAX_TAB_SIZE  # 创建带颜色的缓冲区
         
-        # 🎯 缓冲区大小限制配置
-        self.max_buffer_size = 2 * 1024 * 1024  # 2MB限制，防止界面卡顿
-        self.buffer_trim_size = 1 * 1024 * 1024  # 清理后保留1MB
+        # 🎯 成倍扩容配置 (100K->200K->400K->800K->1.6M->3.2M->6.4M)
+        self.buffer_capacities = [0] * MAX_TAB_SIZE  # 当前容量
+        self.colored_buffer_capacities = [0] * MAX_TAB_SIZE  # 彩色缓冲区容量
+        self.initial_capacity = 100 * 1024  # 初始容量 100KB
+        self.max_capacity = 6400 * 1024     # 最大容量 6.4MB
+        self.growth_factor = 2               # 扩容系数
+        
+        # 预分配初始缓冲区
+        for i in range(MAX_TAB_SIZE):
+            self.buffers[i] = ' ' * self.initial_capacity  # 预分配100KB
+            self.buffers[i] = ''  # 清空内容但保留容量
+            self.buffer_capacities[i] = self.initial_capacity
+            
+            self.colored_buffers[i] = ' ' * self.initial_capacity
+            self.colored_buffers[i] = ''
+            self.colored_buffer_capacities[i] = self.initial_capacity
         
         # 使用滑动文本块机制，QPlainTextEdit自动管理历史缓冲
         
@@ -3251,26 +3272,48 @@ class Worker(QObject):
             self.finished.emit()
     
     def _append_to_buffer(self, index, data):
-        """🚀 智能缓冲区追加：防止内存无限增长"""
+        """🚀 智能缓冲区追加：预分配 + 成倍扩容机制"""
         if index < len(self.buffers):
-            self.buffers[index] += data
+            current_length = len(self.buffers[index])
+            new_length = current_length + len(data)
             
-            # 🎯 检查缓冲区大小，超出限制时智能清理
-            if len(self.buffers[index]) > self.max_buffer_size:
-                # 保留后半部分数据，确保连续性
-                self.buffers[index] = self.buffers[index][-self.buffer_trim_size:]
-                logger.info(f"Buffer {index} trimmed to {self.buffer_trim_size} bytes for performance")
+            # 🚀 检查是否需要扩容
+            if new_length > self.buffer_capacities[index]:
+                new_capacity = self._calculate_new_capacity(self.buffer_capacities[index], new_length)
+                if new_capacity > self.buffer_capacities[index] and new_capacity <= self.max_capacity:
+                    # 成倍扩容
+                    old_capacity = self.buffer_capacities[index]
+                    self.buffer_capacities[index] = new_capacity
+                    logger.info(f"📈 Buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB")
+                elif self.buffer_capacities[index] >= self.max_capacity:
+                    # 已达最大容量，清理旧数据
+                    trim_size = self.max_capacity // 2  # 保疙3.2MB
+                    self.buffers[index] = self.buffers[index][-trim_size:]
+                    logger.info(f"✂️ Buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+            
+            self.buffers[index] += data
     
     def _append_to_colored_buffer(self, index, data):
-        """🎨 智能彩色缓冲区追加：防止内存无限增长"""
+        """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制"""
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
-            self.colored_buffers[index] += data
+            current_length = len(self.colored_buffers[index])
+            new_length = current_length + len(data)
             
-            # 🎯 检查彩色缓冲区大小，超出限制时智能清理
-            if len(self.colored_buffers[index]) > self.max_buffer_size:
-                # 保留后半部分数据，确保连续性
-                self.colored_buffers[index] = self.colored_buffers[index][-self.buffer_trim_size:]
-                logger.info(f"Colored buffer {index} trimmed to {self.buffer_trim_size} bytes for performance")
+            # 🚀 检查是否需要扩容
+            if new_length > self.colored_buffer_capacities[index]:
+                new_capacity = self._calculate_new_capacity(self.colored_buffer_capacities[index], new_length)
+                if new_capacity > self.colored_buffer_capacities[index] and new_capacity <= self.max_capacity:
+                    # 成倍扩容
+                    old_capacity = self.colored_buffer_capacities[index]
+                    self.colored_buffer_capacities[index] = new_capacity
+                    logger.info(f"🎨 Colored buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB")
+                elif self.colored_buffer_capacities[index] >= self.max_capacity:
+                    # 已达最大容量，清理旧数据
+                    trim_size = self.max_capacity // 2  # 保疙3.2MB
+                    self.colored_buffers[index] = self.colored_buffers[index][-trim_size:]
+                    logger.info(f"✂️ Colored buffer {index} trimmed to {trim_size//1024}KB (max capacity reached)")
+            
+            self.colored_buffers[index] += data
     
     def get_buffer_memory_usage(self):
         """📈 获取缓冲区内存使用情况"""
@@ -3291,8 +3334,21 @@ class Worker(QObject):
             'total_buffer_size': total_size,
             'max_single_buffer': max_size,
             'colored_buffer_size': colored_size,
-            'total_memory_mb': (total_size + colored_size) / (1024 * 1024)
+            'total_memory_mb': (total_size + colored_size) / (1024 * 1024),
+            'total_capacity': sum(self.buffer_capacities) + sum(self.colored_buffer_capacities),
+            'capacity_utilization': (total_size + colored_size) / (sum(self.buffer_capacities) + sum(self.colored_buffer_capacities)) * 100 if sum(self.buffer_capacities) > 0 else 0
         }
+    
+    def _calculate_new_capacity(self, current_capacity, required_size):
+        """📈 计算新的缓冲区容量：成倍扩容机制"""
+        new_capacity = current_capacity
+        
+        # 按成倍扩容直到满足需求
+        while new_capacity < required_size and new_capacity < self.max_capacity:
+            new_capacity *= self.growth_factor
+        
+        # 不超过最大容量
+        return min(new_capacity, self.max_capacity)
 
     def _highlight_filter_text(self, line, search_word):
         """为筛选文本添加高亮显示"""
