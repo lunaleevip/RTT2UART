@@ -389,7 +389,7 @@ class RTTMainWindow(QMainWindow):
         self._is_closing = False  # 标记主窗口是否正在关闭
         
         # 设置主窗口属性
-        self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT调试主窗口"))
+        self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         
         # 创建中心部件
@@ -617,61 +617,67 @@ class RTTMainWindow(QMainWindow):
         menubar = self.menuBar()
         
         # 连接菜单
-        connection_menu = menubar.addMenu(QCoreApplication.translate("main_window", "连接(&C)"))
+        connection_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Connection(&C)"))
         
         # 重新连接动作
-        reconnect_action = QAction(QCoreApplication.translate("main_window", "重新连接(&R)"), self)
+        reconnect_action = QAction(QCoreApplication.translate("main_window", "Reconnect(&R)"), self)
         reconnect_action.triggered.connect(self.on_re_connect_clicked)
         connection_menu.addAction(reconnect_action)
         
         # 断开连接动作
-        disconnect_action = QAction(QCoreApplication.translate("main_window", "断开连接(&D)"), self)
+        disconnect_action = QAction(QCoreApplication.translate("main_window", "Disconnect(&D)"), self)
         disconnect_action.triggered.connect(self.on_dis_connect_clicked)
         connection_menu.addAction(disconnect_action)
         
         connection_menu.addSeparator()
         
         # 连接设置动作
-        settings_action = QAction(QCoreApplication.translate("main_window", "连接设置(&S)..."), self)
+        settings_action = QAction(QCoreApplication.translate("main_window", "Connection Settings(&S)..."), self)
         settings_action.triggered.connect(self._show_connection_settings)
         connection_menu.addAction(settings_action)
         
         # 工具菜单
-        tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "工具(&T)"))
+        tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
         
         # 清除日志动作
-        clear_action = QAction(QCoreApplication.translate("main_window", "清除当前页面(&C)"), self)
+        clear_action = QAction(QCoreApplication.translate("main_window", "Clear Current Page(&C)"), self)
         clear_action.triggered.connect(self.on_clear_clicked)
         tools_menu.addAction(clear_action)
         
         # 打开日志文件夹动作
-        open_folder_action = QAction(QCoreApplication.translate("main_window", "打开日志文件夹(&O)"), self)
+        open_folder_action = QAction(QCoreApplication.translate("main_window", "Open Log Folder(&O)"), self)
         open_folder_action.triggered.connect(self.on_openfolder_clicked)
         tools_menu.addAction(open_folder_action)
         
         tools_menu.addSeparator()
         
         # 编码设置子菜单（仅在断开时可切换）
-        self.encoding_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "编码(&E)"))
+        self.encoding_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "Encoding(&E)"))
         self._build_encoding_submenu()
         
         # 重启 APP 子菜单（选择方式），执行通过F9
-        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "重启APP F9(&A)"))
-        self.action_restart_sfr = QAction(QCoreApplication.translate("main_window", "通过SFR访问"), self)
-        self.action_restart_pin = QAction(QCoreApplication.translate("main_window", "通过复位引脚"), self)
+        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "Restart APP F9(&A)"))
+        self.action_restart_sfr = QAction(QCoreApplication.translate("main_window", "via SFR access"), self)
+        self.action_restart_pin = QAction(QCoreApplication.translate("main_window", "via reset pin"), self)
         self.action_restart_sfr.setCheckable(True)
         self.action_restart_pin.setCheckable(True)
         self.restart_group = QActionGroup(self)
         self.restart_group.setExclusive(True)
         self.restart_group.addAction(self.action_restart_sfr)
         self.restart_group.addAction(self.action_restart_pin)
-        self.action_restart_sfr.setChecked(True)
+        # 从配置恢复默认方式
+        try:
+            default_method = self.connection_dialog.config.get_restart_method() if self.connection_dialog else 'SFR'
+        except Exception:
+            default_method = 'SFR'
+        self.action_restart_sfr.setChecked(default_method == 'SFR')
+        self.action_restart_pin.setChecked(default_method == 'RESET_PIN')
         restart_menu.addAction(self.action_restart_sfr)
         restart_menu.addAction(self.action_restart_pin)
         # F9 触发执行由全局 action9 负责（避免重复快捷键冲突）
         
         # 样式切换动作
-        style_action = QAction(QCoreApplication.translate("main_window", "切换主题(&T)"), self)
+        style_action = QAction(QCoreApplication.translate("main_window", "Switch Theme(&T)"), self)
         style_action.triggered.connect(self.toggle_style_checkbox)
         tools_menu.addAction(style_action)
         
@@ -693,10 +699,10 @@ class RTTMainWindow(QMainWindow):
         # tools_menu.addAction(self.turbo_mode_action)
         
         # 帮助菜单
-        help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "帮助(&H)"))
+        help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Help(&H)"))
         
         # 关于动作
-        about_action = QAction(QCoreApplication.translate("main_window", "关于(&A)..."), self)
+        about_action = QAction(QCoreApplication.translate("main_window", "About(&A)..."), self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
     
@@ -705,7 +711,7 @@ class RTTMainWindow(QMainWindow):
         self.status_bar = self.statusBar()
         
         # 连接状态标签
-        self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "未连接"))
+        self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "Disconnected"))
         self.status_bar.addWidget(self.connection_status_label)
         
         # 注释掉Turbo模式状态标签（功能保留，界面隐藏）
@@ -715,7 +721,7 @@ class RTTMainWindow(QMainWindow):
         # self.status_bar.addPermanentWidget(self.turbo_status_label)
         
         # 数据统计标签
-        self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "读取: 0 | 写入: 0"))
+        self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "Read: 0 | Write: 0"))
         self.status_bar.addPermanentWidget(self.data_stats_label)
     
     def _show_connection_settings(self):
@@ -725,11 +731,11 @@ class RTTMainWindow(QMainWindow):
     def _show_about(self):
         """显示关于对话框"""
         QMessageBox.about(self, 
-                         QCoreApplication.translate("main_window", "关于 XexunRTT"),
+                         QCoreApplication.translate("main_window", "About XexunRTT"),
                          QCoreApplication.translate("main_window", 
                                                    "XexunRTT v2.0\n\n"
-                                                   "RTT调试工具\n\n"
-                                                   "基于 PySide6 开发"))
+                                                   "RTT Debug Tool\n\n"
+                                                   "Based on PySide6"))
 
     def _build_encoding_submenu(self):
         """构建编码设置子菜单"""
@@ -779,7 +785,7 @@ class RTTMainWindow(QMainWindow):
         """选择编码：仅在断开时允许修改"""
         try:
             if self.connection_dialog and self.connection_dialog.start_state:
-                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先断开连接再切换编码"))
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please disconnect first before switching encoding"))
                 # 回退选中状态
                 self._refresh_encoding_menu_checks()
                 return
@@ -791,7 +797,7 @@ class RTTMainWindow(QMainWindow):
                 idx = self.ui.encoder.findText(enc, Qt.MatchFixedString)
                 if idx >= 0:
                     self.ui.encoder.setCurrentIndex(idx)
-            self.statusBar().showMessage(QCoreApplication.translate("main_window", "编码已切换为: %s") % enc, 2000)
+            self.statusBar().showMessage(QCoreApplication.translate("main_window", "Encoding switched to: %s") % enc, 2000)
         except Exception:
             pass
     
@@ -882,7 +888,7 @@ class RTTMainWindow(QMainWindow):
         self.update_status_bar()
         
         # 显示成功消息
-        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT连接建立成功"), 3000)
+        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection established successfully"), 3000)
     
     def on_connection_disconnected(self):
         """连接断开后的处理"""
@@ -895,7 +901,7 @@ class RTTMainWindow(QMainWindow):
         self.update_status_bar()
         
         # 显示断开消息
-        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT连接已断开"), 3000)
+        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection disconnected"), 3000)
     
     def _set_rtt_controls_enabled(self, enabled):
         """设置RTT相关控件的启用状态"""
@@ -1698,7 +1704,7 @@ class RTTMainWindow(QMainWindow):
         """通过SFR访问触发固件重启（需保持连接）"""
         try:
             if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
-                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先建立连接后再重启应用"))
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please connect first, then restart app"))
                 return
             jlink = self.connection_dialog.rtt2uart.jlink
             try:
@@ -1711,24 +1717,24 @@ class RTTMainWindow(QMainWindow):
                 jlink.memory_write32(0xE000ED0C, [0x05FA0004])
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Restart via SFR (AIRCR.SYSRESETREQ) sent by memory_write32"))
             except Exception as e:
-                QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), QCoreApplication.translate("main_window", "SFR重启失败: %s") % str(e))
+                QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), QCoreApplication.translate("main_window", "SFR restart failed: %s") % str(e))
         except Exception as e:
-            QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), str(e))
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), str(e))
 
     def restart_app_via_reset_pin(self):
         """通过硬件复位引脚重启（若调试器支持）"""
         try:
             if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
-                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先建立连接后再重启应用"))
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please connect first, then restart app"))
                 return
             jlink = self.connection_dialog.rtt2uart.jlink
             try:
                 jlink.reset(halt=False)
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Restart via reset pin executed"))
             except Exception as e:
-                QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), QCoreApplication.translate("main_window", "复位引脚重启失败: %s") % str(e))
+                QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), QCoreApplication.translate("main_window", "Reset pin restart failed: %s") % str(e))
         except Exception as e:
-            QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), str(e))
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), str(e))
 
     def restart_app_execute(self):
         """F9 执行，根据子菜单当前选择的方式触发重启"""
@@ -1752,11 +1758,19 @@ class RTTMainWindow(QMainWindow):
                     self.connection_dialog.start()
                     return
                 else:
-                    QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "无法创建连接对话框"))
+                    QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Unable to create connection dialog"))
                     return
 
             # 已连接：按选择执行
-            if hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked():
+            selected_sfr = hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked()
+            # 保存选择到配置
+            try:
+                if self.connection_dialog:
+                    self.connection_dialog.config.set_restart_method('SFR' if selected_sfr else 'RESET_PIN')
+                    self.connection_dialog.config.save_config()
+            except Exception:
+                pass
+            if selected_sfr:
                 self.restart_app_via_sfr()
             else:
                 self.restart_app_via_reset_pin()
@@ -3122,8 +3136,8 @@ class ConnectionDialog(QDialog):
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.information(
                     self.main_window, 
-                    QCoreApplication.translate("MainWindow", "提示"),
-                    QCoreApplication.translate("MainWindow", "ALL窗口显示所有通道的汇总数据，不支持清屏操作。\n请切换到具体的RTT通道（0-15）进行清屏。")
+                    QCoreApplication.translate("MainWindow", "Info"),
+                    QCoreApplication.translate("MainWindow", "ALL window displays summary data from all channels and doesn't support clear operation.\nPlease switch to specific RTT channel (0-15) to clear.")
                 )
 
 
