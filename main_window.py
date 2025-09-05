@@ -1636,28 +1636,28 @@ class RTTMainWindow(QMainWindow):
     
     def update_periodic_task(self):
         
-        title = QCoreApplication.translate("main_window", u"XexunRTT")
-        title += "\t"
+        # title = QCoreApplication.translate("main_window", u"XexunRTT")
+        # title += "\t"
         
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            title += QCoreApplication.translate("main_window", u"status:Started")
-        else:
-            title += QCoreApplication.translate("main_window", u"status:Stoped")
+        # if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+        #     title += QCoreApplication.translate("main_window", u"status:Started")
+        # else:
+        #     title += QCoreApplication.translate("main_window", u"status:Stoped")
 
-        title += "\t"
+        # title += "\t"
         
-        readed = 0
-        writed = 0
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
-            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
-            writed = self.connection_dialog.rtt2uart.write_bytes0
+        # readed = 0
+        # writed = 0
+        # if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+        #     readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
+        #     writed = self.connection_dialog.rtt2uart.write_bytes0
         
-        title += QCoreApplication.translate("main_window", u"Readed:") + "%8u" % readed
-        title += "\t"
-        title += QCoreApplication.translate("main_window", u"Writed:") + "%4u" % writed
-        title += " "
+        # title += QCoreApplication.translate("main_window", u"Readed:") + "%8u" % readed
+        # title += "\t"
+        # title += QCoreApplication.translate("main_window", u"Writed:") + "%4u" % writed
+        # title += " "
         
-        self.setWindowTitle(title)
+        # self.setWindowTitle(title)
         
         # 更新状态栏
         self.update_status_bar()
@@ -2938,8 +2938,16 @@ class ConnectionDialog(QDialog):
                 current_blocks = document.blockCount()
                 
                 if current_blocks > 1000:  # 只在行数较多时才清理
-                    # 计算要删除的行数（1/3）
-                    lines_to_remove = current_blocks // 10
+                    # 🚀 使用可配置的清理比例
+                    clean_ratio_denominator = 10  # 默认值（1/10）
+                    try:
+                        if hasattr(self, 'main_window') and self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
+                            clean_ratio_denominator = self.main_window.connection_dialog.config.get_clean_ratio_denominator()
+                    except Exception:
+                        pass
+                    
+                    # 计算要删除的行数（1/N）
+                    lines_to_remove = current_blocks // clean_ratio_denominator
                     
                     # 使用高效的批量删除
                     from PySide6.QtGui import QTextCursor
@@ -2953,16 +2961,27 @@ class ConnectionDialog(QDialog):
                     # 批量删除选中的文本
                     cursor.removeSelectedText()
                     
-                    logger.info(f"[CLEAN] TAB{tab_index} 自动清理完成: 删除{lines_to_remove}行, 耗时{ui_time:.1f}ms -> 剩余{document.blockCount()}行")
+                    logger.info(f"[CLEAN] TAB{tab_index} 自动清理完成: 删除{lines_to_remove}行(1/{clean_ratio_denominator}), 耗时{ui_time:.1f}ms -> 剩余{document.blockCount()}行")
             
             # 🚀 清理内部缓冲区数据：同时清理worker中的数据
             if hasattr(self, 'worker') and self.worker:
-                # 清理彩色缓冲区的1/3数据
+                # 获取清理比例配置
+                clean_ratio_denominator = 10  # 默认值（1/10）
+                try:
+                    if hasattr(self, 'main_window') and self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
+                        clean_ratio_denominator = self.main_window.connection_dialog.config.get_clean_ratio_denominator()
+                except Exception:
+                    pass
+                
+                # 计算保留比例 (1 - 1/N) = (N-1)/N
+                keep_ratio = (clean_ratio_denominator - 1) / clean_ratio_denominator
+                
+                # 清理彩色缓冲区数据
                 if hasattr(self.worker, 'colored_buffers') and tab_index < len(self.worker.colored_buffers):
                     colored_buffer = self.worker.colored_buffers[tab_index]
                     if len(colored_buffer) > 10:  # 确保有足够的数据
-                        # 保留后2/3的数据
-                        keep_count = len(colored_buffer) * 2 // 3
+                        # 保留后(N-1)/N的数据
+                        keep_count = int(len(colored_buffer) * keep_ratio)
                         self.worker.colored_buffers[tab_index] = colored_buffer[-keep_count:] if keep_count > 0 else []
                         
                         # 更新彩色缓冲区长度计数
@@ -2970,12 +2989,12 @@ class ConnectionDialog(QDialog):
                             if tab_index < len(self.worker.colored_buffer_lengths):
                                 self.worker.colored_buffer_lengths[tab_index] = sum(len(chunk) for chunk in self.worker.colored_buffers[tab_index])
                 
-                # 清理普通缓冲区的1/3数据
+                # 清理普通缓冲区数据
                 if hasattr(self.worker, 'buffers') and tab_index < len(self.worker.buffers):
                     buffer = self.worker.buffers[tab_index]
                     if len(buffer) > 10:  # 确保有足够的数据
-                        # 保留后2/3的数据
-                        keep_count = len(buffer) * 2 // 3
+                        # 保留后(N-1)/N的数据
+                        keep_count = int(len(buffer) * keep_ratio)
                         self.worker.buffers[tab_index] = buffer[-keep_count:] if keep_count > 0 else []
                         
                         # 更新缓冲区长度计数
@@ -3088,12 +3107,23 @@ class ConnectionDialog(QDialog):
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        if ui_time > 50:  # 大于30ms时触发性能优化
+                        
+                        # 🚀 使用可配置的性能阈值
+                        clean_trigger = 50  # 默认值
+                        warning_trigger = 100  # 默认值
+                        try:
+                            if self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
+                                clean_trigger = self.main_window.connection_dialog.config.get_clean_trigger_ms()
+                                warning_trigger = self.main_window.connection_dialog.config.get_warning_trigger_ms()
+                        except Exception:
+                            pass
+                        
+                        if ui_time > clean_trigger:  # 使用配置的清理触发阈值
                             data_size = len(incremental_colored_data) // 1024  # KB
-                            if ui_time > 100:  # 大于50ms记录警告
+                            if ui_time > warning_trigger:  # 使用配置的警告触发阈值
                                 logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                             
-                            # 🚀 自动清理：耗时超过30ms时清理该TAB的1/3数据
+                            # 🚀 自动清理：耗时超过阈值时清理该TAB的数据
                             self._auto_clean_tab_data(index, text_edit, ui_time)
                     
                     elif len(self.worker.buffers[index]) > 0:
@@ -3137,12 +3167,23 @@ class ConnectionDialog(QDialog):
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        if ui_time > 30:  # 大于30ms时触发性能优化
+                        
+                        # 🚀 使用可配置的性能阈值
+                        clean_trigger = 50  # 默认值
+                        warning_trigger = 100  # 默认值
+                        try:
+                            if self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
+                                clean_trigger = self.main_window.connection_dialog.config.get_clean_trigger_ms()
+                                warning_trigger = self.main_window.connection_dialog.config.get_warning_trigger_ms()
+                        except Exception:
+                            pass
+                        
+                        if ui_time > clean_trigger:  # 使用配置的清理触发阈值
                             data_size = len(display_data) // 1024  # KB
-                            if ui_time > 50:  # 大于50ms记录警告
+                            if ui_time > warning_trigger:  # 使用配置的警告触发阈值
                                 logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                             
-                            # 🚀 自动清理：耗时超过30ms时清理该TAB的1/3数据
+                            # 🚀 自动清理：耗时超过阈值时清理该TAB的数据
                             self._auto_clean_tab_data(index, text_edit, ui_time)
                         
                         # 自动滚动到底部

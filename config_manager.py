@@ -101,6 +101,13 @@ class ConfigManager:
             'auto_delete_empty': 'true'
         }
         
+        # 性能清理设置
+        self.config['Performance'] = {
+            'clean_trigger_ms': '50',      # 触发清理的UI耗时阈值（毫秒）
+            'warning_trigger_ms': '100',   # 触发警告的UI耗时阈值（毫秒）
+            'clean_ratio_denominator': '10'  # 清理比例分母（1/N）
+        }
+        
         # 自动重置设置（JSON 列表字符串）
         self.config['Autoreset'] = {
             'reset_msg': json.dumps(["JLink connection failed after open"], ensure_ascii=False)
@@ -468,6 +475,40 @@ class ConfigManager:
             print("命令历史已清空")
         except Exception as e:
             print(f"清空命令历史失败: {e}")
+    
+    def get_max_log_size(self) -> int:
+        """获取最大日志行数"""
+        return self._safe_getint('Logging', 'max_log_size', 10000)
+    
+    def set_max_log_size(self, max_lines: int):
+        """设置最大日志行数"""
+        self.config.set('Logging', 'max_log_size', str(max_lines))
+    
+    def get_clean_trigger_ms(self) -> int:
+        """获取触发清理的UI耗时阈值（毫秒）"""
+        return self._safe_getint('Performance', 'clean_trigger_ms', 50)
+    
+    def set_clean_trigger_ms(self, ms: int):
+        """设置触发清理的UI耗时阈值（毫秒）"""
+        self.config.set('Performance', 'clean_trigger_ms', str(ms))
+    
+    def get_warning_trigger_ms(self) -> int:
+        """获取触发警告的UI耗时阈值（毫秒）"""
+        return self._safe_getint('Performance', 'warning_trigger_ms', 100)
+    
+    def set_warning_trigger_ms(self, ms: int):
+        """设置触发警告的UI耗时阈值（毫秒）"""
+        self.config.set('Performance', 'warning_trigger_ms', str(ms))
+    
+    def get_clean_ratio_denominator(self) -> int:
+        """获取清理比例分母（清理 1/N）"""
+        return self._safe_getint('Performance', 'clean_ratio_denominator', 10)
+    
+    def set_clean_ratio_denominator(self, denominator: int):
+        """设置清理比例分母（清理 1/N）"""
+        if denominator <= 0:
+            denominator = 10  # 防止除零错误
+        self.config.set('Performance', 'clean_ratio_denominator', str(denominator))
     
     # ===========================================
     # 迁移和兼容性方法
