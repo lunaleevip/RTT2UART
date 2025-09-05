@@ -519,26 +519,28 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            # 🎨 默认使用QPlainTextEdit（高性能纯文本），必要时再回退QTextEdit
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = QPlainTextEdit(page)
+            # 🎨 ANSI 颜色：全部页面使用 QTextEdit 支持彩色显示
+            from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
+            text_edit = QTextEdit(page)
+            text_edit.setReadOnly(True)
+            text_edit.setAcceptRichText(True)
             text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
             
-            # 🎯 关键性能优化设置 - 行数限制从配置读取（默认10000行）
-            try:
-                line_limit = 10000
-                if self.connection_dialog and hasattr(self.connection_dialog, 'config'):
-                    # 复用 Logging.max_log_size 作为行数上限配置（单位：行）
-                    line_limit = int(self.connection_dialog.config.get_max_log_size())
-                if line_limit <= 0:
+            # 🎯 行数限制仅适用于 QPlainTextEdit（当前默认均为 QTextEdit，保留兼容）
+            if isinstance(text_edit, QPlainTextEdit):
+                try:
                     line_limit = 10000
-            except Exception:
-                line_limit = 10000
-            text_edit.document().setMaximumBlockCount(line_limit)
+                    if self.connection_dialog and hasattr(self.connection_dialog, 'config'):
+                        line_limit = int(self.connection_dialog.config.get_max_log_size())
+                    if line_limit <= 0:
+                        line_limit = 10000
+                except Exception:
+                    line_limit = 10000
+                text_edit.document().setMaximumBlockCount(line_limit)
             
             # 🎨 设置等宽字体，提升渲染性能
             font = QFont("新宋体", 10)
@@ -654,7 +656,7 @@ class RTTMainWindow(QMainWindow):
         self._build_encoding_submenu()
         
         # 重启 APP 子菜单（选择方式），执行通过F9
-        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "重启APP(&A)"))
+        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "重启APP F9(&A)"))
         self.action_restart_sfr = QAction(QCoreApplication.translate("main_window", "通过SFR访问"), self)
         self.action_restart_pin = QAction(QCoreApplication.translate("main_window", "通过复位引脚"), self)
         self.action_restart_sfr.setCheckable(True)
@@ -3029,8 +3031,8 @@ class ConnectionDialog(QDialog):
                             else:
                                 display_data = accumulated_data
                             if self.worker._has_ansi_codes(display_data):
-                                colored_html = self.worker._convert_ansi_to_html(display_data)
-                                self._insert_ansi_text_fast(text_edit, colored_html, index)
+                                # 直接让 ANSI 渲染器处理原始ANSI文本
+                                self._insert_ansi_text_fast(text_edit, display_data, index)
                             else:
                                 text_edit.insertPlainText(display_data)
                         
@@ -3603,10 +3605,10 @@ class Worker(QObject):
                 self._append_to_buffer(index+1, clean_data)
                 self._append_to_buffer(0, ''.join(clean_buffer_parts))
                 
-                # 为UI显示创建带颜色的HTML格式文本
+                # 为彩色显示保留原始ANSI文本（供 QTextEdit 渲染）
                 if hasattr(self, 'colored_buffers'):
-                    self._append_to_colored_buffer(index+1, self._convert_ansi_to_html(data))
-                    self._append_to_colored_buffer(0, self._convert_ansi_to_html(''.join(buffer_parts)))
+                    self._append_to_colored_buffer(index+1, data)
+                    self._append_to_colored_buffer(0, ''.join(buffer_parts))
                     
             except Exception as e:
                 # 如果ANSI处理失败，回退到原始文本处理
