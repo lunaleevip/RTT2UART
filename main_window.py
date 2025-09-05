@@ -527,8 +527,17 @@ class RTTMainWindow(QMainWindow):
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
             
-            # 🎯 关键性能优化设置 - 像JLink RTT Viewer一样支持大缓冲
-            text_edit.document().setMaximumBlockCount(10000)  # 10000行缓冲，接近JLink RTT Viewer
+            # 🎯 关键性能优化设置 - 行数限制从配置读取（默认10000行）
+            try:
+                line_limit = 10000
+                if self.connection_dialog and hasattr(self.connection_dialog, 'config'):
+                    # 复用 Logging.max_log_size 作为行数上限配置（单位：行）
+                    line_limit = int(self.connection_dialog.config.get_max_log_size())
+                if line_limit <= 0:
+                    line_limit = 10000
+            except Exception:
+                line_limit = 10000
+            text_edit.document().setMaximumBlockCount(line_limit)
             
             # 🎨 设置等宽字体，提升渲染性能
             font = QFont("新宋体", 10)
