@@ -90,6 +90,11 @@ class ConfigManager:
             'max_log_size': '10000',  # KB
             'auto_delete_empty': 'true'
         }
+        
+        # 自动重置设置（JSON 列表字符串）
+        self.config['Autoreset'] = {
+            'reset_msg': json.dumps(["JLink connection failed after open"], ensure_ascii=False)
+        }
     
     def load_config(self):
         """从INI文件加载配置"""

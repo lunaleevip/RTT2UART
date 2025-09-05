@@ -16,6 +16,7 @@ import zipfile
 import re
 from pathlib import Path
 import shutil
+import json
 
 from PySide6.QtCore import *
 from PySide6.QtGui import *
@@ -24,6 +25,19 @@ from PySide6.QtWidgets import *
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
 logger = logging.getLogger(__name__)
+
+from config_manager import config_manager
+
+def _get_autoreset_patterns():
+    """从 config.ini 的 [Autoreset] 读取 reset_msg(JSON数组)，无配置则使用默认。"""
+    try:
+        cfg = config_manager.config
+        raw = cfg.get('Autoreset', 'reset_msg', fallback='["JLink connection failed after open"]')
+        arr = json.loads(raw)
+        return [s for s in arr if isinstance(s, str) and s.strip()]
+    except Exception as e:
+        logger.warning(f"Failed to read Autoreset.reset_msg: {e}")
+        return ["JLink connection failed after open"]
 
 
 class AnsiProcessor:
@@ -476,12 +490,32 @@ class rtt_to_serial():
                         logger.error(error_msg, exc_info=True)
                         raise Exception(error_msg)
 
-                # 再次检查连接状态
+                # 再次检查连接状态（按配置判定是否需要自动重置并重试一次）
                 try:
                     if not self.jlink.connected():
-                        raise Exception("JLink connection failed after open")
+                        # 断开后，根据配置决定是否自动重置
+                        auto_patterns = _load_auto_reset_patterns_from_file()
+                        err_msg = "JLink connection failed after open"
+                        if any(p in err_msg for p in auto_patterns):
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection failed after open, trying auto reset..."))
+                            if self._auto_reset_jlink_connection():
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
+                            else:
+                                raise Exception(err_msg)
+                        else:
+                            raise Exception(err_msg)
                 except pylink.errors.JLinkException:
-                    raise Exception("JLink connection verification failed")
+                    # 验证异常，根据配置决定是否自动重置
+                    auto_patterns = _load_auto_reset_patterns_from_file()
+                    err_msg = "JLink connection verification failed"
+                    if any(p in err_msg for p in auto_patterns):
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink verification failed, trying auto reset..."))
+                        if self._auto_reset_jlink_connection():
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
+                        else:
+                            raise Exception(err_msg)
+                    else:
+                        raise Exception(err_msg)
 
                 # 设置连接速率
                 try:
