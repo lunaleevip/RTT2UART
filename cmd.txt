@@ -1,3 +1,4 @@
+rt=1
 ﻿UTF-8 test command with 中文
 新的UTF-8测试命令
 mg=中文消息

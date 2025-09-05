@@ -430,6 +430,7 @@ class RTTMainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)  # 防止子部件被完全折叠
         
         # 将原有的layoutWidget添加到分割器，并确保它能够扩展
+        from PySide6.QtWidgets import QSizePolicy
         original_layout_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         splitter.addWidget(original_layout_widget)
         
@@ -558,6 +559,19 @@ class RTTMainWindow(QMainWindow):
             
             if i == 0:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
+                
+                # 🚀 关键修复：设置GridLayout的拉伸因子，让TAB控件完全填充可用空间
+                # 设置TAB控件的大小策略为完全扩展
+                self.ui.tem_switch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                self.ui.tem_switch.setMinimumSize(0, 0)  # 移除最小尺寸限制
+                
+                # 设置GridLayout的行拉伸因子，让第0行（TAB控件行）占据主要垂直空间
+                grid_layout = self.ui.gridLayout
+                if grid_layout:
+                    grid_layout.setRowStretch(0, 1)  # TAB控件行，占据主要垂直空间
+                    grid_layout.setRowStretch(1, 0)  # 命令输入行，固定高度
+                    grid_layout.setRowStretch(2, 0)  # 控制按钮行，固定高度
+                    grid_layout.setRowStretch(3, 0)  # 其他行，固定高度
             elif i < 17:
                 self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
             else:
