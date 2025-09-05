@@ -519,16 +519,21 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            # 🎨 ANSI 颜色：全部页面使用 QTextEdit 支持彩色显示
+            # 🎨 全部TAB支持ANSI彩色显示：统一使用QTextEdit
             from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
+            
             text_edit = QTextEdit(page)
-            text_edit.setReadOnly(True)
             text_edit.setAcceptRichText(True)
             text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
             text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
             text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
+            
+            # 🚀 QTextEdit性能优化设置
+            text_edit.setUndoRedoEnabled(False)  # 禁用撤销重做，节省内存
+            text_edit.document().setUndoRedoEnabled(False)
+            text_edit.setLineWrapMode(QTextEdit.NoWrap)  # 确保不换行
             
             # 🎯 行数限制仅适用于 QPlainTextEdit（当前默认均为 QTextEdit，保留兼容）
             if isinstance(text_edit, QPlainTextEdit):
@@ -1404,7 +1409,7 @@ class RTTMainWindow(QMainWindow):
             self.ui.cmd_buffer.clearEditText()
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
-            self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
+            #self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
             current_page_widget = self.ui.tem_switch.widget(2)
             if isinstance(current_page_widget, QWidget):
                 from PySide6.QtWidgets import QPlainTextEdit
@@ -3018,11 +3023,12 @@ class ConnectionDialog(QDialog):
                             # 快进逻辑：积压过多时直接从尾部显示，避免显示严重滞后
                             backlog = self.worker.buffer_lengths[index] - self.worker.display_lengths[index]
                             if backlog > self.worker.backlog_fast_forward_threshold:
-                                # 直接跳到尾部
+                                # 🎨 快速前进模式：保持ANSI彩色显示
                                 tail_bytes = self.worker.fast_forward_tail
                                 accumulated = ''.join(self.worker.buffers[index])
                                 tail_text = accumulated[-tail_bytes:]
-                                text_edit.insertPlainText(ansi_processor.remove_ansi_codes(tail_text))
+                                # 使用ANSI彩色文本插入而不是纯文本
+                                self._insert_ansi_text_fast(text_edit, tail_text, index)
                                 self.worker.display_lengths[index] = self.worker.buffer_lengths[index]
                                 ui_start_time = time.time()
                                 # 自动滚动到底部
@@ -3036,7 +3042,8 @@ class ConnectionDialog(QDialog):
                                     max_insert_length
                                 )
                             if incremental_text:
-                                text_edit.insertPlainText(ansi_processor.remove_ansi_codes(incremental_text))
+                                # 🎨 增量更新：保持ANSI彩色显示
+                                self._insert_ansi_text_fast(text_edit, incremental_text, index)
                                 self.worker.display_lengths[index] = current_total
                         else:
                             accumulated_data = ''.join(self.worker.buffers[index])
@@ -3044,11 +3051,8 @@ class ConnectionDialog(QDialog):
                                 display_data = accumulated_data[-max_insert_length:]
                             else:
                                 display_data = accumulated_data
-                            if self.worker._has_ansi_codes(display_data):
-                                # 直接让 ANSI 渲染器处理原始ANSI文本
-                                self._insert_ansi_text_fast(text_edit, display_data, index)
-                            else:
-                                text_edit.insertPlainText(display_data)
+                            # 🎨 统一使用ANSI文本插入方法，自动处理彩色和纯文本
+                            self._insert_ansi_text_fast(text_edit, display_data, index)
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
@@ -3142,21 +3146,11 @@ class ConnectionDialog(QDialog):
 
 
     def _insert_ansi_text_fast(self, text_edit, text, tab_index=None):
-        """高性能ANSI文本插入 - 使用QTextCursor和QTextCharFormat"""
+        """🎨 ANSI彩色文本插入 - 支持全部TAB彩色显示"""
         try:
-            # 在 QPlainTextEdit 上直接降级为纯文本，彻底避免富文本格式化开销
-            try:
-                from PySide6.QtWidgets import QPlainTextEdit
-                if isinstance(text_edit, QPlainTextEdit):
-                    clean_text = ansi_processor.remove_ansi_codes(text)
-                    text_edit.insertPlainText(clean_text)
-                    return
-            except Exception:
-                pass
-
             # 检查是否包含ANSI控制符
             if '\x1B[' not in text:
-                # 纯文本，直接插入（最高性能）
+                # 纯文本，直接插入
                 text_edit.insertPlainText(text)
                 return
             
@@ -3169,6 +3163,7 @@ class ConnectionDialog(QDialog):
                 text = text.replace('\x1B[2J', '')
             
             # 解析ANSI文本段落
+            from rtt2uart import ansi_processor
             segments = ansi_processor.parse_ansi_text(text)
             cursor = text_edit.textCursor()
             cursor.movePosition(cursor.MoveOperation.End)
@@ -3204,9 +3199,13 @@ class ConnectionDialog(QDialog):
             text_edit.setTextCursor(cursor)
             
         except Exception as e:
-            # 如果ANSI处理失败，插入纯文本
-            clean_text = ansi_processor.remove_ansi_codes(text)
-            text_edit.insertPlainText(clean_text)
+            # 如果ANSI处理失败，回退到纯文本
+            try:
+                text_edit.insertPlainText(text)
+            except Exception:
+                from rtt2uart import ansi_processor
+                clean_text = ansi_processor.remove_ansi_codes(text)
+                text_edit.insertPlainText(clean_text)
 
     # _cleanup_ui_text方法已移除，使用滑动文本块机制替代
 
@@ -3316,9 +3315,9 @@ class Worker(QObject):
         # UI 刷新节流（ms）
         self.min_ui_update_interval_ms = 20
         self._last_ui_update_ms = 0
-        # 大量积压时的“追尾显示”参数
-        self.backlog_fast_forward_threshold = 256 * 1024  # 积压超过256KB时快进
-        self.fast_forward_tail = 64 * 1024                 # 只显示末尾64KB
+        # 🎨 大量积压时的"追尾显示"参数（调整阈值以减少彩色显示失败）
+        self.backlog_fast_forward_threshold = 512 * 1024  # 积压超过512KB时快进（提高阈值）
+        self.fast_forward_tail = 128 * 1024                # 只显示末尾128KB（增加显示内容）
         # 是否启用彩色缓冲（保持原行为=启用）
         self.enable_color_buffers = True
     
