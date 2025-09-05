@@ -528,7 +528,7 @@ class RTTMainWindow(QMainWindow):
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
             
             # 🎯 关键性能优化设置 - 像JLink RTT Viewer一样支持大缓冲
-            text_edit.document().setMaximumBlockCount(10000)  # 10000行缓冲，接近JLink RTT Viewer
+            text_edit.document().setMaximumBlockCount(50000)  # 10000行缓冲，接近JLink RTT Viewer
             
             # 🎨 设置等宽字体，提升渲染性能
             font = QFont("新宋体", 10)
@@ -555,6 +555,11 @@ class RTTMainWindow(QMainWindow):
         self.ui.dis_connect.clicked.connect(self.on_dis_connect_clicked)
         self.ui.re_connect.clicked.connect(self.on_re_connect_clicked)
         self.ui.clear.clicked.connect(self.on_clear_clicked)
+
+        # JLink 文件日志跟随显示
+        self.jlink_log_file_path = None
+        self.jlink_log_tail_timer = None
+        self.jlink_log_tail_offset = 0
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
@@ -946,6 +951,7 @@ class RTTMainWindow(QMainWindow):
                 try:
                     self.connection_dialog.rtt2uart.jlink.set_log_file(log_file_path)
                     self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % log_file_path)
+                    self._start_jlink_log_tailer(log_file_path)
                 except Exception as e:
                     self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
             else:
@@ -971,6 +977,7 @@ class RTTMainWindow(QMainWindow):
                     # 通过设置空字符串来禁用文件日志
                     self.connection_dialog.rtt2uart.jlink.set_log_file("")
                     self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging disabled"))
+                    self._stop_jlink_log_tailer()
                 except Exception as e:
                     self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to disable file logging: %s") % str(e))
                     
@@ -992,6 +999,51 @@ class RTTMainWindow(QMainWindow):
         # 自动滚动到底部
         scrollbar = self.jlink_log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def _start_jlink_log_tailer(self, log_file_path):
+        """启动定时器，实时读取 JLINK_DEBUG.TXT 的增量内容并显示到窗口。"""
+        try:
+            self.jlink_log_file_path = log_file_path
+            # 初始化偏移
+            try:
+                self.jlink_log_tail_offset = os.path.getsize(log_file_path)
+            except Exception:
+                self.jlink_log_tail_offset = 0
+            if self.jlink_log_tail_timer is None:
+                self.jlink_log_tail_timer = QTimer(self)
+                self.jlink_log_tail_timer.timeout.connect(self._poll_jlink_log_tail)
+            self.jlink_log_tail_timer.start(500)  # 每500ms拉一次
+        except Exception as e:
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to start log tailer: %s") % str(e))
+
+    def _stop_jlink_log_tailer(self):
+        try:
+            if self.jlink_log_tail_timer is not None:
+                self.jlink_log_tail_timer.stop()
+        except Exception:
+            pass
+
+    def _poll_jlink_log_tail(self):
+        try:
+            if not self.jlink_log_file_path:
+                return
+            path = self.jlink_log_file_path
+            if not os.path.exists(path):
+                return
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                f.seek(self.jlink_log_tail_offset)
+                data = f.read()
+                if data:
+                    # 控制插入量，避免卡顿
+                    if len(data) > 32768:
+                        data = data[-32768:]
+                    if hasattr(self.jlink_log_text, 'appendPlainText'):
+                        self.jlink_log_text.appendPlainText(data)
+                    else:
+                        self.jlink_log_text.append(data)
+                    self.jlink_log_tail_offset = f.tell()
+        except Exception:
+            pass
     
     def _handle_connection_lost(self):
         """处理JLink连接丢失事件"""
@@ -2137,6 +2189,9 @@ class ConnectionDialog(QDialog):
                         self.rtt2uart.jlink.set_log_file(self.main_window.pending_jlink_log_file)
                         if hasattr(self.main_window, 'append_jlink_log'):
                             self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % self.main_window.pending_jlink_log_file)
+                            # 启动跟随
+                            if hasattr(self.main_window, '_start_jlink_log_tailer'):
+                                self.main_window._start_jlink_log_tailer(self.main_window.pending_jlink_log_file)
                     except Exception as e:
                         if hasattr(self.main_window, 'append_jlink_log'):
                             self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
