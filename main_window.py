@@ -528,7 +528,7 @@ class RTTMainWindow(QMainWindow):
             text_edit.setToolTip("")  # 清除文本编辑器的工具提示
             
             # 🎯 关键性能优化设置 - 像JLink RTT Viewer一样支持大缓冲
-            text_edit.document().setMaximumBlockCount(50000)  # 10000行缓冲，接近JLink RTT Viewer
+            text_edit.document().setMaximumBlockCount(10000)  # 10000行缓冲，接近JLink RTT Viewer
             
             # 🎨 设置等宽字体，提升渲染性能
             font = QFont("新宋体", 10)
@@ -2838,9 +2838,14 @@ class ConnectionDialog(QDialog):
                 hscroll = text_edit.horizontalScrollBar().value()
 
                 # 更新文本并恢复滚动条位置
-                cursor = text_edit.textCursor()
-                cursor.movePosition(QTextCursor.End)
-                text_edit.setTextCursor(cursor)
+                # 保存原光标与锁定状态
+                lock_v = self.main_window.ui.LockV_checkBox.isChecked()
+                lock_h = self.main_window.ui.LockH_checkBox.isChecked()
+                old_cursor = text_edit.textCursor()
+                # 将插入位置移动到尾部以确保内容追加
+                end_cursor = text_edit.textCursor()
+                end_cursor.movePosition(QTextCursor.End)
+                text_edit.setTextCursor(end_cursor)
                 text_edit.setCursorWidth(0)
                 
                 if index >= 17:
@@ -2897,9 +2902,10 @@ class ConnectionDialog(QDialog):
                             ui_start_time = time.time()
                             self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
-                        # 自动滚动到底部
-                        text_edit.verticalScrollBar().setValue(
-                            text_edit.verticalScrollBar().maximum())
+                        # 自动滚动到底部（若未锁定垂直滚动）
+                        if not lock_v:
+                            text_edit.verticalScrollBar().setValue(
+                                text_edit.verticalScrollBar().maximum())
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
@@ -2982,6 +2988,12 @@ class ConnectionDialog(QDialog):
 
                 # 使用滑动文本块机制，不需要手动清理UI文本
 
+                # 如果锁定，则恢复光标与滚动条值
+                if lock_v or lock_h:
+                    try:
+                        text_edit.setTextCursor(old_cursor)
+                    except Exception:
+                        pass
                 # 恢复滚动条的值
                 if self.main_window.ui.LockV_checkBox.isChecked():
                     text_edit.verticalScrollBar().setValue(vscroll)
