@@ -44,7 +44,7 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     <message>
         <location filename="main_window.py" line="2196"/>
         <source>Current Tab</source>
-        <translation type="unfinished"></translation>
+        <translation>当前标签页</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2216"/>
@@ -193,7 +193,7 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     <message>
         <location filename="main_window.py" line="183"/>
         <source>Manufacturer</source>
-        <translation type="unfinished"></translation>
+        <translation>制造商</translation>
     </message>
     <message>
         <location filename="main_window.py" line="184"/>
@@ -203,7 +203,7 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     <message>
         <location filename="main_window.py" line="185"/>
         <source>Core</source>
-        <translation type="unfinished"></translation>
+        <translation>内核</translation>
     </message>
     <message>
         <location filename="main_window.py" line="186"/>
@@ -377,7 +377,7 @@ RTT调试工具
     <message>
         <location filename="main_window.py" line="788"/>
         <source>Please disconnect first before switching encoding</source>
-        <translation type="unfinished"></translation>
+        <translation>请先断开连接再切换编码</translation>
     </message>
     <message>
         <location filename="main_window.py" line="800"/>
@@ -484,7 +484,7 @@ RTT调试工具
     <message>
         <location filename="main_window.py" line="1603"/>
         <source>已连接</source>
-        <translation type="unfinished"></translation>
+        <translation>已连接</translation>
     </message>
     <message>
         <location filename="main_window.py" line="1605"/>
@@ -518,7 +518,7 @@ RTT调试工具
     <message>
         <location filename="main_window.py" line="1720"/>
         <source>SFR restart failed: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>SFR重启失败: %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="1733"/>
@@ -558,22 +558,22 @@ RTT调试工具
     <message>
         <location filename="main_window.py" line="2392"/>
         <source>Starting connection to device: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>开始连接设备: %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2393"/>
         <source>Connection type: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>连接类型: %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2394"/>
         <source>Serial port: %s, Baud rate: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>串口: %s, 波特率: %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2395"/>
         <source>RTT connection started successfully</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT连接启动成功</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2423"/>
@@ -588,12 +588,17 @@ RTT调试工具
     <message>
         <location filename="main_window.py" line="2424"/>
         <source>Serial forwarding enabled: %s - %s</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已启用: %s - %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="2467"/>
         <source>Stopping RTT connection...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在停止RTT连接...</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1410"/>
+        <source>Sent:</source>
+        <translation>已发送:</translation>
     </message>
 </context>
 <context>
@@ -681,37 +686,37 @@ RTT调试工具
     <message>
         <location filename="rtt2uart.py" line="358"/>
         <source>Serial forwarding disabled, port closed</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已禁用，端口已关闭</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="359"/>
         <source>Serial forwarding disabled, COM port closed</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已禁用，COM端口已关闭</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="361"/>
         <source>Failed to close serial port: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭串口失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="362"/>
         <source>Failed to close COM port: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭COM端口失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="364"/>
         <source>Serial forwarding disabled</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已禁用</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="377"/>
         <source>Failed to open serial port: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>打开串口失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="378"/>
         <source>Failed to open COM port %s: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>打开COM端口 %s 失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="381"/>
@@ -726,223 +731,223 @@ RTT调试工具
     <message>
         <location filename="rtt2uart.py" line="383"/>
         <source>Serial forwarding enabled: %s - %s (COM: %s)</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已启用: %s - %s (COM: %s)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="385"/>
         <source>Serial forwarding enabled: %s - %s (COM port failed)</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已启用: %s - %s (COM端口失败)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="442"/>
         <source>Serial forward error: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发错误: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="470"/>
         <source>Raw RTT data forward error: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT原始数据转发错误: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="487"/>
         <source>Opening JLink connection...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在打开JLink连接...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="490"/>
         <source>Connecting JLink via USB (Serial: %s)</source>
-        <translation type="unfinished"></translation>
+        <translation>通过USB连接JLink (序列号: %s)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="493"/>
         <source>Connecting JLink via USB (Auto-detect)</source>
-        <translation type="unfinished"></translation>
+        <translation>通过USB连接JLink (自动检测)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="496"/>
         <source>Connecting JLink via TCP/IP (%s)</source>
-        <translation type="unfinished"></translation>
+        <translation>通过TCP/IP连接JLink (%s)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="502"/>
         <source>JLink connection established</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink连接已建立</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="517"/>
         <source>JLink connection failed after open, trying auto reset...</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink连接在打开后失败，正在尝试自动重置...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="519"/>
         <location filename="rtt2uart.py" line="531"/>
         <source>JLink auto reset succeeded, continue starting...</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink自动重置成功，继续启动...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="529"/>
         <source>JLink verification failed, trying auto reset...</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink验证失败，正在尝试自动重置...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="539"/>
         <source>Setting JLink speed: %s kHz</source>
-        <translation type="unfinished"></translation>
+        <translation>设置JLink速率: %s kHz</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="545"/>
         <source>JLink speed set successfully: %s kHz</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink速率设置成功: %s kHz</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="555"/>
         <source>Setting JLink interface: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>设置JLink接口: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="561"/>
         <source>JLink interface set successfully: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink接口设置成功: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="571"/>
         <source>Resetting target chip...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在重置目标芯片...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="573"/>
         <source>Target chip reset completed</source>
-        <translation type="unfinished"></translation>
+        <translation>目标芯片重置完成</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="578"/>
         <source>Waiting for target stabilization...</source>
-        <translation type="unfinished"></translation>
+        <translation>等待目标稳定...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="581"/>
         <source>Connecting to target device: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>连接到目标设备: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="583"/>
         <source>Target device connected successfully: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>目标设备连接成功: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="586"/>
         <source>Starting RTT...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在启动RTT...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="588"/>
         <source>RTT started successfully</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT启动成功</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="617"/>
         <source>Serial forwarding disabled, skipping port open</source>
-        <translation type="unfinished"></translation>
+        <translation>串口转发已禁用，跳过端口打开</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="632"/>
         <source>stop rtt2uart - Starting to stop RTT service</source>
-        <translation type="unfinished"></translation>
+        <translation>停止rtt2uart - 开始停止RTT服务</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="636"/>
         <source>Thread stop flag set</source>
-        <translation type="unfinished"></translation>
+        <translation>线程停止标志已设置</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="651"/>
         <source>RTT service stop completed</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT服务停止完成</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="697"/>
         <source>Closing JLink connection...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在关闭JLink连接...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="708"/>
         <source>Cannot check JLink connection status (retry %s)</source>
-        <translation type="unfinished"></translation>
+        <translation>无法检查JLink连接状态 (重试 %s)</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="715"/>
         <source>Stopping RTT...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在停止RTT...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="717"/>
         <source>RTT stopped</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT已停止</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="720"/>
         <source>Failed to stop RTT: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>停止RTT失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="725"/>
         <source>Closing JLink...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在关闭JLink...</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="727"/>
         <source>JLink connection closed</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink连接已关闭</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="731"/>
         <source>Failed to close JLink (attempt %s): %s</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭JLink失败 (尝试 %s): %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="739"/>
         <source>JLink already disconnected</source>
-        <translation type="unfinished"></translation>
+        <translation>JLink已经断开连接</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="744"/>
         <source>Unexpected error while closing JLink (attempt %s): %s</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭JLink时发生意外错误 (尝试 %s): %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="753"/>
         <source>Maximum retry attempts reached, JLink close failed</source>
-        <translation type="unfinished"></translation>
+        <translation>达到最大重试次数，JLink关闭失败</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="788"/>
         <source>Deleted empty log folder: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>已删除空日志文件夹: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="826"/>
         <source>JLink connection lost in RTT thread</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT线程中丢失JLink连接</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="837"/>
         <source>Cannot check JLink status in RTT thread</source>
-        <translation type="unfinished"></translation>
+        <translation>无法在RTT线程中检查JLink状态</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="868"/>
         <source>RTT read failed: %s</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT读取失败: %s</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="983"/>
         <source>JLink connection lost in RTT2UART thread</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT2UART线程中丢失JLink连接</translation>
     </message>
     <message>
         <location filename="rtt2uart.py" line="994"/>
         <source>Cannot check JLink status in RTT2UART thread</source>
-        <translation type="unfinished"></translation>
+        <translation>无法在RTT2UART线程中检查JLink状态</translation>
     </message>
 </context>
 <context>
@@ -975,7 +980,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="131"/>
         <source>F1</source>
-        <translation type="unfinished"></translation>
+        <translation>F1</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="134"/>
@@ -990,7 +995,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="269"/>
         <source>F7</source>
-        <translation type="unfinished"></translation>
+        <translation>F7</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="272"/>
@@ -1005,7 +1010,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="297"/>
         <source>1</source>
-        <translation type="unfinished"></translation>
+        <translation>1</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="302"/>
@@ -1020,7 +1025,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="355"/>
         <source>F2</source>
-        <translation type="unfinished"></translation>
+        <translation>F2</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="358"/>
@@ -1030,7 +1035,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="370"/>
         <source>F6</source>
-        <translation type="unfinished"></translation>
+        <translation>F6</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="373"/>
@@ -1040,7 +1045,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="385"/>
         <source>F5</source>
-        <translation type="unfinished"></translation>
+        <translation>F5</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="388"/>
