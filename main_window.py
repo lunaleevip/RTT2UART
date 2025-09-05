@@ -2929,6 +2929,69 @@ class ConnectionDialog(QDialog):
         self.ui.checkBox_resettarget.setEnabled(False)
         self.ui.checkBox_resettarget.setChecked(False)
 
+    def _auto_clean_tab_data(self, tab_index, text_edit, ui_time):
+        """自动清理TAB数据：在UI耗时过高时清理1/3的数据"""
+        try:
+            # 🚀 性能优化：清理UI显示的数据
+            if hasattr(text_edit, 'document') and text_edit.document():
+                document = text_edit.document()
+                current_blocks = document.blockCount()
+                
+                if current_blocks > 1000:  # 只在行数较多时才清理
+                    # 计算要删除的行数（1/3）
+                    lines_to_remove = current_blocks // 10
+                    
+                    # 使用高效的批量删除
+                    from PySide6.QtGui import QTextCursor
+                    cursor = text_edit.textCursor()
+                    cursor.movePosition(QTextCursor.Start)
+                    
+                    # 选择前1/3的内容
+                    for _ in range(lines_to_remove):
+                        cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
+                    
+                    # 批量删除选中的文本
+                    cursor.removeSelectedText()
+                    
+                    logger.info(f"[CLEAN] TAB{tab_index} 自动清理完成: 删除{lines_to_remove}行, 耗时{ui_time:.1f}ms -> 剩余{document.blockCount()}行")
+            
+            # 🚀 清理内部缓冲区数据：同时清理worker中的数据
+            if hasattr(self, 'worker') and self.worker:
+                # 清理彩色缓冲区的1/3数据
+                if hasattr(self.worker, 'colored_buffers') and tab_index < len(self.worker.colored_buffers):
+                    colored_buffer = self.worker.colored_buffers[tab_index]
+                    if len(colored_buffer) > 10:  # 确保有足够的数据
+                        # 保留后2/3的数据
+                        keep_count = len(colored_buffer) * 2 // 3
+                        self.worker.colored_buffers[tab_index] = colored_buffer[-keep_count:] if keep_count > 0 else []
+                        
+                        # 更新彩色缓冲区长度计数
+                        if hasattr(self.worker, 'colored_buffer_lengths'):
+                            if tab_index < len(self.worker.colored_buffer_lengths):
+                                self.worker.colored_buffer_lengths[tab_index] = sum(len(chunk) for chunk in self.worker.colored_buffers[tab_index])
+                
+                # 清理普通缓冲区的1/3数据
+                if hasattr(self.worker, 'buffers') and tab_index < len(self.worker.buffers):
+                    buffer = self.worker.buffers[tab_index]
+                    if len(buffer) > 10:  # 确保有足够的数据
+                        # 保留后2/3的数据
+                        keep_count = len(buffer) * 2 // 3
+                        self.worker.buffers[tab_index] = buffer[-keep_count:] if keep_count > 0 else []
+                        
+                        # 更新缓冲区长度计数
+                        if hasattr(self.worker, 'buffer_lengths'):
+                            if tab_index < len(self.worker.buffer_lengths):
+                                self.worker.buffer_lengths[tab_index] = sum(len(chunk) for chunk in self.worker.buffers[tab_index])
+                        
+                        # 重置显示长度计数
+                        if hasattr(self.worker, 'display_lengths'):
+                            if tab_index < len(self.worker.display_lengths):
+                                self.worker.display_lengths[tab_index] = 0
+        
+        except Exception as e:
+            # 清理失败不影响主要功能
+            logger.error(f"[CLEAN] TAB{tab_index} 自动清理失败: {e}")
+
     @Slot(int)
     def switchPage(self, index):
         # 获取当前选定的页面索引并显示相应的缓冲区数据
@@ -3025,9 +3088,13 @@ class ConnectionDialog(QDialog):
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        if ui_time > 50:  # 大于50ms记录警告
+                        if ui_time > 50:  # 大于30ms时触发性能优化
                             data_size = len(incremental_colored_data) // 1024  # KB
-                            logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
+                            if ui_time > 100:  # 大于50ms记录警告
+                                logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
+                            
+                            # 🚀 自动清理：耗时超过30ms时清理该TAB的1/3数据
+                            self._auto_clean_tab_data(index, text_edit, ui_time)
                     
                     elif len(self.worker.buffers[index]) > 0:
                         # 🚀 方案B：智能处理 — QPlainTextEdit 增量纯文本
@@ -3070,9 +3137,13 @@ class ConnectionDialog(QDialog):
                         
                         # 📈 性能监控：UI更新结束
                         ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        if ui_time > 50:  # 大于50ms记录警告
+                        if ui_time > 30:  # 大于30ms时触发性能优化
                             data_size = len(display_data) // 1024  # KB
-                            logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
+                            if ui_time > 50:  # 大于50ms记录警告
+                                logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
+                            
+                            # 🚀 自动清理：耗时超过30ms时清理该TAB的1/3数据
+                            self._auto_clean_tab_data(index, text_edit, ui_time)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
