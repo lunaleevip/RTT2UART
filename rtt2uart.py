@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 import shutil
 import json
+from PySide6.QtCore import QCoreApplication
 
 from PySide6.QtCore import *
 from PySide6.QtGui import *
@@ -248,13 +249,13 @@ class rtt_to_serial():
     def _auto_reset_jlink_connection(self):
         """🔄 自动重置JLink连接"""
         try:
-            self._log_to_gui("🔄 开始自动重置JLink连接...")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "🔄 Starting auto reset JLink connection..."))
             
             # 1. 关闭RTT
             try:
                 if hasattr(self.jlink, 'rtt_stop'):
                     self.jlink.rtt_stop()
-                    self._log_to_gui("✅ RTT已停止")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT stopped"))
             except Exception as e:
                 logger.warning(f"Failed to stop RTT during reset: {e}")
             
@@ -262,7 +263,7 @@ class rtt_to_serial():
             try:
                 if hasattr(self.jlink, 'close'):
                     self.jlink.close()
-                    self._log_to_gui("✅ JLink连接已关闭")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink connection closed"))
             except Exception as e:
                 logger.warning(f"Failed to close JLink during reset: {e}")
             
@@ -273,9 +274,9 @@ class rtt_to_serial():
             # 4. 重新创建JLink对象
             try:
                 self.jlink = pylink.JLink()
-                self._log_to_gui("✅ JLink对象重新创建")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink object recreated"))
             except Exception as e:
-                self._log_to_gui(f"❌ 重新创建JLink对象失败: {e}")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ Failed to recreate JLink object: %s") % str(e))
                 return False
             
             # 5. 重新连接
@@ -285,40 +286,40 @@ class rtt_to_serial():
                     self.jlink.open(self._connect_para)
                 else:
                     self.jlink.open()
-                self._log_to_gui("✅ JLink重新打开成功")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink reopened successfully"))
                 
                 # 重新设置速率
                 self.jlink.set_speed(self._speed)
-                self._log_to_gui(f"✅ JLink速率重新设置: {self._speed} kHz")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink speed reset: %s kHz") % str(self._speed))
                 
                 # 重新设置接口
                 self.jlink.set_tif(self._interface)
-                self._log_to_gui(f"✅ JLink接口重新设置: {self._interface}")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink interface reset: %s") % str(self._interface))
                 
                 # 重新连接目标
                 self.jlink.connect(self.device)
-                self._log_to_gui(f"✅ 目标设备重新连接: {self.device}")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ Target device reconnected: %s") % str(self.device))
                 
                 # 重新启动RTT
                 self.jlink.rtt_start()
-                self._log_to_gui("✅ RTT重新启动成功")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT restarted successfully"))
                 
-                self._log_to_gui("🎉 JLink连接重置完成！")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "🎉 JLink connection reset completed!"))
                 return True
                 
             except Exception as e:
-                self._log_to_gui(f"❌ JLink重新连接失败: {e}")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ JLink reconnection failed: %s") % str(e))
                 return False
                 
         except Exception as e:
-            self._log_to_gui(f"❌ JLink连接重置过程出错: {e}")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ JLink connection reset process error: %s") % str(e))
             logger.error(f"Error in _auto_reset_jlink_connection: {e}")
             return False
     
     def _auto_stop_on_connection_lost(self):
         """连接丢失时自动停止RTT功能"""
         try:
-            self._log_to_gui("🔄 连接丢失，正在自动停止RTT功能...")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "🔄 Connection lost, stopping RTT function..."))
             
             # 设置线程停止标志
             self.thread_switch = False
@@ -336,11 +337,11 @@ class rtt_to_serial():
                 except Exception as e:
                     logger.warning(f"Failed to notify main window of connection loss: {e}")
             
-            self._log_to_gui("✅ RTT功能已自动停止")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT function stopped automatically"))
             
         except Exception as e:
             logger.error(f"Error in _auto_stop_on_connection_lost: {e}")
-            self._log_to_gui(f"❌ 自动停止RTT时出错: {e}")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ Error stopping RTT automatically: %s") % str(e))
     
     def set_serial_forward_config(self, tab_index, mode='LOG'):
         """设置串口转发的配置"""
@@ -354,10 +355,10 @@ class rtt_to_serial():
             if hasattr(self, 'serial') and self.serial and self.serial.isOpen():
                 try:
                     self.serial.close()
-                    logger.info('串口转发已禁用，串口已关闭')
+                    logger.info(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled, port closed"))
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled, COM port closed"))
                 except Exception as e:
-                    logger.error(f'关闭串口失败: {e}')
+                    logger.error(QCoreApplication.translate("rtt2uart", "Failed to close serial port: %s") % str(e))
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to close COM port: %s") % str(e))
             else:
                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled"))
@@ -373,7 +374,7 @@ class rtt_to_serial():
                     self.serial.open()
                     logger.info(f'串口转发已启用，串口 {self.port} 打开成功')
                 except Exception as e:
-                    logger.error(f'打开串口失败: {e}')
+                    logger.error(QCoreApplication.translate("rtt2uart", "Failed to open serial port: %s") % str(e))
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to open COM port %s: %s") % (self.port, str(e)))
                     return
             
@@ -405,7 +406,7 @@ class rtt_to_serial():
                 # 转发当前标签页
                 should_forward = (tab_index == self.current_tab_index)
                 # 添加调试信息
-                if tab_index <= 1:  # 只为前几个TAB显示调试信息，避免日志过多
+                if tab_index <= 1:  # Only show debug info for first few tabs to avoid excessive logs
                     logger.debug(f'Current tab forwarding check: tab_index={tab_index}, current_tab_index={self.current_tab_index}, should_forward={should_forward}')
             elif isinstance(self.serial_forward_tab, int):
                 # 转发指定的TAB
@@ -510,7 +511,7 @@ class rtt_to_serial():
                 try:
                     if not self.jlink.connected():
                         # 断开后，根据配置决定是否自动重置
-                        auto_patterns = _load_auto_reset_patterns_from_file()
+                        auto_patterns = _get_autoreset_patterns()
                         err_msg = "JLink connection failed after open"
                         if any(p in err_msg for p in auto_patterns):
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection failed after open, trying auto reset..."))
@@ -522,7 +523,7 @@ class rtt_to_serial():
                             raise Exception(err_msg)
                 except pylink.errors.JLinkException:
                     # 验证异常，根据配置决定是否自动重置
-                    auto_patterns = _load_auto_reset_patterns_from_file()
+                    auto_patterns = _get_autoreset_patterns()
                     err_msg = "JLink connection verification failed"
                     if any(p in err_msg for p in auto_patterns):
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink verification failed, trying auto reset..."))
@@ -613,7 +614,7 @@ class rtt_to_serial():
                 logger.error('Open serial failed', exc_info=True)
                 raise
         else:
-            logger.info('串口转发已禁用，跳过串口打开')
+            logger.info(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled, skipping port open"))
         
         self.thread_switch = True
         self.rtt_thread = threading.Thread(target=self.rtt_thread_exec)
@@ -628,11 +629,11 @@ class rtt_to_serial():
         
         
     def stop(self):
-        logger.debug('stop rtt2uart - 开始停止RTT服务')
+        logger.debug(QCoreApplication.translate("rtt2uart", "stop rtt2uart - Starting to stop RTT service"))
 
         # 设置停止标志
         self.thread_switch = False
-        logger.debug('已设置线程停止标志')
+        logger.debug(QCoreApplication.translate("rtt2uart", "Thread stop flag set"))
         
         # 强制停止线程，增加更严格的超时处理
         self._force_stop_threads()
@@ -647,7 +648,7 @@ class rtt_to_serial():
         # 检查并删除空的日志文件夹
         self._cleanup_empty_log_folder()
         
-        logger.debug('RTT服务停止完成')
+        logger.debug(QCoreApplication.translate("rtt2uart", "RTT service stop completed"))
     
     def _force_stop_threads(self):
         """强制停止所有RTT线程"""

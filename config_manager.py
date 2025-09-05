@@ -68,6 +68,11 @@ class ConfigManager:
             'target_tab': '-1' # 转发目标TAB索引
         }
         
+        # Restart 设置
+        self.config['Restart'] = {
+            'method': 'SFR'  # SFR 或 RESET_PIN
+        }
+        
         # UI界面设置
         self.config['UI'] = {
             'light_mode': 'false',
@@ -157,6 +162,25 @@ class ConfigManager:
         if not encoding_name:
             encoding_name = 'gbk'
         self.config.set('Encoding', 'text_encoding', encoding_name.lower())
+    
+    # ===========================================
+    # 重启设置相关方法
+    # ===========================================
+    def get_restart_method(self) -> str:
+        try:
+            m = self.config.get('Restart', 'method', fallback='SFR').upper()
+            return 'RESET_PIN' if m == 'RESET_PIN' else 'SFR'
+        except Exception:
+            return 'SFR'
+
+    def set_restart_method(self, method: str):
+        try:
+            m = (method or 'SFR').upper()
+            if m not in ('SFR', 'RESET_PIN'):
+                m = 'SFR'
+            self.config.set('Restart', 'method', m)
+        except Exception:
+            pass
     
     # ===========================================
     # 连接设置相关方法
