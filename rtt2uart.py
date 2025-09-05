@@ -100,7 +100,11 @@ class AnsiProcessor:
         if isinstance(text, bytes):
             # 直接在bytes上操作，然后解码
             clean_bytes = self.ansi_escape_bytes.sub(b'', text)
-            return clean_bytes.decode('gbk', errors='ignore')
+            # 动态编码在使用处处理，这里尽量原样返回可打印字符
+            try:
+                return clean_bytes.decode('gbk', errors='ignore')
+            except Exception:
+                return clean_bytes.decode('utf-8', errors='ignore')
         else:
             # 字符串操作
             return self.ansi_escape.sub('', text)
@@ -108,7 +112,11 @@ class AnsiProcessor:
     def parse_ansi_text(self, text):
         """解析ANSI文本，返回带格式信息的文本段列表"""
         if isinstance(text, bytes):
-            text = text.decode('gbk', errors='ignore')
+            # 优先按 GBK，失败退回 UTF-8
+            try:
+                text = text.decode('gbk', errors='ignore')
+            except Exception:
+                text = text.decode('utf-8', errors='ignore')
         
         segments = []
         current_color = None
@@ -414,7 +422,11 @@ class rtt_to_serial():
                 try:
                     # 将字符串转换为字节
                     if isinstance(data, str):
-                        data_bytes = data.encode('gbk', errors='ignore')
+                        try:
+                            enc = self.main.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.main, 'config') else 'gbk'
+                        except Exception:
+                            enc = 'gbk'
+                        data_bytes = data.encode(enc, errors='ignore')
                     else:
                         data_bytes = bytes(data)
                     
@@ -442,7 +454,11 @@ class rtt_to_serial():
                     if isinstance(data, (list, bytearray)):
                         data_bytes = bytes(data)
                     elif isinstance(data, str):
-                        data_bytes = data.encode('gbk', errors='ignore')
+                        try:
+                            enc = self.main.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.main, 'config') else 'gbk'
+                        except Exception:
+                            enc = 'gbk'
+                        data_bytes = data.encode(enc, errors='ignore')
                     else:
                         data_bytes = data
                     
@@ -777,7 +793,12 @@ class rtt_to_serial():
 
     def rtt_thread_exec(self):
         # 打开日志文件，如果不存在将自动创建
-        with open(self.rtt_log_filename, 'ab') as log_file:
+        # 文本日志使用可配置编码
+        try:
+            enc = self.main.config.get_text_encoding() if hasattr(self.main, 'config') else 'gbk'
+        except Exception:
+            enc = 'gbk'
+        with open(self.rtt_log_filename, 'a', encoding=enc, buffering=8192) as log_file:
             # 性能优化：添加短暂延迟避免过度占用CPU
             import time
             
@@ -887,7 +908,7 @@ class rtt_to_serial():
                             if new_data.strip():
                                 try:
                                     # ALL页面的buffer已经是清理过的纯文本，直接写入
-                                    log_file.write(new_data.encode('gbk', errors='ignore'))
+                                    log_file.write(new_data)
                                     log_file.flush()
                                 except Exception as e:
                                     logger.error(f"Failed to write ALL buffer data: {e}")

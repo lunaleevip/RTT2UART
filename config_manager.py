@@ -78,6 +78,11 @@ class ConfigManager:
             'dialog_geometry': ''   # 连接对话框几何信息
         }
         
+        # 文本编码设置（读取/写入日志与显示）
+        self.config['Encoding'] = {
+            'text_encoding': 'gbk'  # 默认GBK
+        }
+        
         # 过滤器设置 (支持多个过滤器)
         self.config['Filters'] = {}
         for i in range(17, 33):  # 过滤器标签页 17-32
@@ -138,6 +143,20 @@ class ConfigManager:
         except Exception as e:
             print(f"配置保存失败: {e}")
             return False
+
+    # ===========================================
+    # 编码设置相关方法
+    # ===========================================
+    def get_text_encoding(self) -> str:
+        """获取当前文本编码（用于解码RTT、写日志、发送指令）"""
+        enc = self.config.get('Encoding', 'text_encoding', fallback='gbk')
+        return (enc or 'gbk').lower()
+
+    def set_text_encoding(self, encoding_name: str):
+        """设置文本编码并保存到配置（不立即保存文件，由调用方决定）"""
+        if not encoding_name:
+            encoding_name = 'gbk'
+        self.config.set('Encoding', 'text_encoding', encoding_name.lower())
     
     # ===========================================
     # 连接设置相关方法

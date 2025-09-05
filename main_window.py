@@ -563,6 +563,11 @@ class RTTMainWindow(QMainWindow):
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
         self.ui.LockH_checkBox.setChecked(True)
         self.populateComboBox()
+        
+        # 初始化编码下拉框（ui_xexunrtt.py中已有 encoder 组合框）
+        if hasattr(self.ui, 'encoder'):
+            self._init_encoding_combo()
+            self.ui.encoder.currentTextChanged.connect(self._on_encoding_changed)
         self.ui.cmd_buffer.enter_pressed.connect(self.on_pushButton_clicked)
 
         # 设置默认样式
@@ -634,17 +639,21 @@ class RTTMainWindow(QMainWindow):
         
         tools_menu.addSeparator()
         
+        # 编码设置子菜单（仅在断开时可切换）
+        self.encoding_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "编码(&E)"))
+        self._build_encoding_submenu()
+        
         # 样式切换动作
         style_action = QAction(QCoreApplication.translate("main_window", "切换主题(&T)"), self)
         style_action.triggered.connect(self.toggle_style_checkbox)
         tools_menu.addAction(style_action)
         
-        tools_menu.addSeparator()
+        # tools_menu.addSeparator()
         
         # 性能测试动作
-        perf_test_action = QAction(QCoreApplication.translate("main_window", "性能测试(&P)..."), self)
-        perf_test_action.triggered.connect(self.show_performance_test)
-        tools_menu.addAction(perf_test_action)
+        # perf_test_action = QAction(QCoreApplication.translate("main_window", "性能测试(&P)..."), self)
+        # perf_test_action.triggered.connect(self.show_performance_test)
+        # tools_menu.addAction(perf_test_action)
         
         # 注释掉Turbo模式菜单（功能保留，界面隐藏）
         # tools_menu.addSeparator()
@@ -694,6 +703,70 @@ class RTTMainWindow(QMainWindow):
                                                    "XexunRTT v2.0\n\n"
                                                    "RTT调试工具\n\n"
                                                    "基于 PySide6 开发"))
+
+    def _build_encoding_submenu(self):
+        """构建编码设置子菜单"""
+        try:
+            if not hasattr(self, 'encoding_menu') or self.encoding_menu is None:
+                return
+            self.encoding_menu.clear()
+            # 可选编码列表
+            self._encoding_list = ['GBK', 'UTF-8', 'UTF-8-SIG', 'GB2312', 'BIG5', 'ISO-8859-1']
+            self.encoding_action_group = QActionGroup(self)
+            self.encoding_action_group.setExclusive(True)
+            current = 'gbk'
+            try:
+                if self.connection_dialog:
+                    current = self.connection_dialog.config.get_text_encoding()
+            except Exception:
+                pass
+            for enc in self._encoding_list:
+                action = QAction(enc, self)
+                action.setCheckable(True)
+                action.setChecked(enc.lower() == current.lower())
+                action.triggered.connect(lambda checked, e=enc: self._on_encoding_selected(e))
+                self.encoding_action_group.addAction(action)
+                self.encoding_menu.addAction(action)
+            # 初始根据连接状态设置可用性
+            self._set_encoding_menu_enabled(not (self.connection_dialog and self.connection_dialog.start_state))
+        except Exception:
+            pass
+
+    def _refresh_encoding_menu_checks(self):
+        try:
+            current = self.connection_dialog.config.get_text_encoding() if self.connection_dialog else 'gbk'
+            if hasattr(self, 'encoding_action_group'):
+                for act in self.encoding_action_group.actions():
+                    act.setChecked(act.text().lower() == current.lower())
+        except Exception:
+            pass
+
+    def _set_encoding_menu_enabled(self, enabled: bool):
+        try:
+            if hasattr(self, 'encoding_menu') and self.encoding_menu is not None:
+                self.encoding_menu.setEnabled(enabled)
+        except Exception:
+            pass
+
+    def _on_encoding_selected(self, enc: str):
+        """选择编码：仅在断开时允许修改"""
+        try:
+            if self.connection_dialog and self.connection_dialog.start_state:
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先断开连接再切换编码"))
+                # 回退选中状态
+                self._refresh_encoding_menu_checks()
+                return
+            if self.connection_dialog:
+                self.connection_dialog.config.set_text_encoding(enc)
+                self.connection_dialog.config.save_config()
+            # 同步 UI 旧控件（如存在）
+            if hasattr(self, 'ui') and hasattr(self.ui, 'encoder'):
+                idx = self.ui.encoder.findText(enc, Qt.MatchFixedString)
+                if idx >= 0:
+                    self.ui.encoder.setCurrentIndex(idx)
+            self.statusBar().showMessage(QCoreApplication.translate("main_window", "编码已切换为: %s") % enc, 2000)
+        except Exception:
+            pass
     
     def show_performance_test(self):
         """显示性能测试窗口"""
@@ -772,6 +845,8 @@ class RTTMainWindow(QMainWindow):
         """连接建立成功后的处理"""
         # 启用RTT相关功能
         self._set_rtt_controls_enabled(True)
+        # 连接中禁止切换编码
+        self._set_encoding_menu_enabled(False)
         
         # 应用保存的设置
         self._apply_saved_settings()
@@ -786,6 +861,8 @@ class RTTMainWindow(QMainWindow):
         """连接断开后的处理"""
         # 禁用RTT相关功能
         self._set_rtt_controls_enabled(False)
+        # 断开后可切换编码
+        self._set_encoding_menu_enabled(True)
         
         # 更新状态显示
         self.update_status_bar()
@@ -1276,19 +1353,23 @@ class RTTMainWindow(QMainWindow):
         
     def on_pushButton_clicked(self):
         current_text = self.ui.cmd_buffer.currentText()
-        utf8_data = current_text
-        utf8_data += '\n'
-        
-        gbk_data = utf8_data.encode('gbk', errors='ignore')
+        # 发送指令：界面读取的命令文本 + 换行
+        cmd_text = current_text + '\n'
+        # 发送前按所选编码转换
+        try:
+            enc = self.connection_dialog.config.get_text_encoding() if self.connection_dialog else 'gbk'
+        except Exception:
+            enc = 'gbk'
+        out_bytes = cmd_text.encode(enc, errors='ignore')
         
         if self.connection_dialog:
-            bytes_written = self.connection_dialog.jlink.rtt_write(0, gbk_data)
+            bytes_written = self.connection_dialog.jlink.rtt_write(0, out_bytes)
             self.connection_dialog.rtt2uart.write_bytes0 = bytes_written
         else:
             bytes_written = 0
-        if(bytes_written == len(gbk_data)):
+        if(bytes_written == len(out_bytes)):
             self.ui.cmd_buffer.clearEditText()
-            sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + utf8_data[:len(utf8_data) - 1]
+            sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
             self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
             current_page_widget = self.ui.tem_switch.widget(2)
@@ -1364,6 +1445,33 @@ class RTTMainWindow(QMainWindow):
             print("File 'cmd.txt' not found.")
         except Exception as e:
             print("An error occurred while reading 'cmd.txt':", e)
+
+    def _init_encoding_combo(self):
+        """初始化编码选择框并与配置同步"""
+        try:
+            self.ui.encoder.clear()
+            # 常用编码集合
+            encodings = [
+                'gbk', 'utf-8', 'utf-8-sig', 'gb2312', 'big5', 'iso-8859-1'
+            ]
+            for enc in encodings:
+                self.ui.encoder.addItem(enc)
+            # 从配置恢复
+            current = self.connection_dialog.config.get_text_encoding() if self.connection_dialog else 'gbk'
+            idx = self.ui.encoder.findText(current, Qt.MatchFixedString)
+            if idx >= 0:
+                self.ui.encoder.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+    def _on_encoding_changed(self, enc: str):
+        """用户切换编码时保存配置"""
+        try:
+            if self.connection_dialog:
+                self.connection_dialog.config.set_text_encoding(enc)
+                self.connection_dialog.config.save_config()
+        except Exception:
+            pass
 
     def set_style(self):
         # 根据复选框状态设置样式
@@ -3388,7 +3496,12 @@ class Worker(QObject):
             # 分割数据
             new_buffer = self.byte_buffer[index][:newline + 1]
             self.byte_buffer[index] = self.byte_buffer[index][newline + 1:]
-            data = new_buffer.decode('gbk', errors='ignore')
+            # 使用配置的编码进行解码
+            try:
+                enc = self.parent.config.get_text_encoding() if hasattr(self.parent, 'config') else 'gbk'
+            except Exception:
+                enc = 'gbk'
+            data = new_buffer.decode(enc, errors='ignore')
 
             # 性能优化：使用列表拼接替代字符串拼接
             buffer_parts = ["%02u> " % index, data]
