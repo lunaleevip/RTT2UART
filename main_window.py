@@ -501,7 +501,8 @@ class RTTMainWindow(QMainWindow):
         self.action6.triggered.connect(self.toggle_lock_h_checkbox)
         self.action7.triggered.connect(self.toggle_style_checkbox)
 
-        self.action9.triggered.connect(self.device_restart)
+        # 重定向 F9 到统一的执行逻辑（根据子菜单选择）
+        self.action9.triggered.connect(self.restart_app_execute)
         #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
         self.ui.tem_switch.clear()
@@ -651,6 +652,21 @@ class RTTMainWindow(QMainWindow):
         # 编码设置子菜单（仅在断开时可切换）
         self.encoding_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "编码(&E)"))
         self._build_encoding_submenu()
+        
+        # 重启 APP 子菜单（选择方式），执行通过F9
+        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "重启APP(&A)"))
+        self.action_restart_sfr = QAction(QCoreApplication.translate("main_window", "通过SFR访问"), self)
+        self.action_restart_pin = QAction(QCoreApplication.translate("main_window", "通过复位引脚"), self)
+        self.action_restart_sfr.setCheckable(True)
+        self.action_restart_pin.setCheckable(True)
+        self.restart_group = QActionGroup(self)
+        self.restart_group.setExclusive(True)
+        self.restart_group.addAction(self.action_restart_sfr)
+        self.restart_group.addAction(self.action_restart_pin)
+        self.action_restart_sfr.setChecked(True)
+        restart_menu.addAction(self.action_restart_sfr)
+        restart_menu.addAction(self.action_restart_pin)
+        # F9 触发执行由全局 action9 负责（避免重复快捷键冲突）
         
         # 样式切换动作
         style_action = QAction(QCoreApplication.translate("main_window", "切换主题(&T)"), self)
@@ -1673,15 +1689,77 @@ class RTTMainWindow(QMainWindow):
         self.set_style()
         
     def device_restart(self):
-        return
-        # if self.connection_dialog.rtt2uart.jlink:
-        #     try:
-        #         jlink = self.connection_dialog.rtt2uart.jlink
-        #         jlink.open()
-        #         jlink.reset(halt=True) #实测效果不理想
-        #         print("J-Link device start successfully.")
-        #     except pylink.errors.JLinkException as e:
-        #         print("Error resetting J-Link device:", e)
+        # 与 F9 行为保持一致：根据子菜单选择执行重启
+        self.restart_app_execute()
+
+    def restart_app_via_sfr(self):
+        """通过SFR访问触发固件重启（需保持连接）"""
+        try:
+            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先建立连接后再重启应用"))
+                return
+            jlink = self.connection_dialog.rtt2uart.jlink
+            try:
+                # Cortex-M: AIRCR.SYSRESETREQ = 1 -> 写 0x05FA0004 到 0xE000ED0C
+                try:
+                    jlink.halt()
+                except Exception:
+                    pass
+                # pylink API: memory_write32(addr, List[int])
+                jlink.memory_write32(0xE000ED0C, [0x05FA0004])
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Restart via SFR (AIRCR.SYSRESETREQ) sent by memory_write32"))
+            except Exception as e:
+                QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), QCoreApplication.translate("main_window", "SFR重启失败: %s") % str(e))
+        except Exception as e:
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), str(e))
+
+    def restart_app_via_reset_pin(self):
+        """通过硬件复位引脚重启（若调试器支持）"""
+        try:
+            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "请先建立连接后再重启应用"))
+                return
+            jlink = self.connection_dialog.rtt2uart.jlink
+            try:
+                jlink.reset(halt=False)
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Restart via reset pin executed"))
+            except Exception as e:
+                QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), QCoreApplication.translate("main_window", "复位引脚重启失败: %s") % str(e))
+        except Exception as e:
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "失败"), str(e))
+
+    def restart_app_execute(self):
+        """F9 执行，根据子菜单当前选择的方式触发重启"""
+        try:
+            # 若未连接，则先自动连接，待连接成功后再执行
+            if not (self.connection_dialog and self.connection_dialog.start_state):
+                if self.connection_dialog:
+                    # 连接成功后回调一次，再断开信号
+                    def _once():
+                        try:
+                            self.connection_dialog.connection_established.disconnect(_once)
+                        except Exception:
+                            pass
+                        # 确保在事件循环返回后执行，避免与连接建立时序冲突
+                        QTimer.singleShot(0, self.restart_app_execute)
+                    try:
+                        self.connection_dialog.connection_established.connect(_once)
+                    except Exception:
+                        pass
+                    # 静默启动连接
+                    self.connection_dialog.start()
+                    return
+                else:
+                    QMessageBox.information(self, QCoreApplication.translate("main_window", "提示"), QCoreApplication.translate("main_window", "无法创建连接对话框"))
+                    return
+
+            # 已连接：按选择执行
+            if hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked():
+                self.restart_app_via_sfr()
+            else:
+                self.restart_app_via_reset_pin()
+        except Exception:
+            pass
 
 
                                     
