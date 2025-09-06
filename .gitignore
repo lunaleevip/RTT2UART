@@ -14,7 +14,15 @@ dist/*
 /.vs/RTT2UART2/v17
 /.vs
 /env
+/env_backup
+/release
 /app.log
 /help.txt
 /JLinkDevicesBuildIn.xml
 /print_output.log
+*.exe
+*.zip
+*.rar
+*.7z
+*.tar.gz
+*.log
