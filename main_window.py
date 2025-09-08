@@ -1435,10 +1435,20 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.rtt2uart.write_bytes0 = bytes_written
         else:
             bytes_written = 0
+            
+        # 检查发送是否成功
         if(bytes_written == len(out_bytes)):
-            self.ui.cmd_buffer.clearEditText()
+            # 🔧 修复：正确清空ComboBox输入框
+            try:
+                self.ui.cmd_buffer.clearEditText()
+                self.ui.cmd_buffer.setCurrentText("")  # 确保输入框完全清空
+                logger.debug(f"✅ 指令发送成功，输入框已清空: {current_text}")
+            except Exception as e:
+                logger.error(f"清空输入框失败: {e}")
+                
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
+            
             #self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
             current_page_widget = self.ui.tem_switch.widget(2)
             if isinstance(current_page_widget, QWidget):
@@ -1455,6 +1465,10 @@ class RTTMainWindow(QMainWindow):
                     self.connection_dialog.settings['cmd'].append(current_text)
                     # 同步保存到CMD.txt文件
                     self.connection_dialog.config.add_command_to_history(current_text)
+        else:
+            # 发送失败的处理
+            logger.warning(f"⚠️ 指令发送失败: 期望发送 {len(out_bytes)} 字节，实际发送 {bytes_written} 字节")
+            self.ui.sent.setText(QCoreApplication.translate("main_window", "❌ 发送失败"))
 
     def on_dis_connect_clicked(self):
         """断开连接，不显示连接对话框"""
