@@ -478,6 +478,11 @@ class RTTMainWindow(QMainWindow):
         self.action9 = QAction(self)
         self.action9.setShortcut(QKeySequence("F9"))
                 
+        # 添加CTRL+F查找功能
+        self.find_action = QAction(self)
+        self.find_action.setShortcut(QKeySequence("Ctrl+F"))
+        self.find_action.triggered.connect(self.show_find_dialog)
+                
         #self.actionenter = QAction(self)
         #self.actionenter.setShortcut(QKeySequence(Qt.Key_Return, Qt.Key_Enter))
 
@@ -491,6 +496,7 @@ class RTTMainWindow(QMainWindow):
         self.addAction(self.action7)
 
         self.addAction(self.action9)
+        self.addAction(self.find_action)
         #self.addAction(self.actionenter)
 
         # 连接动作的触发事件
@@ -1210,7 +1216,17 @@ class RTTMainWindow(QMainWindow):
         self._is_closing = True
         
         try:
-            # 1. 停止所有RTT连接
+            # 1. 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
+            if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
+                worker = self.connection_dialog.worker
+                if hasattr(worker, 'force_flush_all_buffers'):
+                    try:
+                        logger.info("正在强制刷新所有TAB缓冲区...")
+                        worker.force_flush_all_buffers()
+                    except Exception as ex:
+                        logger.error(f"强制刷新缓冲区时出错: {ex}")
+            
+            # 2. 停止所有RTT连接
             if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
                 if self.connection_dialog.start_state == True:
                     logger.info("停止RTT连接...")
@@ -1226,7 +1242,7 @@ class RTTMainWindow(QMainWindow):
                     except Exception as ex:
                         logger.error(f"停止RTT连接时出错: {ex}")
             
-            # 2. 停止所有定时器
+            # 3. 停止所有定时器
             self._stop_all_timers()
             
             # 3. 强制终止所有工作线程
@@ -1796,8 +1812,238 @@ class RTTMainWindow(QMainWindow):
         except Exception:
             pass
 
+    def show_find_dialog(self):
+        """显示查找对话框"""
+        try:
+            # 获取当前活动的TAB
+            current_index = self.ui.tem_switch.currentIndex()
+            current_page_widget = self.ui.tem_switch.widget(current_index)
+            
+            if not current_page_widget:
+                return
+                
+            # 查找文本编辑器
+            from PySide6.QtWidgets import QPlainTextEdit
+            text_edit = current_page_widget.findChild(QPlainTextEdit)
+            if not text_edit:
+                text_edit = current_page_widget.findChild(QTextEdit)
+            
+            if not text_edit:
+                return
+                
+            # 创建并显示查找对话框
+            if not hasattr(self, 'find_dialog') or not self.find_dialog:
+                self.find_dialog = FindDialog(self, text_edit)
+            else:
+                self.find_dialog.set_text_edit(text_edit)
+                
+            self.find_dialog.show()
+            self.find_dialog.raise_()
+            self.find_dialog.activateWindow()
+            
+        except Exception as e:
+            logger.error(f"显示查找对话框失败: {e}")
+
 
                                     
+class FindDialog(QDialog):
+    """查找对话框"""
+    
+    def __init__(self, parent=None, text_edit=None):
+        super().__init__(parent)
+        self.text_edit = text_edit
+        self.last_search_text = ""
+        self.last_position = 0
+        self.highlights = []
+        
+        self.setWindowTitle("查找")
+        self.setModal(False)
+        self.resize(400, 120)
+        
+        # 创建界面
+        self.setup_ui()
+        
+        # 连接信号
+        self.setup_connections()
+        
+    def setup_ui(self):
+        """设置界面"""
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QCheckBox, QLabel
+        
+        layout = QVBoxLayout(self)
+        
+        # 查找输入框
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("查找内容:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("输入要查找的文本...")
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
+        # 选项
+        options_layout = QHBoxLayout()
+        self.case_sensitive = QCheckBox("区分大小写")
+        self.whole_word = QCheckBox("全字匹配")
+        options_layout.addWidget(self.case_sensitive)
+        options_layout.addWidget(self.whole_word)
+        options_layout.addStretch()
+        layout.addLayout(options_layout)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.find_next_btn = QPushButton("查找下一个")
+        self.find_prev_btn = QPushButton("查找上一个")
+        self.highlight_all_btn = QPushButton("高亮全部")
+        self.clear_highlight_btn = QPushButton("清除高亮")
+        self.close_btn = QPushButton("关闭")
+        
+        button_layout.addWidget(self.find_next_btn)
+        button_layout.addWidget(self.find_prev_btn)
+        button_layout.addWidget(self.highlight_all_btn)
+        button_layout.addWidget(self.clear_highlight_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.close_btn)
+        layout.addLayout(button_layout)
+        
+    def setup_connections(self):
+        """设置信号连接"""
+        self.search_input.textChanged.connect(self.on_search_text_changed)
+        self.search_input.returnPressed.connect(self.find_next)
+        self.find_next_btn.clicked.connect(self.find_next)
+        self.find_prev_btn.clicked.connect(self.find_previous)
+        self.highlight_all_btn.clicked.connect(self.highlight_all)
+        self.clear_highlight_btn.clicked.connect(self.clear_highlights)
+        self.close_btn.clicked.connect(self.close)
+        
+    def set_text_edit(self, text_edit):
+        """设置要搜索的文本编辑器"""
+        self.text_edit = text_edit
+        self.clear_highlights()
+        
+    def on_search_text_changed(self):
+        """搜索文本改变时的处理"""
+        if self.search_input.text() != self.last_search_text:
+            self.last_position = 0
+            self.clear_highlights()
+            
+    def find_next(self):
+        """查找下一个"""
+        self.find_text(forward=True)
+        
+    def find_previous(self):
+        """查找上一个"""
+        self.find_text(forward=False)
+        
+    def find_text(self, forward=True):
+        """查找文本"""
+        if not self.text_edit or not self.search_input.text():
+            return False
+            
+        search_text = self.search_input.text()
+        
+        # 获取搜索选项
+        from PySide6.QtGui import QTextDocument
+        flags = QTextDocument.FindFlag(0)
+        if not forward:
+            flags |= QTextDocument.FindBackward
+        if self.case_sensitive.isChecked():
+            flags |= QTextDocument.FindCaseSensitively
+        if self.whole_word.isChecked():
+            flags |= QTextDocument.FindWholeWords
+            
+        # 获取当前光标位置
+        cursor = self.text_edit.textCursor()
+        
+        # 如果是新的搜索文本，从头开始
+        if search_text != self.last_search_text:
+            if forward:
+                cursor.movePosition(cursor.MoveOperation.Start)
+            else:
+                cursor.movePosition(cursor.MoveOperation.End)
+            self.last_search_text = search_text
+            
+        # 执行搜索
+        found_cursor = self.text_edit.document().find(search_text, cursor, flags)
+        
+        if not found_cursor.isNull():
+            # 找到了，选中并滚动到该位置
+            self.text_edit.setTextCursor(found_cursor)
+            self.text_edit.ensureCursorVisible()
+            return True
+        else:
+            # 没找到，从另一端开始搜索
+            if forward:
+                cursor.movePosition(cursor.MoveOperation.Start)
+            else:
+                cursor.movePosition(cursor.MoveOperation.End)
+            found_cursor = self.text_edit.document().find(search_text, cursor, flags)
+            
+            if not found_cursor.isNull():
+                self.text_edit.setTextCursor(found_cursor)
+                self.text_edit.ensureCursorVisible()
+                return True
+                
+        return False
+        
+    def highlight_all(self):
+        """高亮所有匹配的文本"""
+        if not self.text_edit or not self.search_input.text():
+            return
+            
+        search_text = self.search_input.text()
+        self.clear_highlights()
+        
+        # 获取搜索选项
+        from PySide6.QtGui import QTextDocument, QTextCharFormat, QColor
+        flags = QTextDocument.FindFlag(0)
+        if self.case_sensitive.isChecked():
+            flags |= QTextDocument.FindCaseSensitively
+        if self.whole_word.isChecked():
+            flags |= QTextDocument.FindWholeWords
+            
+        # 创建高亮格式
+        highlight_format = QTextCharFormat()
+        highlight_format.setBackground(QColor(255, 255, 0, 100))  # 黄色高亮
+        
+        # 查找所有匹配项
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        
+        extra_selections = []
+        while True:
+            cursor = self.text_edit.document().find(search_text, cursor, flags)
+            if cursor.isNull():
+                break
+                
+            # 创建选择区域
+            from PySide6.QtWidgets import QTextEdit
+            selection = QTextEdit.ExtraSelection()
+            selection.cursor = cursor
+            selection.format = highlight_format
+            extra_selections.append(selection)
+            
+        # 应用高亮
+        self.text_edit.setExtraSelections(extra_selections)
+        self.highlights = extra_selections
+        
+    def clear_highlights(self):
+        """清除所有高亮"""
+        if self.text_edit:
+            self.text_edit.setExtraSelections([])
+        self.highlights = []
+        
+    def showEvent(self, event):
+        """对话框显示时的处理"""
+        super().showEvent(event)
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+        
+    def closeEvent(self, event):
+        """对话框关闭时的处理"""
+        self.clear_highlights()
+        super().closeEvent(event)
+
+
 class ConnectionDialog(QDialog):
     # 定义信号
     connection_established = Signal()
@@ -1968,6 +2214,14 @@ class ConnectionDialog(QDialog):
                 e.accept()
                 return
                 
+            # 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
+            if hasattr(self, 'worker') and hasattr(self.worker, 'force_flush_all_buffers'):
+                try:
+                    logger.info("ConnectionDialog关闭时强制刷新所有TAB缓冲区...")
+                    self.worker.force_flush_all_buffers()
+                except Exception as ex:
+                    logger.error(f"ConnectionDialog强制刷新缓冲区时出错: {ex}")
+            
             # 停止RTT连接
             if self.rtt2uart is not None and self.start_state == True:
                 try:
@@ -2484,6 +2738,19 @@ class ConnectionDialog(QDialog):
 
                 if hasattr(self.main_window, 'append_jlink_log'):
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
+                
+                # 🚨 断开连接前强制刷新所有缓冲区到文件（确保数据不丢失）
+                if hasattr(self, 'worker') and hasattr(self.worker, 'force_flush_all_buffers'):
+                    try:
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("正在保存所有TAB数据到文件...")
+                        self.worker.force_flush_all_buffers()
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log("✅ 所有TAB数据已保存")
+                    except Exception as ex:
+                        logger.error(f"断开连接时强制刷新缓冲区出错: {ex}")
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(f"⚠️ 数据保存出错: {ex}")
                 
                 self.rtt2uart.stop()
                 
@@ -3587,6 +3854,75 @@ class Worker(QObject):
                         del self.log_buffers[filepath]
         except Exception as e:
             logger.error(f"Error in _emergency_flush_oldest_buffers: {e}")
+
+    def force_flush_all_buffers(self):
+        """🚨 强制刷新所有日志缓冲区到文件（程序关闭时调用）"""
+        logger.info("开始强制刷新所有日志缓冲区...")
+        try:
+            if not self.log_buffers:
+                logger.info("没有待刷新的日志缓冲区")
+                return
+                
+            flushed_count = 0
+            error_count = 0
+            
+            # 创建缓冲区副本，避免迭代过程中修改字典
+            log_buffers_copy = dict(self.log_buffers)
+            
+            for filepath, content in log_buffers_copy.items():
+                if content:  # 只处理有内容的缓冲区
+                    try:
+                        # 确保目录存在
+                        import os
+                        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                        
+                        # 强制写入文件
+                        with open(filepath, 'a', encoding='utf-8', buffering=8192) as f:
+                            f.write(content)
+                            f.flush()  # 强制刷新到磁盘
+                        
+                        # 清空已刷新的缓冲区
+                        if filepath in self.log_buffers:
+                            self.log_buffers[filepath] = ""
+                            
+                        flushed_count += 1
+                        logger.debug(f"✅ 强制刷新完成: {filepath}")
+                        
+                    except (OSError, IOError, PermissionError) as e:
+                        error_count += 1
+                        logger.error(f"❌ 强制刷新失败 {filepath}: {e}")
+                    except Exception as e:
+                        error_count += 1
+                        logger.error(f"❌ 强制刷新异常 {filepath}: {e}")
+            
+            logger.info(f"🚨 强制刷新完成: 成功 {flushed_count} 个文件, 失败 {error_count} 个文件")
+            
+        except Exception as e:
+            logger.error(f"强制刷新所有缓冲区时出错: {e}")
+            
+    def get_pending_buffer_info(self):
+        """获取待刷新缓冲区信息（用于调试）"""
+        try:
+            if not self.log_buffers:
+                return "没有待刷新的缓冲区"
+                
+            info_lines = []
+            total_size = 0
+            
+            for filepath, content in self.log_buffers.items():
+                if content:
+                    size = len(content)
+                    total_size += size
+                    info_lines.append(f"  - {filepath}: {size} 字节")
+            
+            if info_lines:
+                info_lines.insert(0, f"待刷新缓冲区 ({len(info_lines)} 个文件, 总计 {total_size} 字节):")
+                return "\n".join(info_lines)
+            else:
+                return "所有缓冲区都已刷新"
+                
+        except Exception as e:
+            return f"获取缓冲区信息失败: {e}"
 
     def write_data_to_buffer_log(self, buffer_index, data, log_suffix=""):
         """📋 统一日志写入方法：将数据写入指定buffer对应的日志文件
