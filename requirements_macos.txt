@@ -1,0 +1,49 @@
+# XexunRTT macOS 版本依赖项
+# 针对 macOS 系统优化的依赖版本
+
+# 核心依赖
+pylink-square>=1.2.0        # J-Link 通信库
+pyserial>=3.5               # 串口通信库
+
+# GUI 框架
+PySide6>=6.7.0              # Qt6 Python 绑定
+PySide6-Addons>=6.7.0       # Qt6 附加组件
+PySide6-Essentials>=6.7.0   # Qt6 核心组件
+shiboken6>=6.7.0            # PySide6 底层库
+
+# 界面主题
+qdarkstyle>=3.0.0           # 深色主题支持
+
+# 构建工具
+pyinstaller>=6.0.0          # macOS 应用打包工具
+
+# macOS 特定依赖
+# 以下依赖在 macOS 上可能需要额外安装
+
+# 可选：增强功能依赖
+# Pillow>=9.0.0             # 图像处理（图标转换）
+# requests>=2.28.0          # HTTP 请求（在线更新检查）
+# psutil>=5.9.0             # 系统信息获取
+
+# 开发依赖（可选）
+# pytest>=7.0.0             # 单元测试
+# black>=22.0.0             # 代码格式化
+# flake8>=4.0.0             # 代码检查
+
+# macOS 系统要求说明
+# - macOS 10.13 (High Sierra) 或更高版本
+# - Python 3.8 或更高版本
+# - Xcode Command Line Tools（用于编译某些依赖）
+# - 可选：J-Link Software Pack（J-Link 驱动）
+
+# 安装说明
+# 1. 确保已安装 Python 3.8+
+# 2. 建议使用虚拟环境：python -m venv venv_macos
+# 3. 激活虚拟环境：source venv_macos/bin/activate
+# 4. 安装依赖：pip install -r requirements_macos.txt
+# 5. 运行构建脚本：python build_macos.py
+
+# 注意事项
+# - 某些依赖可能需要编译，首次安装时间较长
+# - 如果遇到编译错误，确保已安装 Xcode Command Line Tools
+# - Apple Silicon (M1/M2) Mac 可能需要 Rosetta 2 支持某些依赖
