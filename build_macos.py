@@ -196,7 +196,6 @@ excludes = [
     'sqlite3',
     'asyncio',
     'multiprocessing',
-    'subprocess',
     'distutils',
     'lib2to3',
     'setuptools',
