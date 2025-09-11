@@ -72,11 +72,24 @@ class AnsiProcessor:
             '\x1B[1;36m': '#00FFFF',  # 亮青色
             '\x1B[1;37m': '#FFFFFF',  # 亮白色
             
-            # 背景色 (24;XXm 和 4;XXm)
+            # 标准背景色 (40-47m) - 统一使用明亮黄色高亮
+            '\x1B[40m': 'bg:#000000',     # 黑色背景
+            '\x1B[41m': 'bg:#800000',     # 红色背景
+            '\x1B[42m': 'bg:#008000',     # 绿色背景
+            '\x1B[43m': 'bg:#FFFF00',     # 🎨 明亮黄色背景 - 统一高亮颜色
+            '\x1B[44m': 'bg:#000080',     # 蓝色背景
+            '\x1B[45m': 'bg:#800080',     # 洋红背景
+            '\x1B[46m': 'bg:#008080',     # 青色背景
+            '\x1B[47m': 'bg:#C0C0C0',     # 白色背景
+            
+            # 🎨 复合颜色代码 - 背景色+前景色组合（增强对比度）
+            '\x1B[43;30m': 'bg:#FFFF00;color:#000000',  # 黄色背景 + 黑色文字
+            
+            # 背景色 (24;XXm 和 4;XXm) - 保持兼容性
             '\x1B[24;40m': 'bg:#000000',  # 黑色背景
             '\x1B[24;41m': 'bg:#800000',  # 红色背景
             '\x1B[24;42m': 'bg:#008000',  # 绿色背景
-            '\x1B[24;43m': 'bg:#808000',  # 黄色背景
+            '\x1B[24;43m': 'bg:#FFFF00',  # 🎨 明亮黄色背景 - 统一高亮颜色
             '\x1B[24;44m': 'bg:#000080',  # 蓝色背景
             '\x1B[24;45m': 'bg:#800080',  # 洋红背景
             '\x1B[24;46m': 'bg:#008080',  # 青色背景
@@ -85,7 +98,7 @@ class AnsiProcessor:
             '\x1B[4;40m': 'bg:#000000',   # 亮黑色背景
             '\x1B[4;41m': 'bg:#FF0000',   # 亮红色背景
             '\x1B[4;42m': 'bg:#00FF00',   # 亮绿色背景
-            '\x1B[4;43m': 'bg:#FFFF00',   # 亮黄色背景
+            '\x1B[4;43m': 'bg:#FFFF00',   # 🎨 明亮黄色背景 - 统一高亮颜色
             '\x1B[4;44m': 'bg:#0000FF',   # 亮蓝色背景
             '\x1B[4;45m': 'bg:#FF00FF',   # 亮洋红背景
             '\x1B[4;46m': 'bg:#00FFFF',   # 亮青色背景
@@ -147,6 +160,16 @@ class AnsiProcessor:
                     elif color_value == 'clear':
                         # 清屏命令，可以在这里处理
                         pass
+                    elif ';' in color_value:
+                        # 🎨 处理复合颜色代码（如：bg:#FFFF00;color:#000000）
+                        parts = color_value.split(';')
+                        for part in parts:
+                            if part.startswith('bg:'):
+                                current_bg = part[3:]  # 移除 'bg:' 前缀
+                            elif part.startswith('color:'):
+                                current_color = part[6:]  # 移除 'color:' 前缀
+                            else:
+                                current_color = part
                     elif color_value.startswith('bg:'):
                         current_bg = color_value[3:]
                     else:
@@ -317,12 +340,24 @@ class rtt_to_serial():
             return False
     
     def _auto_stop_on_connection_lost(self):
-        """连接丢失时自动停止RTT功能"""
+        """连接丢失时自动停止RTT功能 - 增强异常保护，防止程序退出"""
         try:
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "🔄 Connection lost, stopping RTT function..."))
+            self._log_to_gui("🔄 JLink连接丢失，正在安全停止RTT功能...")
             
             # 设置线程停止标志
             self.thread_switch = False
+            
+            # 🛡️ 安全清理RTT连接状态
+            try:
+                if hasattr(self, 'jlink') and self.jlink:
+                    try:
+                        if self.jlink.connected():
+                            self.jlink.close()
+                        self._log_to_gui("📴 JLink连接已安全断开")
+                    except Exception:
+                        pass  # 忽略断开时的错误
+            except Exception:
+                pass
             
             # 通知主窗口连接已断开
             if hasattr(self.main, '_handle_connection_lost'):
@@ -334,14 +369,27 @@ class rtt_to_serial():
                         "_handle_connection_lost", 
                         Qt.QueuedConnection
                     )
+                    self._log_to_gui("📢 已通知主窗口处理连接丢失")
                 except Exception as e:
                     logger.warning(f"Failed to notify main window of connection loss: {e}")
+                    self._log_to_gui(f"⚠️ 通知主窗口失败: {e}")
             
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT function stopped automatically"))
+            self._log_to_gui("✅ RTT功能已安全停止，程序继续运行")
+            self._log_to_gui("💡 您可以随时点击Start按钮重新连接")
             
         except Exception as e:
-            logger.error(f"Error in _auto_stop_on_connection_lost: {e}")
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ Error stopping RTT automatically: %s") % str(e))
+            # 🛡️ 强化异常保护 - 绝对不能让这个方法导致程序崩溃
+            try:
+                logger.error(f"Error in _auto_stop_on_connection_lost: {e}")
+                self._log_to_gui(f"❌ 停止RTT时出错: {e}")
+                self._log_to_gui("🔧 程序将继续运行，请手动重置连接")
+                
+                # 确保线程停止标志被设置
+                self.thread_switch = False
+                
+            except Exception:
+                # 最后的保护层 - 静默处理所有异常
+                pass
     
     def set_serial_forward_config(self, tab_index, mode='LOG'):
         """设置串口转发的配置"""

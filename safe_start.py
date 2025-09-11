@@ -58,7 +58,7 @@ def start_with_error_handling():
         print("  ✅ 应用程序初始化完成")
         
         # 创建主窗口
-        main_win = main_window.MainWindow()
+        main_win = main_window.RTTMainWindow()
         print("  ✅ 主窗口创建完成")
         
         # 显示窗口
