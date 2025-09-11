@@ -1181,9 +1181,9 @@ class RTTMainWindow(QMainWindow):
             pass
     
     def _handle_connection_lost(self):
-        """处理JLink连接丢失事件"""
+        """处理JLink连接丢失事件 - 不退出程序，保持界面可用"""
         try:
-            self.append_jlink_log("⚠️ 处理JLink连接丢失事件...")
+            self.append_jlink_log("⚠️ JLink连接已丢失")
             
             # 更新连接状态显示
             if self.connection_dialog:
@@ -1197,11 +1197,40 @@ class RTTMainWindow(QMainWindow):
                 # 🔄 立即更新状态栏显示
                 self.update_status_bar()
                 
-                self.append_jlink_log("✅ 连接状态已重置，可以重新连接")
+                self.append_jlink_log("🔄 连接状态已重置，您可以：")
+                self.append_jlink_log("   1. 检查硬件连接")
+                self.append_jlink_log("   2. 点击Start按钮重新连接")
+                self.append_jlink_log("   3. 查看日志了解详细信息")
+                
+                # 🎯 显示用户友好的重连提示
+                try:
+                    from PySide6.QtWidgets import QMessageBox
+                    msg = QMessageBox(self)
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setWindowTitle("JLink连接丢失")
+                    msg.setText("JLink连接已丢失")
+                    msg.setInformativeText("程序将继续运行，您可以随时重新连接。\n\n建议操作：\n1. 检查硬件连接\n2. 点击Start按钮重新连接")
+                    msg.setStandardButtons(QMessageBox.Ok)
+                    msg.setDefaultButton(QMessageBox.Ok)
+                    
+                    # 使用非阻塞方式显示对话框
+                    msg.show()
+                    
+                except Exception as msg_e:
+                    logger.warning(f"显示重连提示对话框失败: {msg_e}")
             
         except Exception as e:
             self.append_jlink_log(f"❌ 处理连接丢失时出错: {e}")
             logger.error(f"Error in _handle_connection_lost: {e}")
+            
+            # 🛡️ 确保即使处理连接丢失时出错，程序也不会退出
+            try:
+                self.append_jlink_log("🔧 尝试恢复正常状态...")
+                if self.connection_dialog:
+                    self.connection_dialog.start_state = False
+                    self.update_status_bar()
+            except Exception:
+                pass  # 静默处理恢复错误
         
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
@@ -1487,13 +1516,80 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.show()
 
     def on_clear_clicked(self):
-        index = self.ui.tem_switch.currentIndex()
-        current_page_widget = self.ui.tem_switch.widget(index)
-        if isinstance(current_page_widget, QWidget):
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
-            if text_edit:
-                text_edit.clear()
+        """F4清空当前TAB - 完整的清空逻辑"""
+        try:
+            current_index = self.ui.tem_switch.currentIndex()
+            logger.debug(f"🧹 清空TAB {current_index}")
+            
+            # 1. 清空UI显示
+            current_page_widget = self.ui.tem_switch.widget(current_index)
+            if isinstance(current_page_widget, QWidget):
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
+                if text_edit:
+                    text_edit.clear()
+                    logger.debug(f"✅ 清空TAB {current_index} UI显示")
+                else:
+                    logger.warning(f"⚠️ TAB {current_index} 未找到文本编辑器")
+                    return
+            else:
+                logger.warning(f"⚠️ TAB {current_index} 不是有效的Widget")
+                return
+            
+            # 2. 清空数据缓冲区
+            if self.connection_dialog and hasattr(self.connection_dialog, 'worker') and self.connection_dialog.worker:
+                worker = self.connection_dialog.worker
+                try:
+                    # 清空主缓冲区
+                    if current_index < len(worker.buffers):
+                        if hasattr(worker.buffers[current_index], 'clear'):
+                            worker.buffers[current_index].clear()
+                        else:
+                            worker.buffers[current_index] = []
+                        worker.buffer_lengths[current_index] = 0
+                        
+                    # 清空彩色缓冲区
+                    if hasattr(worker, 'colored_buffers') and current_index < len(worker.colored_buffers):
+                        if hasattr(worker.colored_buffers[current_index], 'clear'):
+                            worker.colored_buffers[current_index].clear()
+                        else:
+                            worker.colored_buffers[current_index] = []
+                        worker.colored_buffer_lengths[current_index] = 0
+                        
+                    # 清空HTML缓冲区
+                    if hasattr(worker, 'html_buffers') and current_index < len(worker.html_buffers):
+                        worker.html_buffers[current_index] = ""
+                        
+                    # 重置显示长度
+                    if hasattr(worker, 'display_lengths') and current_index < len(worker.display_lengths):
+                        worker.display_lengths[current_index] = 0
+                        
+                    logger.debug(f"✅ 清空TAB {current_index} 数据缓冲区")
+                    
+                except Exception as e:
+                    logger.error(f"❌ 清空TAB {current_index} 数据缓冲区失败: {e}")
+            else:
+                logger.warning("⚠️ 无法访问Worker，只清空了UI显示")
+                
+            # 3. 标记页面为干净状态
+            if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
+                self.page_dirty_flags[current_index] = False
+                
+            logger.info(f"🧹 TAB {current_index} 清空完成")
+            
+        except Exception as e:
+            logger.error(f"❌ 清空TAB失败: {e}")
+            # 兜底：只清空UI
+            try:
+                current_page_widget = self.ui.tem_switch.widget(self.ui.tem_switch.currentIndex())
+                if isinstance(current_page_widget, QWidget):
+                    from PySide6.QtWidgets import QPlainTextEdit
+                    text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.clear()
+                        logger.warning("⚠️ 兜底模式：只清空了UI显示")
+            except Exception as fallback_e:
+                logger.error(f"❌ 兜底清空也失败: {fallback_e}")
 
     def on_openfolder_clicked(self):
         # 在连接状态下打开当前的日志目录
@@ -1511,22 +1607,82 @@ class RTTMainWindow(QMainWindow):
                 os.startfile(str(desktop))
 
     def populateComboBox(self):
-        # 读取 cmd.txt 文件并将内容添加到 QComboBox 中
+        """读取 cmd.txt 文件并将内容添加到 QComboBox 中，如果文件不存在则创建空文件"""
         try:
-            # 首先尝试UTF-8编码，失败后尝试GBK编码
+            # 首先检查文件是否存在，不存在则创建空文件
+            if not os.path.exists('cmd.txt'):
+                logger.info("📄 cmd.txt 文件不存在，正在创建空文件...")
+                try:
+                    with open('cmd.txt', 'w', encoding='utf-8') as file:
+                        file.write("# 命令历史文件\n")
+                        file.write("# Command history file\n")
+                        file.write("# 每行一个命令，程序启动时会自动加载到下拉框中\n")
+                        file.write("# One command per line, automatically loaded into the dropdown on startup\n")
+                    logger.info("✅ cmd.txt 文件已创建")
+                except Exception as create_error:
+                    logger.error(f"❌ 创建cmd.txt文件失败: {create_error}")
+                    return
+            
+            # 读取文件内容
             try:
                 with open('cmd.txt', 'r', encoding='utf-8') as file:
+                    lines_added = 0
                     for line in file:
-                        self.ui.cmd_buffer.addItem(line.strip())  # 去除换行符并添加到 QComboBox 中
+                        line = line.strip()
+                        # 跳过空行和注释行
+                        if line and not line.startswith('#'):
+                            self.ui.cmd_buffer.addItem(line)
+                            lines_added += 1
+                    
+                    if lines_added > 0:
+                        logger.debug(f"📋 从cmd.txt加载了 {lines_added} 条命令历史")
+                    else:
+                        logger.debug("📋 cmd.txt文件为空或只包含注释，未加载命令历史")
+                        
             except UnicodeDecodeError:
-                # 如果UTF-8解码失败，尝试GBK编码
-                with open('cmd.txt', 'r', encoding='gbk') as file:
-                    for line in file:
-                        self.ui.cmd_buffer.addItem(line.strip())
-        except FileNotFoundError:
-            print("File 'cmd.txt' not found.")
+                # 如果UTF-8解码失败，尝试GBK编码（兼容旧文件）
+                logger.warning("⚠️ UTF-8解码失败，尝试GBK编码读取cmd.txt")
+                try:
+                    with open('cmd.txt', 'r', encoding='gbk') as file:
+                        lines_added = 0
+                        for line in file:
+                            line = line.strip()
+                            # 跳过空行和注释行
+                            if line and not line.startswith('#'):
+                                self.ui.cmd_buffer.addItem(line)
+                                lines_added += 1
+                        
+                        if lines_added > 0:
+                            logger.debug(f"📋 从cmd.txt(GBK)加载了 {lines_added} 条命令历史")
+                            # 将文件转换为UTF-8编码保存
+                            self._convert_cmd_file_to_utf8()
+                        else:
+                            logger.debug("📋 cmd.txt文件(GBK)为空或只包含注释，未加载命令历史")
+                            
+                except Exception as gbk_error:
+                    logger.error(f"❌ GBK编码读取cmd.txt也失败: {gbk_error}")
+                    
         except Exception as e:
-            print("An error occurred while reading 'cmd.txt':", e)
+            logger.error(f"❌ 读取cmd.txt文件时发生未预期错误: {e}")
+    
+    def _convert_cmd_file_to_utf8(self):
+        """将cmd.txt文件转换为UTF-8编码"""
+        try:
+            # 先读取所有内容
+            commands = []
+            with open('cmd.txt', 'r', encoding='gbk') as file:
+                for line in file:
+                    commands.append(line.rstrip('\n\r'))
+            
+            # 用UTF-8编码重新写入
+            with open('cmd.txt', 'w', encoding='utf-8') as file:
+                for cmd in commands:
+                    file.write(cmd + '\n')
+            
+            logger.info("✅ cmd.txt文件已转换为UTF-8编码")
+            
+        except Exception as e:
+            logger.error(f"❌ 转换cmd.txt编码失败: {e}")
 
     def _init_encoding_combo(self):
         """初始化编码选择框并与配置同步"""
@@ -2015,9 +2171,10 @@ class FindDialog(QDialog):
         if self.whole_word.isChecked():
             flags |= QTextDocument.FindWholeWords
             
-        # 创建高亮格式
+        # 创建高亮格式 - 黄色背景 + 黑色文字增强对比度
         highlight_format = QTextCharFormat()
-        highlight_format.setBackground(QColor(255, 255, 0, 100))  # 黄色高亮
+        highlight_format.setBackground(QColor(255, 255, 0, 160))  # 明亮黄色背景
+        highlight_format.setForeground(QColor(0, 0, 0))          # 黑色文字
         
         # 查找所有匹配项
         cursor = self.text_edit.textCursor()
@@ -3362,25 +3519,54 @@ class ConnectionDialog(QDialog):
                                       len(self.worker.colored_buffers[index]) > 0)
                     
                     if self.worker.enable_color_buffers and has_colored_data and len(self.worker.colored_buffers[index]) > 0:
-                        # QPlainTextEdit 直接用纯文本“增量”
+                        # 🎨 修复：TAB切换时重新渲染颜色 - 无论QPlainTextEdit还是QTextEdit都使用ANSI彩色处理
                         from PySide6.QtWidgets import QPlainTextEdit
+                        
+                        # 检查是否需要重新渲染整个页面（TAB刚被选中）
+                        needs_full_render = (hasattr(self.worker, 'display_lengths') and 
+                                           self.worker.display_lengths[index] == 0 and 
+                                           len(self.worker.colored_buffers[index]) > 0)
+                        
                         if isinstance(text_edit, QPlainTextEdit):
-                            incremental_plain, current_total = self.worker._extract_increment_from_chunks(
-                                self.worker.buffers[index],
-                                self.worker.display_lengths[index],
-                                max_insert_length
-                            )
-                            ui_start_time = time.time()
-                            if incremental_plain:
-                                text_edit.insertPlainText(incremental_plain)
-                                self.worker.display_lengths[index] = current_total
+                            if needs_full_render:
+                                # 🎨 完全重新渲染：确保TAB切换时颜色正确显示
+                                ui_start_time = time.time()
+                                text_edit.clear()  # 清空当前显示
+                                all_colored_data = ''.join(self.worker.colored_buffers[index])
+                                if len(all_colored_data) > max_insert_length:
+                                    # 只显示最新部分，避免性能问题
+                                    all_colored_data = all_colored_data[-max_insert_length:]
+                                self._insert_ansi_text_fast(text_edit, all_colored_data, index)
+                                self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                            else:
+                                # 🎨 增量更新：使用ANSI彩色处理而不是纯文本
+                                incremental_colored, current_total = self.worker._extract_increment_from_chunks(
+                                    self.worker.colored_buffers[index] if hasattr(self.worker, 'colored_buffers') else self.worker.buffers[index],
+                                    self.worker.display_lengths[index],
+                                    max_insert_length
+                                )
+                                ui_start_time = time.time()
+                                if incremental_colored:
+                                    self._insert_ansi_text_fast(text_edit, incremental_colored, index)
+                                    self.worker.display_lengths[index] = current_total
                         else:
                             # QTextEdit 保持彩色路径
-                            incremental_colored_data = ''.join(self.worker.colored_buffers[index])
-                            if len(incremental_colored_data) > max_insert_length:
-                                incremental_colored_data = incremental_colored_data[-max_insert_length:]
-                            ui_start_time = time.time()
-                            self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
+                            if needs_full_render:
+                                # 完全重新渲染
+                                ui_start_time = time.time()
+                                text_edit.clear()
+                                all_colored_data = ''.join(self.worker.colored_buffers[index])
+                                if len(all_colored_data) > max_insert_length:
+                                    all_colored_data = all_colored_data[-max_insert_length:]
+                                self._insert_ansi_text_fast(text_edit, all_colored_data, index)
+                                self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                            else:
+                                # 增量更新
+                                incremental_colored_data = ''.join(self.worker.colored_buffers[index])
+                                if len(incremental_colored_data) > max_insert_length:
+                                    incremental_colored_data = incremental_colored_data[-max_insert_length:]
+                                ui_start_time = time.time()
+                                self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -3646,24 +3832,26 @@ class ConnectionDialog(QDialog):
             self.switchPage(current_index)
             self.main_window.page_dirty_flags[current_index] = False
         
-        # 🚀 智能批量更新：根据容量利用率动态调整
+        # 🎨 修复：确保所有TAB都能显示高亮 - 更新所有脏标记的TAB
+        # 使用更积极的更新策略，确保高亮在所有TAB中都能及时显示
         if hasattr(self.worker, 'get_buffer_memory_usage'):
             memory_info = self.worker.get_buffer_memory_usage()
             utilization = memory_info.get('capacity_utilization', 0)
             
-            # 根据容量利用率调整更新策略
+            # 根据容量利用率调整更新策略，但确保高亮显示优先级
             if utilization > 80:  # 高利用率，减少更新
-                max_updates = 1  # 只更新当前页面
+                max_updates = 3  # 增加更新数量确保高亮显示
             elif utilization > 60:  # 中等利用率
-                max_updates = 2
+                max_updates = 5
             else:  # 低利用率，正常更新
-                max_updates = 3
+                max_updates = 8  # 更多TAB可以同时更新
         else:
-            max_updates = 3
+            max_updates = 8
         
         updated_count = 0
         for i in range(MAX_TAB_SIZE):
             if i != current_index and self.main_window.page_dirty_flags[i] and updated_count < max_updates:
+                # 🎨 为每个TAB更新内容和高亮
                 self.switchPage(i)
                 self.main_window.page_dirty_flags[i] = False
                 updated_count += 1
@@ -4285,15 +4473,18 @@ class Worker(QObject):
     def _highlight_filter_text(self, line, search_word):
         """为筛选文本添加高亮显示"""
         try:
-            if not search_word or search_word not in line:
+            if not search_word or search_word.lower() not in line.lower():
                 return line
             
-            # 使用亮黄色背景高亮筛选关键词
-            highlight_start = '\x1B[2;33m'  # 黄色背景
-            highlight_end = '\x1B[0m'       # 重置
+            # 🎨 使用明亮黄色背景 + 黑色文字高亮筛选关键词 - 增强对比度
+            highlight_start = '\x1B[43;30m'  # 明亮黄色背景 + 黑色文字
+            highlight_end = '\x1B[0m'        # 重置所有格式
             
-            # 替换所有匹配的关键词（保持大小写敏感）
-            highlighted_line = line.replace(search_word, f"{highlight_start}{search_word}{highlight_end}")
+            # 🎨 大小写不敏感匹配和替换
+            import re
+            # 使用正则表达式进行大小写不敏感的替换，保持原文本的大小写
+            pattern = re.escape(search_word)
+            highlighted_line = re.sub(pattern, f"{highlight_start}\\g<0>{highlight_end}", line, flags=re.IGNORECASE)
             
             return highlighted_line
         except Exception:
@@ -4319,7 +4510,8 @@ class Worker(QObject):
                 continue
                 
             for i, search_word in search_words:
-                if search_word in line:
+                # 🎨 修改匹配规则：大小写一致即匹配成功（不要求全文本匹配）
+                if search_word.lower() in line.lower():
                     filtered_data = line + '\n'
                     # 分块追加，避免大字符串反复拷贝
                     if i < len(self.buffers):
@@ -4363,9 +4555,9 @@ class PythonHighlighter(QSyntaxHighlighter):
         
         self.keywords = []
         self.keyword_format = QTextCharFormat()
-        self.keyword_format.setForeground(Qt.darkBlue)
+        self.keyword_format.setForeground(QColor(0, 0, 0))      # 黑色文字增强对比度
         self.keyword_format.setFontWeight(QFont.Bold)
-        self.keyword_format.setBackground(Qt.yellow)
+        self.keyword_format.setBackground(QColor(255, 255, 0))  # 明亮黄色背景
 
         self.pattern = None
 
