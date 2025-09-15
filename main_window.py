@@ -819,6 +819,11 @@ class RTTMainWindow(QMainWindow):
         open_folder_action.triggered.connect(self.on_openfolder_clicked)
         tools_menu.addAction(open_folder_action)
         
+        # 打开配置文件夹动作
+        open_config_folder_action = QAction(QCoreApplication.translate("main_window", "Open Config Folder(&F)"), self)
+        open_config_folder_action.triggered.connect(self.on_open_config_folder_clicked)
+        tools_menu.addAction(open_config_folder_action)
+        
         tools_menu.addSeparator()
         
         # 编码设置子菜单（仅在断开时可切换）
@@ -1811,6 +1816,36 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"❌ Failed to open folder: {e}")
             # 显示错误消息
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open folder:\n{}").format(e))
+
+    def on_open_config_folder_clicked(self):
+        """Open config folder - cross-platform compatible version"""
+        try:
+            import pathlib
+            import subprocess
+            
+            # Get config directory path
+            config_dir_path = pathlib.Path(config_manager.config_dir)
+            target_dir = str(config_dir_path)
+            
+            # Ensure config directory exists
+            if not config_dir_path.exists():
+                config_dir_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"📁 Created config directory: {target_dir}")
+            
+            # Cross-platform open folder
+            if sys.platform == "darwin":  # macOS
+                subprocess.run(["open", target_dir])
+            elif sys.platform == "win32":  # Windows
+                os.startfile(target_dir)
+            else:  # Linux
+                subprocess.run(["xdg-open", target_dir])
+                
+            logger.info(f"📁 Opened config folder: {target_dir}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to open config folder: {e}")
+            # Show error message
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open config folder:\n{}").format(e))
 
     def populateComboBox(self):
         """读取 cmd.txt 文件并将内容添加到 QComboBox 中，如果文件不存在则创建空文件"""
