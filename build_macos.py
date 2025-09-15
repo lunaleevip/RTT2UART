@@ -300,13 +300,13 @@ app = BUNDLE(
     name='XexunRTT.app',
     {icon_option}
     bundle_identifier='com.xexun.rtt2uart',
-    version='1.0.5',
+    version='2.1.0',
     info_plist={{
         'CFBundleName': 'XexunRTT',
         'CFBundleDisplayName': 'XexunRTT - J-Link RTT Viewer',
         'CFBundleIdentifier': 'com.xexun.rtt2uart',
-        'CFBundleVersion': '1.0.5',
-        'CFBundleShortVersionString': '1.0.5',
+        'CFBundleVersion': '2.1.0',
+        'CFBundleShortVersionString': '2.1.0',
         'CFBundleInfoDictionaryVersion': '6.0',
         'CFBundleExecutable': 'XexunRTT',
         'CFBundlePackageType': 'APPL',
@@ -407,7 +407,7 @@ def create_dmg_installer(app_path):
         print("❌ 应用程序不存在，无法创建 DMG")
         return None
     
-    dmg_name = "XexunRTT_macOS_v1.0.5.dmg"
+    dmg_name = "XexunRTT_macOS_v2.1.0.dmg"
     dmg_path = Path('dist') / dmg_name
     
     # 删除已存在的 DMG

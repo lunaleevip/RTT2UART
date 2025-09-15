@@ -931,7 +931,7 @@ class RTTMainWindow(QMainWindow):
         QMessageBox.about(self, 
                          QCoreApplication.translate("main_window", "About XexunRTT"),
                          QCoreApplication.translate("main_window", 
-                                                   "XexunRTT v2.0\n\n"
+                                                   "XexunRTT v2.1\n\n"
                                                    "RTT Debug Tool\n\n"
                                                    "Based on PySide6"))
 
@@ -2011,9 +2011,9 @@ class RTTMainWindow(QMainWindow):
             
         # 更新连接状态
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
         else:
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "未连接"))
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
         
         # 更新数据统计
         readed = 0
@@ -2023,7 +2023,7 @@ class RTTMainWindow(QMainWindow):
             writed = self.connection_dialog.rtt2uart.write_bytes0
         
         self.data_stats_label.setText(
-            QCoreApplication.translate("main_window", "读取: {} | 写入: {}").format(readed, writed)
+            QCoreApplication.translate("main_window", "Read: {} | Write: {}").format(readed, writed)
         )
     
     def update_periodic_task(self):
@@ -4840,49 +4840,49 @@ if __name__ == "__main__":
                 os.environ['QT_SCALE_FACTOR'] = str(dpi_value)
                 os.environ['QT_SCREEN_SCALE_FACTORS'] = str(dpi_value)
                 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
-                print(f"🔧 设置Qt DPI环境变量: {dpi_value}")
+                print(f"🔧 Setting Qt DPI environment variables: {dpi_value}")
         except ValueError:
             pass
     
-    # 检查是否已有应用程序实例，如果没有则创建
+    # Check if application instance exists, create if not
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
     
-    # 加载并安装翻译文件
+    # Load and install translation files
     translator = QTranslator()
-    # 尝试从多个位置加载翻译文件
+    # Try to load translation files from multiple locations
     translation_loaded = False
     
-    # 尝试从当前目录加载（开发环境）
+    # Try to load from current directory (development environment)
     if translator.load("xexunrtt.qm"):
         QCoreApplication.installTranslator(translator)
         translation_loaded = True
         print("Translation loaded from current directory.")
-        # 测试翻译是否工作
+        # Test if translation is working
         test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
         print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-    # 如果当前目录加载失败，尝试从资源文件加载
+    # If current directory loading fails, try loading from resource files
     elif translator.load(QLocale.system(), ":/xexunrtt.qm"):
         QCoreApplication.installTranslator(translator)
         translation_loaded = True
         print("Translation loaded from resources.")
-        # 测试翻译是否工作
+        # Test if translation is working
         test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
         print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
     else:
         print("Failed to load translation file.")
 
-    # 加载 Qt 内置翻译文件
+    # Load Qt built-in translation files
     qt_translator = QTranslator()
     qt_translation_loaded = False
     
-    # 尝试从当前目录加载（开发环境）
+    # Try to load from current directory (development environment)
     if qt_translator.load("qt_zh_CN.qm"):
         QCoreApplication.installTranslator(qt_translator)
         qt_translation_loaded = True
         print("Qt translation loaded from current directory.")
-    # 如果当前目录加载失败，尝试从资源文件加载
+    # If current directory loading fails, try loading from resource files
     elif qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
         QCoreApplication.installTranslator(qt_translator)
         qt_translation_loaded = True
@@ -4890,18 +4890,18 @@ if __name__ == "__main__":
     else:
         print("Failed to load Qt translation file.")
     
-    # 创建主窗口
+    # Create main window
     main_window = RTTMainWindow()
     
     
-    # 在窗口显示前更新翻译
+    # Update translations before window display
     if hasattr(main_window, '_update_ui_translations'):
         main_window._update_ui_translations()
     
-    # 先显示主窗口（最大化）
+    # Show main window first (maximized)
     main_window.showMaximized()
     
-    # 然后弹出连接配置对话框
+    # Then show connection configuration dialog
     main_window.show_connection_dialog()
 
     sys.exit(app.exec())

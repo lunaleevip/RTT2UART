@@ -355,12 +355,12 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     </message>
     <message>
         <location filename="main_window.py" line="738"/>
-        <source>XexunRTT v2.0
+        <source>XexunRTT v2.1
 
 RTT Debug Tool
 
 Based on PySide6</source>
-        <translation>XexunRTT v2.0
+        <translation>XexunRTT v2.1
 
 RTT调试工具
 
@@ -483,17 +483,17 @@ RTT调试工具
     </message>
     <message>
         <location filename="main_window.py" line="1603"/>
-        <source>已连接</source>
+        <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
         <location filename="main_window.py" line="1605"/>
-        <source>未连接</source>
+        <source>Disconnected</source>
         <translation>未连接</translation>
     </message>
     <message>
         <location filename="main_window.py" line="1615"/>
-        <source>读取: {} | 写入: {}</source>
+        <source>Read: {} | Write: {}</source>
         <translation>读取: {} | 写入: {}</translation>
     </message>
     <message>
