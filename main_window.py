@@ -1885,7 +1885,7 @@ class RTTMainWindow(QMainWindow):
                 for cmd in commands:
                     file.write(cmd + '\n')
             
-            logger.info("✅ cmd.txt文件已转换为UTF-8编码")
+            logger.info("✅ cmd.txt file converted to UTF-8 encoding")
             
         except Exception as e:
             logger.error(f"❌ 转换cmd.txt编码失败: {e}")
@@ -2596,7 +2596,7 @@ class ConnectionDialog(QDialog):
             # 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
             if hasattr(self, 'worker') and hasattr(self.worker, 'force_flush_all_buffers'):
                 try:
-                    logger.info("ConnectionDialog关闭时强制刷新所有TAB缓冲区...")
+                    logger.info("ConnectionDialog closed, force refreshing all TAB buffers...")
                     self.worker.force_flush_all_buffers()
                 except Exception as ex:
                     logger.error(f"ConnectionDialog强制刷新缓冲区时出错: {ex}")
@@ -3625,7 +3625,7 @@ class ConnectionDialog(QDialog):
                     # 批量删除选中的文本
                     cursor.removeSelectedText()
                     
-                    logger.info(f"[CLEAN] TAB{tab_index} 自动清理完成: 删除{lines_to_remove}行(1/{clean_ratio_denominator}), 耗时{ui_time:.1f}ms -> 剩余{document.blockCount()}行")
+                    logger.info(f"[CLEAN] TAB{tab_index} auto cleanup completed: removed {lines_to_remove} lines (1/{clean_ratio_denominator}), took {ui_time:.1f}ms -> remaining {document.blockCount()} lines")
             
             # 🚀 清理内部缓冲区数据：同时清理worker中的数据
             if hasattr(self, 'worker') and self.worker:
@@ -4304,10 +4304,10 @@ class Worker(QObject):
 
     def force_flush_all_buffers(self):
         """🚨 强制刷新所有日志缓冲区到文件（程序关闭时调用）"""
-        logger.info("开始强制刷新所有日志缓冲区...")
+        logger.info("Starting to force refresh all log buffers...")
         try:
             if not self.log_buffers:
-                logger.info("没有待刷新的日志缓冲区")
+                logger.info("No log buffers to flush")
                 return
                 
             flushed_count = 0
@@ -4342,7 +4342,7 @@ class Worker(QObject):
                         error_count += 1
                         logger.error(f"❌ 强制刷新异常 {filepath}: {e}")
             
-            logger.info(f"🚨 强制刷新完成: 成功 {flushed_count} 个文件, 失败 {error_count} 个文件")
+            logger.info(f"🚨 Force refresh completed: {flushed_count} files succeeded, {error_count} files failed")
             
         except Exception as e:
             logger.error(f"强制刷新所有缓冲区时出错: {e}")
@@ -4697,7 +4697,7 @@ class Worker(QObject):
             refresh_rate = self.refresh_count / time_elapsed if time_elapsed > 0 else 0
             
             # 记录性能指标
-            logger.info(f"[PERF] 性能监控 - 刷新率: {refresh_rate:.1f}Hz, "
+            logger.info(f"[PERF] Performance monitoring - refresh rate: {refresh_rate:.1f}Hz, "
                        f"总数据量: {memory_info['total_memory_mb']:.1f}MB, "
                        f"容量利用率: {memory_info['capacity_utilization']:.1f}%, "
                        f"最大单缓冲: {memory_info['max_single_buffer']//1024:.0f}KB")
