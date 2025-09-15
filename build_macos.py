@@ -403,9 +403,23 @@ def create_dmg_installer(app_path):
     """创建 macOS DMG 安装包"""
     print("📦 创建 DMG 安装包...")
     
-    if not app_path or not app_path.exists():
+    # 确保使用正确的app路径
+    correct_app_path = Path('dist/XexunRTT.app')
+    if not correct_app_path.exists():
         print("❌ 应用程序不存在，无法创建 DMG")
         return None
+    
+    print(f"📱 使用应用程序：{correct_app_path}")
+    
+    # 获取应用大小
+    try:
+        result = subprocess.run(['du', '-sh', str(correct_app_path)], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            size = result.stdout.split()[0]
+            print(f"📏 源应用大小：{size}")
+    except:
+        pass
     
     dmg_name = "XexunRTT_macOS_v2.1.0.dmg"
     dmg_path = Path('dist') / dmg_name
@@ -422,7 +436,22 @@ def create_dmg_installer(app_path):
         temp_dmg_dir.mkdir(parents=True)
         
         # 复制应用到临时目录
-        shutil.copytree(app_path, temp_dmg_dir / 'XexunRTT.app')
+        print(f"📋 复制应用从 {correct_app_path} 到 {temp_dmg_dir / 'XexunRTT.app'}")
+        
+        # 使用rsync进行更安全的复制
+        import subprocess
+        rsync_cmd = [
+            'rsync', '-av', '--delete',
+            f'{correct_app_path}/',
+            f'{temp_dmg_dir / "XexunRTT.app"}/'
+        ]
+        result = subprocess.run(rsync_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"❌ rsync复制失败: {result.stderr}")
+            # 回退到shutil.copytree
+            shutil.copytree(correct_app_path, temp_dmg_dir / 'XexunRTT.app')
+        else:
+            print("✅ rsync复制成功")
         
         # 创建应用程序文件夹的符号链接
         subprocess.run(['ln', '-sf', '/Applications', str(temp_dmg_dir / 'Applications')], check=True)
