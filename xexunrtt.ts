@@ -69,88 +69,109 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>{} - {}</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="35"/>
         <source>RTT2UART Control Panel</source>
-        <translation type="vanished">RTT2UART 控制面板</translation>
+        <translation>RTT2UART 控制面板</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="59"/>
         <source>Start</source>
-        <translation type="vanished">开始</translation>
+        <translation>开始</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="97"/>
         <source>Target Interface And Speed</source>
-        <translation type="vanished">目标接口和速度</translation>
+        <translation>目标接口和速度</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="133"/>
         <source>Specify Target Device</source>
-        <translation type="vanished">指定目标设备</translation>
+        <translation>指定目标设备</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="155"/>
         <source>...</source>
-        <translation type="vanished">...</translation>
+        <translation>...</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="169"/>
         <source>UART Config</source>
-        <translation type="vanished">UART 配置</translation>
+        <translation>UART 配置</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="191"/>
         <source>Port:</source>
-        <translation type="vanished">端口:</translation>
+        <translation>端口:</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="204"/>
         <source>Baud rate:</source>
-        <translation type="vanished">波特率:</translation>
+        <translation>波特率:</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="227"/>
         <source>Scan</source>
-        <translation type="vanished">扫描</translation>
+        <translation>扫描</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="241"/>
         <source>Reset target</source>
-        <translation type="vanished">复位目标</translation>
+        <translation>复位目标</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="254"/>
         <source>Log Split</source>
-        <translation type="vanished">日志拆分</translation>
+        <translation>日志拆分</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="270"/>
         <source>Connection to J-Link</source>
-        <translation type="vanished">连接到 J-Link</translation>
+        <translation>连接到 J-Link</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="282"/>
         <source>USB</source>
-        <translation type="vanished">USB</translation>
+        <translation>USB</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="298"/>
         <source>Existing Session</source>
-        <translation type="vanished">现有会话</translation>
+        <translation>现有会话</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="314"/>
         <source>TCP/IP</source>
-        <translation type="vanished">TCP/IP</translation>
+        <translation>TCP/IP</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="327"/>
         <source>Serial NO</source>
-        <translation type="vanished">序列号</translation>
+        <translation>序列号</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="366"/>
         <source>Auto Reconnect</source>
-        <translation type="vanished">自动重连</translation>
+        <translation>自动重连</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="380"/>
         <source>Serial Forward Settings</source>
-        <translation type="vanished">串口转发设置</translation>
+        <translation>串口转发设置</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="392"/>
         <source>LOG Current Tab Selection</source>
-        <translation type="vanished">LOG 当前标签页选择</translation>
+        <translation>LOG 当前标签页选择</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="408"/>
         <source>DATA (RTT Channel 1)</source>
-        <translation type="vanished">DATA (RTT 通道 1)</translation>
+        <translation>DATA (RTT 通道 1)</translation>
     </message>
     <message>
+        <location filename="rtt2uart_updated.ui" line="421"/>
         <source>Forward Content:</source>
-        <translation type="vanished">转发内容:</translation>
+        <translation>转发内容:</translation>
     </message>
 </context>
 <context>
@@ -256,17 +277,17 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     <message>
         <location filename="main_window.py" line="800"/>
         <source>Window(&amp;W)</source>
-        <translation type="unfinished"></translation>
+        <translation>窗口(&amp;W)</translation>
     </message>
     <message>
         <location filename="main_window.py" line="803"/>
         <source>New Window(&amp;N)</source>
-        <translation type="unfinished"></translation>
+        <translation>新建窗口(&amp;N)</translation>
     </message>
     <message>
         <location filename="main_window.py" line="805"/>
         <source>Open a new window</source>
-        <translation type="unfinished"></translation>
+        <translation>打开新窗口</translation>
     </message>
     <message>
         <location filename="main_window.py" line="810"/>
@@ -983,28 +1004,33 @@ RTT调试工具
 <context>
     <name>xexun_rtt</name>
     <message>
+        <location filename="xexunrtt.ui" line="14"/>
         <source>Form</source>
-        <translation type="vanished">窗体</translation>
+        <translation>窗体</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="62"/>
         <source>can read from cmd.txt</source>
-        <translation type="vanished">可从cmd.txt读取</translation>
+        <translation>可从cmd.txt读取</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="77"/>
         <source>F3</source>
-        <translation type="vanished">F3</translation>
+        <translation>F3</translation>
     </message>
     <message>
         <source>DisConnect</source>
         <translation type="vanished">断开连接</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="119"/>
         <source>Clear</source>
-        <translation type="vanished">清除</translation>
+        <translation>清除</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="131"/>
         <source>F1</source>
-        <translation type="vanished">F1</translation>
+        <translation>F1</translation>
     </message>
     <message>
         <source>OpenFolder</source>
@@ -1015,52 +1041,87 @@ RTT调试工具
         <translation type="vanished">发送</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="80"/>
+        <source>Disconnect</source>
+        <translation>断开连接</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="134"/>
+        <source>Open Folder</source>
+        <translation>打开文件夹</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="235"/>
+        <source>Send</source>
+        <translation>发送</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="269"/>
         <source>F7</source>
-        <translation type="vanished">F7</translation>
+        <translation>F7</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="272"/>
         <source>Light Mode</source>
-        <translation type="vanished">浅色模式</translation>
+        <translation>浅色模式</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="290"/>
         <source>double click filter to write filter text</source>
-        <translation type="vanished">双击筛选器以编写筛选文本</translation>
+        <translation>双击筛选器以编写筛选文本</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="297"/>
         <source>1</source>
-        <translation type="vanished">1</translation>
+        <translation>1</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="302"/>
         <source>2</source>
-        <translation type="vanished">2</translation>
+        <translation>2</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="327"/>
+        <source>Font Size</source>
+        <translation>字体大小</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="358"/>
+        <source>Reconnect</source>
+        <translation>重新连接</translation>
     </message>
     <message>
         <source>FontSize</source>
         <translation type="vanished">字体大小</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="355"/>
         <source>F2</source>
-        <translation type="vanished">F2</translation>
+        <translation>F2</translation>
     </message>
     <message>
         <source>ReConnect</source>
         <translation type="vanished">重新连接</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="370"/>
         <source>F6</source>
-        <translation type="vanished">F6</translation>
+        <translation>F6</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="373"/>
         <source>Lock Horizontal</source>
-        <translation type="vanished">锁定水平</translation>
+        <translation>锁定水平</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="385"/>
         <source>F5</source>
-        <translation type="vanished">F5</translation>
+        <translation>F5</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="388"/>
         <source>Lock Vertical</source>
-        <translation type="vanished">锁定垂直</translation>
+        <translation>锁定垂直</translation>
     </message>
 </context>
 </TS>

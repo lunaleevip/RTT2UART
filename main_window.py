@@ -740,7 +740,7 @@ class RTTMainWindow(QMainWindow):
         if hasattr(self.ui, 'encoder'):
             self._init_encoding_combo()
             self.ui.encoder.currentTextChanged.connect(self._on_encoding_changed)
-        self.ui.cmd_buffer.enter_pressed.connect(self.on_pushButton_clicked)
+        self.ui.cmd_buffer.activated.connect(self.on_pushButton_clicked)
 
         # 设置默认样式
         palette = QPalette()

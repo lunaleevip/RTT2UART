@@ -77,7 +77,7 @@
        <string>F3</string>
       </property>
       <property name="text">
-       <string>DisConnect</string>
+       <string>Disconnect</string>
       </property>
      </widget>
     </item>
@@ -131,7 +131,7 @@
        <string>F1</string>
       </property>
       <property name="text">
-       <string>OpenFolder</string>
+       <string>Open Folder</string>
       </property>
      </widget>
     </item>
@@ -232,7 +232,7 @@
        </font>
       </property>
       <property name="text">
-       <string>Enter</string>
+       <string>Send</string>
       </property>
       <property name="autoDefault">
        <bool>true</bool>
@@ -324,7 +324,7 @@
        </font>
       </property>
       <property name="text">
-       <string>FontSize</string>
+       <string>Font Size</string>
       </property>
      </widget>
     </item>
@@ -355,7 +355,7 @@
        <string>F2</string>
       </property>
       <property name="text">
-       <string>ReConnect</string>
+       <string>Reconnect</string>
       </property>
      </widget>
     </item>
