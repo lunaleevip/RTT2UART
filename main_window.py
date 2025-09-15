@@ -699,7 +699,7 @@ class RTTMainWindow(QMainWindow):
             self.highlighter[i] = PythonHighlighter(text_edit.document())
             
             if i == 0:
-                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # 将页面添加到 tabWidget 中
+                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # Add page to tabWidget
                 
                 # 🚀 关键修复：设置GridLayout的拉伸因子，让TAB控件完全填充可用空间
                 # 设置TAB控件的大小策略为完全扩展
@@ -924,7 +924,7 @@ class RTTMainWindow(QMainWindow):
             print(f"❌ 启动新窗口失败: {e}")
             # 显示错误消息
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "错误", f"启动新窗口失败:\n{e}")
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
     
     def _show_about(self):
         """显示关于对话框"""
@@ -1003,10 +1003,10 @@ class RTTMainWindow(QMainWindow):
         """显示性能测试窗口"""
         try:
             self.perf_test_widget = show_performance_test(self)
-            self.perf_test_widget.log_message("性能测试工具已启动")
-            self.perf_test_widget.log_message("注意：请确保已连接设备并开始RTT调试")
+            self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Performance test tool started"))
+            self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Note: Please ensure device is connected and RTT debugging is started"))
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"启动性能测试失败：{str(e)}")
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start performance test: {}").format(str(e)))
     
     def toggle_turbo_mode(self):
         """切换Turbo模式（隐藏UI，功能保留）"""
@@ -1685,7 +1685,7 @@ class RTTMainWindow(QMainWindow):
         else:
             # 发送失败的处理
             logger.warning(f"⚠️ Command send failed: expected {len(out_bytes)} bytes, actually sent {bytes_written} bytes")
-            self.ui.sent.setText(QCoreApplication.translate("main_window", "❌ 发送失败"))
+            self.ui.sent.setText(QCoreApplication.translate("main_window", "❌ Send Failed"))
 
     def on_dis_connect_clicked(self):
         """断开连接，不显示连接对话框"""
@@ -1810,7 +1810,7 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"❌ Failed to open folder: {e}")
             # 显示错误消息
-            QMessageBox.warning(self, "错误", f"无法打开文件夹:\n{e}")
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open folder:\n{}").format(e))
 
     def populateComboBox(self):
         """读取 cmd.txt 文件并将内容添加到 QComboBox 中，如果文件不存在则创建空文件"""
@@ -2432,7 +2432,7 @@ class ConnectionDialog(QDialog):
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
-        self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART 连接配置"))
+        self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART Connection Configuration"))
         self.setWindowModality(Qt.ApplicationModal)
         
         # 使用新的配置管理器

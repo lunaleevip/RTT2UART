@@ -605,6 +605,50 @@ RTT调试工具
         <source>Sent:</source>
         <translation>已发送:</translation>
     </message>
+    <message>
+        <location filename="main_window.py" line="927"/>
+        <source>Error</source>
+        <translation>错误</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="927"/>
+        <source>Failed to start new window:
+{}</source>
+        <translation>启动新窗口失败:
+{}</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1009"/>
+        <source>Failed to start performance test: {}</source>
+        <translation>启动性能测试失败: {}</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1813"/>
+        <source>Cannot open folder:
+{}</source>
+        <translation>无法打开文件夹:
+{}</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1006"/>
+        <source>Performance test tool started</source>
+        <translation>性能测试工具已启动</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1007"/>
+        <source>Note: Please ensure device is connected and RTT debugging is started</source>
+        <translation>注意：请确保已连接设备并开始RTT调试</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1688"/>
+        <source>❌ Send Failed</source>
+        <translation>❌ 发送失败</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="2435"/>
+        <source>RTT2UART Connection Configuration</source>
+        <translation>RTT2UART 连接配置</translation>
+    </message>
 </context>
 <context>
     <name>rtt2uart</name>
