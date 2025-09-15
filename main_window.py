@@ -28,6 +28,115 @@ import time
 import pickle
 import os
 from config_manager import config_manager
+
+# DPI检测和调整功能
+def get_system_dpi():
+    """获取系统DPI缩放比例"""
+    try:
+        if sys.platform == "darwin":  # macOS
+            # 使用Qt获取屏幕DPI
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+            
+            screen = app.primaryScreen()
+            if screen:
+                # 获取物理DPI和逻辑DPI
+                physical_dpi = screen.physicalDotsPerInch()
+                logical_dpi = screen.logicalDotsPerInch()
+                device_pixel_ratio = screen.devicePixelRatio()
+                
+                # 计算缩放比例
+                scale_factor = device_pixel_ratio
+                
+                logger.info(f"🖥️ macOS DPI信息:")
+                logger.info(f"   物理DPI: {physical_dpi:.1f}")
+                logger.info(f"   逻辑DPI: {logical_dpi:.1f}")
+                logger.info(f"   设备像素比: {device_pixel_ratio:.1f}")
+                logger.info(f"   缩放比例: {scale_factor:.1f}")
+                
+                return scale_factor
+        else:
+            # Windows/Linux
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+            
+            screen = app.primaryScreen()
+            if screen:
+                physical_dpi = screen.physicalDotsPerInch()
+                logical_dpi = screen.logicalDotsPerInch()
+                scale_factor = logical_dpi / 96.0  # 96是标准DPI
+                
+                logger.info(f"🖥️ 系统DPI信息:")
+                logger.info(f"   物理DPI: {physical_dpi:.1f}")
+                logger.info(f"   逻辑DPI: {logical_dpi:.1f}")
+                logger.info(f"   缩放比例: {scale_factor:.1f}")
+                
+                return scale_factor
+    except Exception as e:
+        logger.warning(f"⚠️ 获取DPI失败: {e}")
+        return 1.0
+    
+    return 1.0
+
+def get_dpi_scale_factor(manual_dpi=None):
+    """获取DPI缩放因子，支持手动设置或自动检测"""
+    if manual_dpi is not None and manual_dpi != "auto":
+        try:
+            dpi_value = float(manual_dpi)
+            if 0.1 <= dpi_value <= 5.0:  # 限制范围在0.1到5.0之间
+                logger.info(f"🎯 使用手动DPI设置: {dpi_value:.2f}")
+                return dpi_value
+            else:
+                logger.warning(f"⚠️ DPI值超出范围(0.1-5.0): {dpi_value}，使用自动检测")
+        except ValueError:
+            logger.warning(f"⚠️ 无效的DPI值: {manual_dpi}，使用自动检测")
+    
+    # 自动检测系统DPI
+    return get_system_dpi()
+
+def get_adaptive_font_size(base_size, dpi_scale):
+    """根据DPI缩放调整字体大小"""
+    if dpi_scale <= 0.5:
+        # DPI很小，需要放大字体
+        return int(base_size * 1.5)
+    elif dpi_scale <= 0.8:
+        # DPI较小，稍微放大字体
+        return int(base_size * 1.2)
+    elif dpi_scale <= 1.0:
+        # 标准DPI，使用原始字体大小
+        return base_size
+    elif dpi_scale <= 1.5:
+        # DPI较大，稍微缩小字体
+        return int(base_size * 0.9)
+    elif dpi_scale <= 2.0:
+        # DPI很大，进一步缩小字体
+        return int(base_size * 0.8)
+    else:
+        # DPI非常大，大幅缩小字体
+        return int(base_size * 0.7)
+
+def get_adaptive_window_size(base_width, base_height, dpi_scale):
+    """根据DPI缩放调整窗口大小"""
+    if dpi_scale <= 0.5:
+        # DPI很小，需要放大窗口
+        return int(base_width * 1.5), int(base_height * 1.5)
+    elif dpi_scale <= 0.8:
+        # DPI较小，稍微放大窗口
+        return int(base_width * 1.2), int(base_height * 1.2)
+    elif dpi_scale <= 1.0:
+        # 标准DPI，使用原始大小
+        return base_width, base_height
+    elif dpi_scale <= 1.5:
+        # DPI较大，稍微缩小窗口
+        return int(base_width * 0.9), int(base_height * 0.9)
+    elif dpi_scale <= 2.0:
+        # DPI很大，进一步缩小窗口
+        return int(base_width * 0.8), int(base_height * 0.8)
+    else:
+        # DPI非常大，大幅缩小窗口
+        return int(base_width * 0.7), int(base_height * 0.7)
 import subprocess
 import threading
 import shutil
@@ -385,12 +494,24 @@ class EditableTabBar(QTabBar):
 class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
+        
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
+        
+        # 获取DPI缩放比例（支持手动设置或自动检测）
+        manual_dpi = config_manager.get_dpi_scale()
+        self.dpi_scale = get_dpi_scale_factor(manual_dpi)
+        logger.info(f"🎯 当前DPI缩放比例: {self.dpi_scale:.2f}")
         
         # 设置主窗口属性
         self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        
+        # 根据DPI调整窗口大小
+        base_width, base_height = 1200, 800
+        adaptive_width, adaptive_height = get_adaptive_window_size(base_width, base_height, self.dpi_scale)
+        self.resize(adaptive_width, adaptive_height)
+        logger.info(f"📏 窗口大小调整为: {adaptive_width}x{adaptive_height}")
         
         # 创建中心部件
         self.central_widget = QWidget()
@@ -555,7 +676,21 @@ class RTTMainWindow(QMainWindow):
                 text_edit.document().setMaximumBlockCount(line_limit)
             
             # 🎨 设置等宽字体，提升渲染性能
-            font = QFont("新宋体", 10)
+            base_font_size = 10
+            adaptive_font_size = get_adaptive_font_size(base_font_size, self.dpi_scale)
+            
+            if sys.platform == "darwin":  # macOS
+                # macOS优先使用SF Mono，然后是Menlo，最后是Monaco
+                font = QFont("SF Mono", adaptive_font_size)
+                if not font.exactMatch():
+                    font = QFont("Menlo", adaptive_font_size)
+                if not font.exactMatch():
+                    font = QFont("Monaco", adaptive_font_size)
+            else:
+                # Windows/Linux使用Consolas或Courier New
+                font = QFont("Consolas", adaptive_font_size)
+                if not font.exactMatch():
+                    font = QFont("Courier New", adaptive_font_size)
             font.setFixedPitch(True)  # 等宽字体
             text_edit.setFont(font)
             
@@ -661,6 +796,16 @@ class RTTMainWindow(QMainWindow):
         settings_action.triggered.connect(self._show_connection_settings)
         connection_menu.addAction(settings_action)
         
+        # 窗口菜单
+        window_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Window(&W)"))
+        
+        # 新建窗口动作
+        new_window_action = QAction(QCoreApplication.translate("main_window", "New Window(&N)"), self)
+        new_window_action.setShortcut(QKeySequence("Ctrl+N"))
+        new_window_action.setStatusTip(QCoreApplication.translate("main_window", "Open a new window"))
+        new_window_action.triggered.connect(self._new_window)
+        window_menu.addAction(new_window_action)
+        
         # 工具菜单
         tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
         
@@ -752,6 +897,34 @@ class RTTMainWindow(QMainWindow):
     def _show_connection_settings(self):
         """显示连接设置对话框"""
         self.show_connection_dialog()
+    
+    def _new_window(self):
+        """新建窗口"""
+        try:
+            import subprocess
+            import sys
+            import os
+            
+            if getattr(sys, 'frozen', False):
+                # 如果是打包的APP，启动新的APP实例
+                if sys.platform == "darwin":  # macOS
+                    app_path = os.path.dirname(sys.executable)
+                    app_path = os.path.dirname(os.path.dirname(os.path.dirname(app_path)))
+                    app_path = os.path.join(app_path, "XexunRTT.app")
+                    subprocess.Popen(["open", "-n", app_path])
+                else:
+                    # Windows/Linux
+                    subprocess.Popen([sys.executable])
+            else:
+                # 开发环境，启动新的Python进程
+                subprocess.Popen([sys.executable, "main_window.py"])
+                
+            print("✅ 新窗口已启动")
+        except Exception as e:
+            print(f"❌ 启动新窗口失败: {e}")
+            # 显示错误消息
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "错误", f"启动新窗口失败:\n{e}")
     
     def _show_about(self):
         """显示关于对话框"""
@@ -1021,7 +1194,21 @@ class RTTMainWindow(QMainWindow):
         self.jlink_log_text.setReadOnly(True)
         self.jlink_log_text.setMinimumHeight(120)
         self.jlink_log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.jlink_log_text.setFont(QFont("Consolas", 9))
+        # 设置等宽字体
+        base_font_size = 9
+        adaptive_font_size = get_adaptive_font_size(base_font_size, self.dpi_scale)
+        
+        if sys.platform == "darwin":  # macOS
+            font = QFont("SF Mono", adaptive_font_size)
+            if not font.exactMatch():
+                font = QFont("Menlo", adaptive_font_size)
+            if not font.exactMatch():
+                font = QFont("Monaco", adaptive_font_size)
+        else:
+            font = QFont("Consolas", adaptive_font_size)
+            if not font.exactMatch():
+                font = QFont("Courier New", adaptive_font_size)
+        self.jlink_log_text.setFont(font)
         # 不设置固定样式表，让它跟随主题
         
         layout.addWidget(self.jlink_log_text)
@@ -1412,6 +1599,7 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"强制终止子进程时出错: {e}")
     
+    
     def _force_quit_application(self):
         """强制退出应用程序"""
         try:
@@ -1592,19 +1780,37 @@ class RTTMainWindow(QMainWindow):
                 logger.error(f"❌ 兜底清空也失败: {fallback_e}")
 
     def on_openfolder_clicked(self):
-        # 在连接状态下打开当前的日志目录
-        if self.connection_dialog and self.connection_dialog.rtt2uart:
-            os.startfile(self.connection_dialog.rtt2uart.log_directory)
-        else:
-            # 在断开状态下打开默认的日志目录
+        """打开日志文件夹 - 跨平台兼容版本"""
+        try:
             import pathlib
-            desktop_path = pathlib.Path.home() / "Desktop/XexunRTT_Log"
-            if desktop_path.exists():
-                os.startfile(str(desktop_path))
+            import subprocess
+            
+            # 确定要打开的目录
+            if self.connection_dialog and self.connection_dialog.rtt2uart:
+                target_dir = self.connection_dialog.rtt2uart.log_directory
             else:
-                # 如果日志目录不存在，打开桌面
-                desktop = pathlib.Path.home() / "Desktop"
-                os.startfile(str(desktop))
+                # 在断开状态下打开默认的日志目录
+                desktop_path = pathlib.Path.home() / "Desktop/XexunRTT_Log"
+                if desktop_path.exists():
+                    target_dir = str(desktop_path)
+                else:
+                    # 如果日志目录不存在，打开桌面
+                    target_dir = str(pathlib.Path.home() / "Desktop")
+            
+            # 跨平台打开文件夹
+            if sys.platform == "darwin":  # macOS
+                subprocess.run(["open", target_dir])
+            elif sys.platform == "win32":  # Windows
+                os.startfile(target_dir)
+            else:  # Linux
+                subprocess.run(["xdg-open", target_dir])
+                
+            logger.info(f"📁 已打开文件夹: {target_dir}")
+            
+        except Exception as e:
+            logger.error(f"❌ 打开文件夹失败: {e}")
+            # 显示错误消息
+            QMessageBox.warning(self, "错误", f"无法打开文件夹:\n{e}")
 
     def populateComboBox(self):
         """读取 cmd.txt 文件并将内容添加到 QComboBox 中，如果文件不存在则创建空文件"""
@@ -3471,7 +3677,17 @@ class ConnectionDialog(QDialog):
             if not text_edit:
                 text_edit = current_page_widget.findChild(QTextEdit)
             
-            font = QFont("Consolas", self.main_window.ui.fontsize_box.value())  # 使用等宽字体
+            # 使用等宽字体
+            if sys.platform == "darwin":  # macOS
+                font = QFont("SF Mono", self.main_window.ui.fontsize_box.value())
+                if not font.exactMatch():
+                    font = QFont("Menlo", self.main_window.ui.fontsize_box.value())
+                if not font.exactMatch():
+                    font = QFont("Monaco", self.main_window.ui.fontsize_box.value())
+            else:
+                font = QFont("Consolas", self.main_window.ui.fontsize_box.value())
+                if not font.exactMatch():
+                    font = QFont("Courier New", self.main_window.ui.fontsize_box.value())
             font.setFixedPitch(True)
             if text_edit:
                 text_edit.setFont(font)
@@ -3781,7 +3997,16 @@ class ConnectionDialog(QDialog):
                     format.setBackground(QColor(background))
                 
                 # 设置字体（保持等宽）
-                font = QFont("Consolas", text_edit.font().pointSize())
+                if sys.platform == "darwin":  # macOS
+                    font = QFont("SF Mono", text_edit.font().pointSize())
+                    if not font.exactMatch():
+                        font = QFont("Menlo", text_edit.font().pointSize())
+                    if not font.exactMatch():
+                        font = QFont("Monaco", text_edit.font().pointSize())
+                else:
+                    font = QFont("Consolas", text_edit.font().pointSize())
+                    if not font.exactMatch():
+                        font = QFont("Courier New", text_edit.font().pointSize())
                 font.setFixedPitch(True)
                 format.setFont(font)
                 
@@ -4584,7 +4809,25 @@ def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    # 获取DPI设置并应用环境变量
+    manual_dpi = config_manager.get_dpi_scale()
+    if manual_dpi != "auto":
+        try:
+            dpi_value = float(manual_dpi)
+            if sys.platform == "darwin":  # macOS
+                # 设置Qt环境变量强制DPI缩放
+                os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
+                os.environ['QT_SCALE_FACTOR'] = str(dpi_value)
+                os.environ['QT_SCREEN_SCALE_FACTORS'] = str(dpi_value)
+                os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
+                print(f"🔧 设置Qt DPI环境变量: {dpi_value}")
+        except ValueError:
+            pass
+    
+    # 检查是否已有应用程序实例，如果没有则创建
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(sys.argv)
     
     # 加载并安装翻译文件
     translator = QTranslator()
@@ -4629,6 +4872,7 @@ if __name__ == "__main__":
     
     # 创建主窗口
     main_window = RTTMainWindow()
+    
     
     # 在窗口显示前更新翻译
     if hasattr(main_window, '_update_ui_translations'):
