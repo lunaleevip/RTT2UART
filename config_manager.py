@@ -20,10 +20,17 @@ class ConfigManager:
         初始化配置管理器
         
         Args:
-            config_dir: 配置文件目录，默认为当前工作目录
+            config_dir: 配置文件目录，默认为用户目录下的应用配置文件夹
         """
         if config_dir is None:
-            config_dir = os.getcwd()
+            # 使用用户目录下的应用配置文件夹
+            import sys
+            if sys.platform == "darwin":  # macOS
+                config_dir = os.path.expanduser("~/Library/Application Support/XexunRTT")
+            elif sys.platform == "win32":  # Windows
+                config_dir = os.path.expanduser("~/AppData/Roaming/XexunRTT")
+            else:  # Linux
+                config_dir = os.path.expanduser("~/.config/XexunRTT")
         
         self.config_dir = config_dir
         self.config_file = os.path.join(config_dir, "config.ini")
@@ -38,6 +45,9 @@ class ConfigManager:
         
         # 加载现有配置
         self.load_config()
+        
+        # 尝试从APP内部迁移配置文件（如果存在）
+        self._migrate_from_app_bundle()
     
     def _set_defaults(self):
         """设置默认配置值"""
@@ -80,7 +90,8 @@ class ConfigManager:
             'lock_horizontal': 'true',
             'lock_vertical': 'false',
             'window_geometry': '',  # 主窗口几何信息
-            'dialog_geometry': ''   # 连接对话框几何信息
+            'dialog_geometry': '',  # 连接对话框几何信息
+            'dpi_scale': 'auto'     # DPI缩放设置: auto或具体数值(0.1-5.0)
         }
         
         # 文本编码设置（读取/写入日志与显示）
@@ -144,6 +155,15 @@ class ConfigManager:
         except ValueError as e:
             print(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
             self.config.set(section, option, str(fallback).lower())
+            return fallback
+    
+    def _safe_get(self, section: str, option: str, fallback: str) -> str:
+        """安全地获取字符串配置值，如果获取失败则返回默认值并修复配置"""
+        try:
+            return self.config.get(section, option, fallback=fallback)
+        except Exception as e:
+            print(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
+            self.config.set(section, option, str(fallback))
             return fallback
     
     def save_config(self):
@@ -346,6 +366,28 @@ class ConfigManager:
     def set_fontsize(self, size: int):
         """设置字体大小"""
         self.config.set('UI', 'fontsize', str(size))
+    
+    def get_dpi_scale(self) -> str:
+        """获取DPI缩放设置"""
+        return self._safe_get('UI', 'dpi_scale', 'auto')
+    
+    def set_dpi_scale(self, scale):
+        """设置DPI缩放"""
+        # 验证输入值
+        if scale == 'auto':
+            self.config.set('UI', 'dpi_scale', str(scale))
+        else:
+            try:
+                scale_value = float(scale)
+                if 0.1 <= scale_value <= 5.0:
+                    self.config.set('UI', 'dpi_scale', str(scale))
+                else:
+                    raise ValueError(f"DPI缩放值超出范围: {scale}，应为0.1-5.0之间的数值")
+            except ValueError as e:
+                if "could not convert" in str(e):
+                    raise ValueError(f"DPI缩放值无效: {scale}，应为'auto'或0.1-5.0之间的数值")
+                else:
+                    raise e
     
     def get_lock_horizontal(self) -> bool:
         """获取水平锁定设置"""
@@ -604,6 +646,43 @@ class ConfigManager:
         except Exception as e:
             print(f"配置迁移失败: {e}")
             return False
+    
+    def _migrate_from_app_bundle(self):
+        """从APP内部迁移配置文件到用户目录"""
+        try:
+            import sys
+            if getattr(sys, 'frozen', False):  # 如果是打包的APP
+                # 获取APP内部资源路径
+                if sys.platform == "darwin":  # macOS
+                    app_bundle_path = os.path.dirname(sys.executable)
+                    # 在macOS APP中，可执行文件在Contents/MacOS/目录下
+                    app_bundle_path = os.path.dirname(os.path.dirname(os.path.dirname(app_bundle_path)))
+                    app_config_file = os.path.join(app_bundle_path, "Resources", "config.ini")
+                    app_cmd_file = os.path.join(app_bundle_path, "Resources", "cmd.txt")
+                else:
+                    # Windows/Linux
+                    app_bundle_path = os.path.dirname(sys.executable)
+                    app_config_file = os.path.join(app_bundle_path, "config.ini")
+                    app_cmd_file = os.path.join(app_bundle_path, "cmd.txt")
+                
+                # 迁移配置文件
+                if os.path.exists(app_config_file) and not os.path.exists(self.config_file):
+                    print(f"从APP内部迁移配置文件: {app_config_file} -> {self.config_file}")
+                    os.makedirs(self.config_dir, exist_ok=True)
+                    import shutil
+                    shutil.copy2(app_config_file, self.config_file)
+                    # 重新加载配置
+                    self.load_config()
+                
+                # 迁移命令历史文件
+                if os.path.exists(app_cmd_file) and not os.path.exists(self.cmd_file):
+                    print(f"从APP内部迁移命令历史: {app_cmd_file} -> {self.cmd_file}")
+                    os.makedirs(self.config_dir, exist_ok=True)
+                    import shutil
+                    shutil.copy2(app_cmd_file, self.cmd_file)
+                    
+        except Exception as e:
+            print(f"配置文件迁移失败: {e}")
 
 
 # 全局配置管理器实例
