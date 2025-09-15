@@ -49,11 +49,11 @@ def get_system_dpi():
                 # 计算缩放比例
                 scale_factor = device_pixel_ratio
                 
-                logger.info(f"🖥️ macOS DPI信息:")
-                logger.info(f"   物理DPI: {physical_dpi:.1f}")
-                logger.info(f"   逻辑DPI: {logical_dpi:.1f}")
-                logger.info(f"   设备像素比: {device_pixel_ratio:.1f}")
-                logger.info(f"   缩放比例: {scale_factor:.1f}")
+                logger.info(f"🖥️ macOS DPI Info:")
+                logger.info(f"   Physical DPI: {physical_dpi:.1f}")
+                logger.info(f"   Logical DPI: {logical_dpi:.1f}")
+                logger.info(f"   Device Pixel Ratio: {device_pixel_ratio:.1f}")
+                logger.info(f"   Scale Factor: {scale_factor:.1f}")
                 
                 return scale_factor
         else:
@@ -68,14 +68,14 @@ def get_system_dpi():
                 logical_dpi = screen.logicalDotsPerInch()
                 scale_factor = logical_dpi / 96.0  # 96是标准DPI
                 
-                logger.info(f"🖥️ 系统DPI信息:")
-                logger.info(f"   物理DPI: {physical_dpi:.1f}")
-                logger.info(f"   逻辑DPI: {logical_dpi:.1f}")
-                logger.info(f"   缩放比例: {scale_factor:.1f}")
+                logger.info(f"🖥️ System DPI Info:")
+                logger.info(f"   Physical DPI: {physical_dpi:.1f}")
+                logger.info(f"   Logical DPI: {logical_dpi:.1f}")
+                logger.info(f"   Scale Factor: {scale_factor:.1f}")
                 
                 return scale_factor
     except Exception as e:
-        logger.warning(f"⚠️ 获取DPI失败: {e}")
+        logger.warning(f"⚠️ Failed to get DPI: {e}")
         return 1.0
     
     return 1.0
@@ -86,12 +86,12 @@ def get_dpi_scale_factor(manual_dpi=None):
         try:
             dpi_value = float(manual_dpi)
             if 0.1 <= dpi_value <= 5.0:  # 限制范围在0.1到5.0之间
-                logger.info(f"🎯 使用手动DPI设置: {dpi_value:.2f}")
+                logger.info(f"🎯 Using manual DPI setting: {dpi_value:.2f}")
                 return dpi_value
             else:
-                logger.warning(f"⚠️ DPI值超出范围(0.1-5.0): {dpi_value}，使用自动检测")
+                logger.warning(f"⚠️ DPI value out of range (0.1-5.0): {dpi_value}, using auto detection")
         except ValueError:
-            logger.warning(f"⚠️ 无效的DPI值: {manual_dpi}，使用自动检测")
+            logger.warning(f"⚠️ Invalid DPI value: {manual_dpi}, using auto detection")
     
     # 自动检测系统DPI
     return get_system_dpi()
@@ -501,7 +501,7 @@ class RTTMainWindow(QMainWindow):
         # 获取DPI缩放比例（支持手动设置或自动检测）
         manual_dpi = config_manager.get_dpi_scale()
         self.dpi_scale = get_dpi_scale_factor(manual_dpi)
-        logger.info(f"🎯 当前DPI缩放比例: {self.dpi_scale:.2f}")
+        logger.info(f"🎯 Current DPI scale: {self.dpi_scale:.2f}")
         
         # 设置主窗口属性
         self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
@@ -511,7 +511,7 @@ class RTTMainWindow(QMainWindow):
         base_width, base_height = 1200, 800
         adaptive_width, adaptive_height = get_adaptive_window_size(base_width, base_height, self.dpi_scale)
         self.resize(adaptive_width, adaptive_height)
-        logger.info(f"📏 窗口大小调整为: {adaptive_width}x{adaptive_height}")
+        logger.info(f"📏 Window size adjusted to: {adaptive_width}x{adaptive_height}")
         
         # 创建中心部件
         self.central_widget = QWidget()
@@ -1404,7 +1404,7 @@ class RTTMainWindow(QMainWindow):
                     msg.show()
                     
                 except Exception as msg_e:
-                    logger.warning(f"显示重连提示对话框失败: {msg_e}")
+                    logger.warning(f"Failed to show reconnection dialog: {msg_e}")
             
         except Exception as e:
             self.append_jlink_log(f"❌ 处理连接丢失时出错: {e}")
@@ -1426,7 +1426,7 @@ class RTTMainWindow(QMainWindow):
 
     def closeEvent(self, e):
         """程序关闭事件处理 - 确保所有资源被正确清理"""
-        logger.info("开始程序关闭流程...")
+        logger.info("Starting program shutdown process...")
         
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
@@ -1437,15 +1437,15 @@ class RTTMainWindow(QMainWindow):
                 worker = self.connection_dialog.worker
                 if hasattr(worker, 'force_flush_all_buffers'):
                     try:
-                        logger.info("正在强制刷新所有TAB缓冲区...")
+                        logger.info("Force refreshing all TAB buffers...")
                         worker.force_flush_all_buffers()
                     except Exception as ex:
-                        logger.error(f"强制刷新缓冲区时出错: {ex}")
+                        logger.error(f"Error force refreshing buffers: {ex}")
             
             # 2. 停止所有RTT连接
             if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
                 if self.connection_dialog.start_state == True:
-                    logger.info("停止RTT连接...")
+                    logger.info("Stopping RTT connection...")
                     try:
                         # 正确调用stop方法而不是start方法
                         self.connection_dialog.rtt2uart.stop()
@@ -1454,9 +1454,9 @@ class RTTMainWindow(QMainWindow):
                         # 🔄 更新状态栏显示
                         self.update_status_bar()
                         
-                        logger.info("RTT连接已停止")
+                        logger.info("RTT connection stopped")
                     except Exception as ex:
-                        logger.error(f"停止RTT连接时出错: {ex}")
+                        logger.error(f"Error stopping RTT connection: {ex}")
             
             # 3. 停止所有定时器
             self._stop_all_timers()
@@ -1482,11 +1482,11 @@ class RTTMainWindow(QMainWindow):
             self._force_quit_application()
             
         except Exception as ex:
-            logger.error(f"关闭程序时出错: {ex}")
+            logger.error(f"Error closing program: {ex}")
         finally:
             # 确保窗口关闭
             e.accept()
-            logger.info("程序关闭流程完成")
+            logger.info("Program shutdown process completed")
     
     def _stop_all_timers(self):
         """停止所有定时器"""
@@ -1500,11 +1500,11 @@ class RTTMainWindow(QMainWindow):
                 worker = self.connection_dialog.worker
                 if hasattr(worker, 'buffer_flush_timer') and worker.buffer_flush_timer:
                     worker.buffer_flush_timer.stop()
-                    logger.info("缓冲刷新定时器已停止")
+                    logger.info("Buffer refresh timer stopped")
             
-            logger.info("所有定时器已停止")
+            logger.info("All timers stopped")
         except Exception as e:
-            logger.error(f"停止定时器时出错: {e}")
+            logger.error(f"Error stopping timers: {e}")
     
     def _force_terminate_threads(self):
         """强制终止所有线程"""
@@ -1518,20 +1518,20 @@ class RTTMainWindow(QMainWindow):
             for thread in threading.enumerate():
                 if thread != threading.current_thread() and thread.is_alive():
                     if not is_dummy_thread(thread):
-                        logger.warning(f"强制终止线程: {thread.name}")
+                        logger.warning(f"Force terminating thread: {thread.name}")
                         try:
                             # 尝试优雅地停止线程
                             thread.join(timeout=2.0)
                             if thread.is_alive():
-                                logger.warning(f"线程 {thread.name} 未能优雅停止，将被强制终止")
+                                logger.warning(f"Thread {thread.name} failed to stop gracefully, will be force terminated")
                                 # 对于Python线程，我们无法直接杀死，但可以标记为daemon
                                 thread.daemon = True
                         except Exception as e:
-                            logger.error(f"终止线程 {thread.name} 时出错: {e}")
+                            logger.error(f"Error terminating thread {thread.name}: {e}")
             
-            logger.info("线程清理完成")
+            logger.info("Thread cleanup completed")
         except Exception as e:
-            logger.error(f"强制终止线程时出错: {e}")
+            logger.error(f"Error force terminating threads: {e}")
     
     def _cleanup_ui_resources(self):
         """清理UI资源"""
@@ -1548,9 +1548,9 @@ class RTTMainWindow(QMainWindow):
             if hasattr(self, 'jlink_log_text'):
                 self.jlink_log_text.clear()
             
-            logger.info("UI资源清理完成")
+            logger.info("UI resource cleanup completed")
         except Exception as e:
-            logger.error(f"清理UI资源时出错: {e}")
+            logger.error(f"Error cleaning UI resources: {e}")
     
     def _cleanup_log_directories(self):
         """清理日志目录"""
@@ -1563,10 +1563,10 @@ class RTTMainWindow(QMainWindow):
                 if log_directory and os.path.exists(log_directory):
                     if not os.listdir(log_directory):
                         shutil.rmtree(log_directory)
-                        logger.info(f"已删除空日志目录: {log_directory}")
+                        logger.info(f"Deleted empty log directory: {log_directory}")
             
         except Exception as e:
-            logger.error(f"清理日志目录时出错: {e}")
+            logger.error(f"Error cleaning log directories: {e}")
     
     def _force_terminate_child_processes(self):
         """强制终止所有子进程"""
@@ -1575,16 +1575,16 @@ class RTTMainWindow(QMainWindow):
             children = current_process.children(recursive=True)
             
             if children:
-                logger.info(f"发现 {len(children)} 个子进程，开始清理...")
+                logger.info(f"Found {len(children)} child processes, starting cleanup...")
                 
                 for child in children:
                     try:
-                        logger.info(f"终止子进程: PID={child.pid}, 名称={child.name()}")
+                        logger.info(f"Terminating child process: PID={child.pid}, Name={child.name()}")
                         child.terminate()
                         child.wait(timeout=2)
                         
                         if child.is_running():
-                            logger.warning(f"强制杀死子进程: PID={child.pid}")
+                            logger.warning(f"Force killing child process: PID={child.pid}")
                             child.kill()
                             child.wait(timeout=1)
                             
@@ -1592,12 +1592,12 @@ class RTTMainWindow(QMainWindow):
                         # 进程已经不存在
                         pass
                     except Exception as e:
-                        logger.error(f"终止子进程时出错: {e}")
+                        logger.error(f"Error terminating child process: {e}")
                 
-                logger.info("子进程清理完成")
+                logger.info("Child process cleanup completed")
             
         except Exception as e:
-            logger.error(f"强制终止子进程时出错: {e}")
+            logger.error(f"Error force terminating child processes: {e}")
     
     
     def _force_quit_application(self):
@@ -1606,14 +1606,14 @@ class RTTMainWindow(QMainWindow):
             # 获取应用程序实例
             app = QApplication.instance()
             if app:
-                logger.info("强制退出应用程序...")
+                logger.info("Force quitting application...")
                 # 设置退出代码并立即退出
                 app.quit()
                 # 如果quit()不起作用，使用更强制的方法
                 QTimer.singleShot(1000, lambda: os._exit(0))
             
         except Exception as e:
-            logger.error(f"强制退出应用程序时出错: {e}")
+            logger.error(f"Error force quitting application: {e}")
             # 最后的手段：直接退出进程
             os._exit(0)
 
@@ -1659,9 +1659,9 @@ class RTTMainWindow(QMainWindow):
             try:
                 self.ui.cmd_buffer.clearEditText()
                 self.ui.cmd_buffer.setCurrentText("")  # 确保输入框完全清空
-                logger.debug(f"✅ 指令发送成功，输入框已清空: {current_text}")
+                logger.debug(f"✅ Command sent successfully, input cleared: {current_text}")
             except Exception as e:
-                logger.error(f"清空输入框失败: {e}")
+                logger.error(f"Failed to clear input box: {e}")
                 
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
@@ -1684,7 +1684,7 @@ class RTTMainWindow(QMainWindow):
                     self.connection_dialog.config.add_command_to_history(current_text)
         else:
             # 发送失败的处理
-            logger.warning(f"⚠️ 指令发送失败: 期望发送 {len(out_bytes)} 字节，实际发送 {bytes_written} 字节")
+            logger.warning(f"⚠️ Command send failed: expected {len(out_bytes)} bytes, actually sent {bytes_written} bytes")
             self.ui.sent.setText(QCoreApplication.translate("main_window", "❌ 发送失败"))
 
     def on_dis_connect_clicked(self):
@@ -1707,7 +1707,7 @@ class RTTMainWindow(QMainWindow):
         """F4清空当前TAB - 完整的清空逻辑"""
         try:
             current_index = self.ui.tem_switch.currentIndex()
-            logger.debug(f"🧹 清空TAB {current_index}")
+            logger.debug(f"🧹 Clearing TAB {current_index}")
             
             # 1. 清空UI显示
             current_page_widget = self.ui.tem_switch.widget(current_index)
@@ -1716,12 +1716,12 @@ class RTTMainWindow(QMainWindow):
                 text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     text_edit.clear()
-                    logger.debug(f"✅ 清空TAB {current_index} UI显示")
+                    logger.debug(f"✅ Cleared TAB {current_index} UI display")
                 else:
-                    logger.warning(f"⚠️ TAB {current_index} 未找到文本编辑器")
+                    logger.warning(f"⚠️ TAB {current_index} text editor not found")
                     return
             else:
-                logger.warning(f"⚠️ TAB {current_index} 不是有效的Widget")
+                logger.warning(f"⚠️ TAB {current_index} is not a valid Widget")
                 return
             
             # 2. 清空数据缓冲区
@@ -1752,21 +1752,21 @@ class RTTMainWindow(QMainWindow):
                     if hasattr(worker, 'display_lengths') and current_index < len(worker.display_lengths):
                         worker.display_lengths[current_index] = 0
                         
-                    logger.debug(f"✅ 清空TAB {current_index} 数据缓冲区")
+                    logger.debug(f"✅ Cleared TAB {current_index} data buffer")
                     
                 except Exception as e:
-                    logger.error(f"❌ 清空TAB {current_index} 数据缓冲区失败: {e}")
+                    logger.error(f"❌ Failed to clear TAB {current_index} data buffer: {e}")
             else:
-                logger.warning("⚠️ 无法访问Worker，只清空了UI显示")
+                logger.warning("⚠️ Cannot access Worker, only cleared UI display")
                 
             # 3. 标记页面为干净状态
             if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
                 self.page_dirty_flags[current_index] = False
                 
-            logger.info(f"🧹 TAB {current_index} 清空完成")
+            logger.info(f"🧹 TAB {current_index} clear completed")
             
         except Exception as e:
-            logger.error(f"❌ 清空TAB失败: {e}")
+            logger.error(f"❌ Failed to clear TAB: {e}")
             # 兜底：只清空UI
             try:
                 current_page_widget = self.ui.tem_switch.widget(self.ui.tem_switch.currentIndex())
@@ -1775,9 +1775,9 @@ class RTTMainWindow(QMainWindow):
                     text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
                     if text_edit:
                         text_edit.clear()
-                        logger.warning("⚠️ 兜底模式：只清空了UI显示")
+                        logger.warning("⚠️ Fallback mode: only cleared UI display")
             except Exception as fallback_e:
-                logger.error(f"❌ 兜底清空也失败: {fallback_e}")
+                logger.error(f"❌ Fallback clear also failed: {fallback_e}")
 
     def on_openfolder_clicked(self):
         """打开日志文件夹 - 跨平台兼容版本"""
@@ -1805,10 +1805,10 @@ class RTTMainWindow(QMainWindow):
             else:  # Linux
                 subprocess.run(["xdg-open", target_dir])
                 
-            logger.info(f"📁 已打开文件夹: {target_dir}")
+            logger.info(f"📁 Opened folder: {target_dir}")
             
         except Exception as e:
-            logger.error(f"❌ 打开文件夹失败: {e}")
+            logger.error(f"❌ Failed to open folder: {e}")
             # 显示错误消息
             QMessageBox.warning(self, "错误", f"无法打开文件夹:\n{e}")
 
@@ -1817,16 +1817,16 @@ class RTTMainWindow(QMainWindow):
         try:
             # 首先检查文件是否存在，不存在则创建空文件
             if not os.path.exists('cmd.txt'):
-                logger.info("📄 cmd.txt 文件不存在，正在创建空文件...")
+                logger.info("📄 cmd.txt file does not exist, creating empty file...")
                 try:
                     with open('cmd.txt', 'w', encoding='utf-8') as file:
                         file.write("# 命令历史文件\n")
                         file.write("# Command history file\n")
                         file.write("# 每行一个命令，程序启动时会自动加载到下拉框中\n")
                         file.write("# One command per line, automatically loaded into the dropdown on startup\n")
-                    logger.info("✅ cmd.txt 文件已创建")
+                    logger.info("✅ cmd.txt file created")
                 except Exception as create_error:
-                    logger.error(f"❌ 创建cmd.txt文件失败: {create_error}")
+                    logger.error(f"❌ Failed to create cmd.txt file: {create_error}")
                     return
             
             # 读取文件内容
