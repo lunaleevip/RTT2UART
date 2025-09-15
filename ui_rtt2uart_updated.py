@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'rtt2uart_updatedYcXEGJ.ui'
+## Form generated from reading UI file 'rtt2uart_updated.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.9.1
+## Created by: Qt User Interface Compiler version 6.9.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -91,6 +91,10 @@ class Ui_dialog(object):
         self.checkBox_resettarget = QCheckBox(dialog)
         self.checkBox_resettarget.setObjectName(u"checkBox_resettarget")
         self.checkBox_resettarget.setGeometry(QRect(20, 210, 91, 20))
+        self.checkBox_log_split = QCheckBox(dialog)
+        self.checkBox_log_split.setObjectName(u"checkBox_log_split")
+        self.checkBox_log_split.setGeometry(QRect(120, 210, 80, 20))
+        self.checkBox_log_split.setChecked(True)
         self.groupBox_3 = QGroupBox(dialog)
         self.groupBox_3.setObjectName(u"groupBox_3")
         self.groupBox_3.setGeometry(QRect(10, 0, 381, 81))
@@ -156,6 +160,7 @@ class Ui_dialog(object):
         self.label_2.setText(QCoreApplication.translate("dialog", u"Baud rate:", None))
         self.pushButton_scan.setText(QCoreApplication.translate("dialog", u"Scan", None))
         self.checkBox_resettarget.setText(QCoreApplication.translate("dialog", u"Reset target", None))
+        self.checkBox_log_split.setText(QCoreApplication.translate("dialog", u"\u65e5\u5fd7\u62c6\u5206", None))
         self.groupBox_3.setTitle(QCoreApplication.translate("dialog", u"Connection to J-Link", None))
         self.radioButton_usb.setText(QCoreApplication.translate("dialog", u"USB", None))
         self.radioButton_existing.setText(QCoreApplication.translate("dialog", u"Existing Session", None))

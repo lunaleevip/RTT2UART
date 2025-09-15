@@ -2334,6 +2334,8 @@ class ConnectionDialog(QDialog):
             self.serial_no_change_slot)
         self.ui.checkBox_resettarget.stateChanged.connect(
             self.reset_target_change_slot)
+        self.ui.checkBox_log_split.stateChanged.connect(
+            self.log_split_change_slot)
         self.ui.radioButton_usb.clicked.connect(self.usb_selete_slot)
         self.ui.radioButton_existing.clicked.connect(
             self.existing_session_selete_slot)
@@ -2484,6 +2486,7 @@ class ConnectionDialog(QDialog):
         
         # 应用其他设置
         self.ui.checkBox_resettarget.setChecked(self.config.get_reset_target())
+        self.ui.checkBox_log_split.setChecked(self.config.get_log_split())
         
         # 应用序列号设置
         self.ui.lineEdit_serialno.setText(self.config.get_serial_number())
@@ -2545,6 +2548,7 @@ class ConnectionDialog(QDialog):
             self.config.set_port_index(self.ui.comboBox_Port.currentIndex())
             self.config.set_baudrate(baudrate_list[self.ui.comboBox_baudrate.currentIndex()])
             self.config.set_reset_target(self.ui.checkBox_resettarget.isChecked())
+            self.config.set_log_split(self.ui.checkBox_log_split.isChecked())
             
             # 保存连接类型
             if self.ui.radioButton_usb.isChecked():
@@ -2825,10 +2829,18 @@ class ConnectionDialog(QDialog):
                 self.start_state = True
                 self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Stop"))
                 
+                # 获取日志拆分配置
+                log_split_enabled = self.config.get_log_split()
+                last_log_directory = self.config.get_last_log_directory()
+                
                 self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
-                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False)  # 重置后不再需要在rtt2uart中重置
+                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False, log_split_enabled, last_log_directory)  # 重置后不再需要在rtt2uart中重置
 
                 self.rtt2uart.start()
+                
+                # 保存当前日志目录供下次使用
+                self.config.set_last_log_directory(str(self.rtt2uart.log_directory))
+                self.config.save_config()
                 
                 # 设置JLink日志回调
                 if hasattr(self.main_window, 'append_jlink_log'):
@@ -3046,6 +3058,14 @@ class ConnectionDialog(QDialog):
         
         # 保存设置
         self.config.set_reset_target(is_checked)
+        self.config.save_config()
+    
+    def log_split_change_slot(self):
+        """日志拆分选项变更处理"""
+        is_checked = self.ui.checkBox_log_split.isChecked()
+        
+        # 保存设置
+        self.config.set_log_split(is_checked)
         self.config.save_config()
         
         # 只保存设置，不立即执行重置操作

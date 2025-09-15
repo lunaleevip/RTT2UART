@@ -191,7 +191,7 @@ def zip_folder(folder_path, zip_file_path):
 
 
 class rtt_to_serial():
-    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False):
+    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, last_log_directory=None):
         # jlink接入方式
         self._connect_inf = connect_inf
         # jlink接入参数
@@ -241,15 +241,23 @@ class rtt_to_serial():
         self.current_tab_index = 0  # 当前显示的标签页索引
         
         # 设置日志文件名
-        log_directory=None
+        log_directory = None
         
-        if log_directory is None:
-            # 获取桌面路径
+        if log_split:
+            # 日志拆分模式：每次连接使用新的日志目录
             desktop_path = Path.home() / "Desktop/XexunRTT_Log"
-            # 设置日志文件名
             log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
             # 确保日志文件夹存在，如果不存在则创建
             log_directory.mkdir(parents=True, exist_ok=True)
+        else:
+            # 非拆分模式：继续使用上次的日志目录
+            if last_log_directory and os.path.exists(last_log_directory):
+                log_directory = Path(last_log_directory)
+            else:
+                # 如果上次目录不存在，创建新目录
+                desktop_path = Path.home() / "Desktop/XexunRTT_Log"
+                log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
+                log_directory.mkdir(parents=True, exist_ok=True)
             
         self.log_directory = log_directory
         self.rtt_log_filename = os.path.join(log_directory, "rtt_log.log")

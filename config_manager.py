@@ -98,7 +98,9 @@ class ConfigManager:
             'auto_save': 'true',
             'log_format': 'txt',
             'max_log_size': '10000',  # KB
-            'auto_delete_empty': 'true'
+            'auto_delete_empty': 'true',
+            'log_split': 'true',  # 日志拆分，默认开启
+            'last_log_directory': ''  # 上次使用的日志目录
         }
         
         # 性能清理设置
@@ -483,6 +485,22 @@ class ConfigManager:
     def set_max_log_size(self, max_lines: int):
         """设置最大日志行数"""
         self.config.set('Logging', 'max_log_size', str(max_lines))
+    
+    def get_log_split(self) -> bool:
+        """获取日志拆分设置"""
+        return self._safe_getboolean('Logging', 'log_split', True)
+    
+    def set_log_split(self, enabled: bool):
+        """设置日志拆分"""
+        self.config.set('Logging', 'log_split', str(enabled).lower())
+    
+    def get_last_log_directory(self) -> str:
+        """获取上次使用的日志目录"""
+        return self.config.get('Logging', 'last_log_directory', fallback='')
+    
+    def set_last_log_directory(self, directory: str):
+        """设置上次使用的日志目录"""
+        self.config.set('Logging', 'last_log_directory', directory)
     
     def get_clean_trigger_ms(self) -> int:
         """获取触发清理的UI耗时阈值（毫秒）"""
