@@ -133,6 +133,11 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     </message>
     <message>
         <location filename="rtt2uart_updated.ui" line="254"/>
+        <source>Log Split</source>
+        <translation>日志拆分</translation>
+    </message>
+    <message>
+        <location filename="rtt2uart_updated.ui" line="254"/>
         <location filename="rtt2uart.ui" line="255"/>
         <source>Connection to J-Link</source>
         <translation>连接到 J-Link</translation>

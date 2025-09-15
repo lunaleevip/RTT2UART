@@ -160,7 +160,7 @@ class Ui_dialog(object):
         self.label_2.setText(QCoreApplication.translate("dialog", u"Baud rate:", None))
         self.pushButton_scan.setText(QCoreApplication.translate("dialog", u"Scan", None))
         self.checkBox_resettarget.setText(QCoreApplication.translate("dialog", u"Reset target", None))
-        self.checkBox_log_split.setText(QCoreApplication.translate("dialog", u"\u65e5\u5fd7\u62c6\u5206", None))
+        self.checkBox_log_split.setText(QCoreApplication.translate("dialog", u"Log Split", None))
         self.groupBox_3.setTitle(QCoreApplication.translate("dialog", u"Connection to J-Link", None))
         self.radioButton_usb.setText(QCoreApplication.translate("dialog", u"USB", None))
         self.radioButton_existing.setText(QCoreApplication.translate("dialog", u"Existing Session", None))

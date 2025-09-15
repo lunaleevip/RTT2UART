@@ -251,7 +251,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>日志拆分</string>
+    <string>Log Split</string>
    </property>
    <property name="checked">
     <bool>true</bool>
