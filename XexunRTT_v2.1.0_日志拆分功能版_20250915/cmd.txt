@@ -1,0 +1,4 @@
+# 命令历史文件
+# Command history file
+# 每行一个命令，程序启动时会自动加载到下拉框中
+# One command per line, automatically loaded into the dropdown on startup

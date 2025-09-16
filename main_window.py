@@ -275,6 +275,13 @@ class DeviceSelectDialog(QDialog):
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         self.setWindowModality(Qt.ApplicationModal)
         
+        # 设置窗口标志以避免在任务栏Aero Peek中显示
+        current_flags = self.windowFlags()
+        new_flags = current_flags | Qt.Tool
+        # 确保保留关闭按钮和系统菜单
+        new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+        self.setWindowFlags(new_flags)
+        
 		#创建筛选模型
         self.proxy_model = QSortFilterProxyModel()
 		#连接文本框设置筛选条件
@@ -545,8 +552,15 @@ class RTTMainWindow(QMainWindow):
         self.connection_dialog = ConnectionDialog(self)
         # 连接成功信号
         self.connection_dialog.connection_established.connect(self.on_connection_established)
+        
+        # 命令历史导航
+        self.command_history_index = -1  # 当前历史命令索引，-1表示未选择历史命令
+        self.current_input_text = ""     # 保存当前输入的文本
         # 连接断开信号
         self.connection_dialog.connection_disconnected.connect(self.on_connection_disconnected)
+        
+        # 在connection_dialog初始化后加载命令历史
+        self.populateComboBox()
         
         # 串口转发设置已移动到连接对话框中
         
@@ -757,13 +771,15 @@ class RTTMainWindow(QMainWindow):
         self.jlink_log_tail_offset = 0
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
         self.ui.LockH_checkBox.setChecked(True)
-        self.populateComboBox()
         
         # 初始化编码下拉框（ui_xexunrtt.py中已有 encoder 组合框）
         if hasattr(self.ui, 'encoder'):
             self._init_encoding_combo()
             self.ui.encoder.currentTextChanged.connect(self._on_encoding_changed)
         self.ui.cmd_buffer.activated.connect(self.on_pushButton_clicked)
+        
+        # 为ComboBox安装事件过滤器以支持上下方向键导航命令历史
+        self.ui.cmd_buffer.installEventFilter(self)
 
         # 设置默认样式
         palette = QPalette()
@@ -1161,7 +1177,7 @@ class RTTMainWindow(QMainWindow):
             # 如果以上方法都失败，使用系统退出
             import sys
             sys.exit(0)
-        
+    
     def _show_about(self):
         """显示关于对话框"""
         QMessageBox.about(self, 
@@ -1366,11 +1382,20 @@ class RTTMainWindow(QMainWindow):
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
-            # 从INI配置加载命令历史
+            # 命令历史已在populateComboBox()中加载，这里只需要同步到settings
             cmd_history = self.connection_dialog.config.get_command_history()
-            self.ui.cmd_buffer.addItems(cmd_history)
-            # 同步更新settings以保持兼容性
-            settings['cmd'] = cmd_history
+            # 使用集合去重，保持顺序
+            unique_commands = []
+            seen = set()
+            for cmd in cmd_history:
+                if cmd and cmd not in seen:
+                    unique_commands.append(cmd)
+                    seen.add(cmd)
+            
+            # 同步更新settings以保持兼容性（不重复添加到UI）
+            settings['cmd'] = unique_commands
+            
+            logger.debug(f"📋 命令历史已同步到settings: {len(unique_commands)} 条")
             
             # 从配置管理器加载筛选器设置
             for i in range(17, MAX_TAB_SIZE):
@@ -1557,6 +1582,220 @@ class RTTMainWindow(QMainWindow):
         # 自动滚动到底部
         scrollbar = self.jlink_log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+    
+    def get_tab1_content(self, full_content=False):
+        """获取TAB 1 (RTT Channel 1) 的当前内容
+        
+        Args:
+            full_content (bool): 如果为True，返回完整内容；如果为False，返回截取的内容
+        """
+        try:
+            # TAB 1对应索引2（索引0是ALL页面，索引1是RTT Channel 0，索引2是RTT Channel 1）
+            tab_index = 2
+            
+            # 获取TAB 1的widget
+            tab1_widget = self.ui.tem_switch.widget(tab_index)
+            if not tab1_widget:
+                return ""
+            
+            # 查找文本框
+            from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
+            text_edit = tab1_widget.findChild(QPlainTextEdit)
+            if not text_edit:
+                text_edit = tab1_widget.findChild(QTextEdit)
+            
+            if text_edit:
+                # 获取文本内容
+                if hasattr(text_edit, 'toPlainText'):
+                    content = text_edit.toPlainText()
+                else:
+                    content = text_edit.toHtml()
+                
+                # 如果要求完整内容，直接返回
+                if full_content:
+                    return content
+                
+                # 返回最近的内容（增加字符数限制，确保内容完整）
+                max_chars = 3000  # 进一步增加到3000字符
+                if len(content) > max_chars:
+                    # 获取最后的内容，并尝试从完整行开始
+                    recent_content = content[-max_chars:]
+                    # 找到第一个换行符，从那里开始
+                    first_newline = recent_content.find('\n')
+                    if first_newline != -1:
+                        recent_content = recent_content[first_newline + 1:]
+                    return recent_content
+                else:
+                    return content
+            
+            return ""
+            
+        except Exception as e:
+            logger.error(f"❌ 获取TAB 1内容失败: {e}")
+            return ""
+    
+    def _display_tab1_content_to_jlink_log(self, command):
+        """将TAB 1的内容显示到JLink日志框中"""
+        try:
+            # 延迟一小段时间，等待可能的响应数据
+            QTimer.singleShot(1000, lambda: self._delayed_display_tab1_content(command))
+            
+        except Exception as e:
+            logger.error(f"❌ 显示TAB 1内容到JLink日志失败: {e}")
+    
+    def _delayed_display_tab1_content(self, command):
+        """延迟显示TAB 1内容（等待响应数据）"""
+        try:
+            # 获取TAB 1的当前内容（使用更大的截取范围）
+            tab1_content = self.get_tab1_content()
+            
+            if tab1_content.strip():
+                # 分割内容为行
+                lines = tab1_content.strip().split('\n')
+                
+                # 智能显示逻辑：根据内容长度调整显示行数
+                total_lines = len(lines)
+                if total_lines <= 10:
+                    # 少量内容，全部显示
+                    max_lines = total_lines
+                elif total_lines <= 30:
+                    # 中等内容，显示最近20行
+                    max_lines = 20
+                else:
+                    # 大量内容，显示最近30行
+                    max_lines = 30
+                
+                recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
+                
+                # 添加到JLink日志
+                self.append_jlink_log(f"📤 Command sent: {command}")
+                self.append_jlink_log("📥 RTT Channel 1 Response:")
+                
+                # 如果内容被截取，显示省略提示
+                if len(lines) > max_lines:
+                    skipped_lines = len(lines) - max_lines
+                    self.append_jlink_log(f"   ... (省略前 {skipped_lines} 行) ...")
+                
+                # 统计显示的有效行数
+                valid_line_count = 0
+                for line in recent_lines:
+                    line = line.strip()
+                    if line:  # 只显示非空行
+                        # 清理ANSI控制字符（如果有的话）
+                        import re
+                        clean_line = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', line)
+                        # 限制单行长度，避免过长的行
+                        if len(clean_line) > 120:
+                            clean_line = clean_line[:117] + "..."
+                        self.append_jlink_log(f"   {clean_line}")
+                        valid_line_count += 1
+                
+                # 显示统计信息
+                if len(lines) > max_lines:
+                    self.append_jlink_log(f"   📊 显示最近 {valid_line_count} 行 / 总共 {len(lines)} 行")
+                else:
+                    self.append_jlink_log(f"   📊 共 {valid_line_count} 行")
+                
+                self.append_jlink_log("─" * 50)  # 分隔线
+            else:
+                # 如果没有内容，显示提示信息
+                self.append_jlink_log(f"📤 Command sent: {command}")
+                self.append_jlink_log("📥 RTT Channel 1: No response data")
+                self.append_jlink_log("─" * 50)  # 分隔线
+                
+        except Exception as e:
+            logger.error(f"❌ 延迟显示TAB 1内容失败: {e}")
+
+    def eventFilter(self, obj, event):
+        """事件过滤器：处理ComboBox的键盘事件"""
+        if obj == self.ui.cmd_buffer and event.type() == event.Type.KeyPress:
+            key = event.key()
+            
+            # 处理上方向键
+            if key == Qt.Key_Up:
+                self._navigate_command_history_up()
+                return True  # 消费事件
+                
+            # 处理下方向键
+            elif key == Qt.Key_Down:
+                self._navigate_command_history_down()
+                return True  # 消费事件
+                
+            # 处理其他按键时保存当前输入
+            elif key not in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab]:
+                # 如果当前不在历史导航模式，保存输入文本
+                if self.command_history_index == -1:
+                    # 延迟保存，让按键先被处理
+                    QTimer.singleShot(0, self._save_current_input)
+        
+        # 调用父类的事件过滤器
+        return super().eventFilter(obj, event)
+    
+    def _save_current_input(self):
+        """保存当前输入的文本"""
+        if self.command_history_index == -1:
+            self.current_input_text = self.ui.cmd_buffer.currentText()
+    
+    def _navigate_command_history_up(self):
+        """向上导航命令历史"""
+        try:
+            # 获取命令历史
+            history_count = self.ui.cmd_buffer.count()
+            if history_count == 0:
+                return
+            
+            # 如果当前不在历史导航模式，保存当前输入并开始导航
+            if self.command_history_index == -1:
+                self.current_input_text = self.ui.cmd_buffer.currentText()
+                self.command_history_index = 0
+            else:
+                # 向上移动（更早的命令）
+                self.command_history_index = min(self.command_history_index + 1, history_count - 1)
+            
+            # 设置ComboBox显示历史命令
+            self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
+            # 选中文本，便于继续输入时替换
+            line_edit = self.ui.cmd_buffer.lineEdit()
+            if line_edit:
+                line_edit.selectAll()
+            
+            logger.debug(f"📋 导航到历史命令 [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
+            
+        except Exception as e:
+            logger.error(f"❌ 向上导航命令历史失败: {e}")
+    
+    def _navigate_command_history_down(self):
+        """向下导航命令历史"""
+        try:
+            # 如果不在历史导航模式，不处理
+            if self.command_history_index == -1:
+                return
+            
+            # 向下移动（更新的命令）
+            self.command_history_index -= 1
+            
+            if self.command_history_index < 0:
+                # 回到当前输入
+                self.command_history_index = -1
+                self.ui.cmd_buffer.setCurrentText(self.current_input_text)
+                logger.debug(f"📋 返回当前输入: {self.current_input_text}")
+            else:
+                # 设置ComboBox显示历史命令
+                self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
+                logger.debug(f"📋 导航到历史命令 [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
+            
+            # 选中文本，便于继续输入时替换
+            line_edit = self.ui.cmd_buffer.lineEdit()
+            if line_edit:
+                line_edit.selectAll()
+            
+        except Exception as e:
+            logger.error(f"❌ 向下导航命令历史失败: {e}")
+    
+    def _reset_command_history_navigation(self):
+        """重置命令历史导航状态"""
+        self.command_history_index = -1
+        self.current_input_text = ""
 
     def _start_jlink_log_tailer(self, log_file_path):
         """启动定时器，实时读取 JLINK_DEBUG.TXT 的增量内容并显示到窗口。"""
@@ -1910,6 +2149,9 @@ class RTTMainWindow(QMainWindow):
                 logger.debug(f"✅ Command sent successfully, input cleared: {current_text}")
             except Exception as e:
                 logger.error(f"Failed to clear input box: {e}")
+            
+            # 重置命令历史导航状态
+            self._reset_command_history_navigation()
                 
             sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
@@ -1922,14 +2164,14 @@ class RTTMainWindow(QMainWindow):
                 if text_edit:
                     self.highlighter[2].setKeywords([current_text])
                     
-            # 检查字符串是否在 ComboBox 的列表中
-            if current_text not in [self.ui.cmd_buffer.itemText(i) for i in range(self.ui.cmd_buffer.count())]:
-                # 如果不在列表中，则将字符串添加到 ComboBox 中
-                self.ui.cmd_buffer.addItem(current_text)
-                if self.connection_dialog:
-                    self.connection_dialog.settings['cmd'].append(current_text)
-                    # 同步保存到CMD.txt文件
-                    self.connection_dialog.config.add_command_to_history(current_text)
+            # 📋 新功能：命令发送成功后，将TAB 1的输出内容展示到JLink日志框
+            self._display_tab1_content_to_jlink_log(current_text)
+                    
+            # 智能命令历史管理：防止重复，只调整顺序
+            self._update_command_history(current_text)
+            
+            self.ui.cmd_buffer.clearEditText()
+            self.ui.cmd_buffer.setCurrentText("")  # 确保输入框完全清空
         else:
             # 发送失败的处理
             logger.warning(f"⚠️ Command send failed: expected {len(out_bytes)} bytes, actually sent {bytes_written} bytes")
@@ -2091,63 +2333,78 @@ class RTTMainWindow(QMainWindow):
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open config folder:\n{}").format(e))
 
     def populateComboBox(self):
-        """读取 cmd.txt 文件并将内容添加到 QComboBox 中，如果文件不存在则创建空文件"""
+        """统一从配置管理器加载命令历史，避免重复加载"""
         try:
-            # 首先检查文件是否存在，不存在则创建空文件
-            if not os.path.exists('cmd.txt'):
-                logger.info("📄 cmd.txt file does not exist, creating empty file...")
-                try:
-                    with open('cmd.txt', 'w', encoding='utf-8') as file:
-                        file.write("# 命令历史文件\n")
-                        file.write("# Command history file\n")
-                        file.write("# 每行一个命令，程序启动时会自动加载到下拉框中\n")
-                        file.write("# One command per line, automatically loaded into the dropdown on startup\n")
-                    logger.info("✅ cmd.txt file created")
-                except Exception as create_error:
-                    logger.error(f"❌ Failed to create cmd.txt file: {create_error}")
-                    return
+            # 清空现有项目，防止重复加载
+            self.ui.cmd_buffer.clear()
             
-            # 读取文件内容
-            try:
-                with open('cmd.txt', 'r', encoding='utf-8') as file:
-                    lines_added = 0
-                    for line in file:
-                        line = line.strip()
-                        # 跳过空行和注释行
-                        if line and not line.startswith('#'):
-                            self.ui.cmd_buffer.addItem(line)
-                            lines_added += 1
+            # 统一使用配置管理器加载命令历史
+            if hasattr(self, 'connection_dialog') and self.connection_dialog:
+                cmd_history = self.connection_dialog.config.get_command_history()
+                
+                if cmd_history:
+                    # 使用集合去重，保持顺序
+                    unique_commands = []
+                    seen = set()
+                    for cmd in cmd_history:
+                        if cmd and cmd not in seen:
+                            unique_commands.append(cmd)
+                            seen.add(cmd)
                     
-                    if lines_added > 0:
-                        logger.debug(f"📋 从cmd.txt加载了 {lines_added} 条命令历史")
-                    else:
-                        logger.debug("📋 cmd.txt文件为空或只包含注释，未加载命令历史")
-                        
-            except UnicodeDecodeError:
-                # 如果UTF-8解码失败，尝试GBK编码（兼容旧文件）
-                logger.warning("⚠️ UTF-8解码失败，尝试GBK编码读取cmd.txt")
-                try:
-                    with open('cmd.txt', 'r', encoding='gbk') as file:
-                        lines_added = 0
-                        for line in file:
-                            line = line.strip()
-                            # 跳过空行和注释行
-                            if line and not line.startswith('#'):
-                                self.ui.cmd_buffer.addItem(line)
-                                lines_added += 1
-                        
-                        if lines_added > 0:
-                            logger.debug(f"📋 从cmd.txt(GBK)加载了 {lines_added} 条命令历史")
-                            # 将文件转换为UTF-8编码保存
-                            self._convert_cmd_file_to_utf8()
-                        else:
-                            logger.debug("📋 cmd.txt文件(GBK)为空或只包含注释，未加载命令历史")
-                            
-                except Exception as gbk_error:
-                    logger.error(f"❌ GBK编码读取cmd.txt也失败: {gbk_error}")
+                    # 添加去重后的命令到ComboBox
+                    for cmd in unique_commands:
+                        self.ui.cmd_buffer.addItem(cmd)
+                    
+                    logger.debug(f"📋 从配置管理器加载了 {len(unique_commands)} 条唯一命令历史")
+                else:
+                    logger.debug("📋 配置管理器中没有命令历史")
+            else:
+                logger.debug("📋 连接对话框未初始化，跳过命令历史加载")
+                
+        except Exception as e:
+            logger.error(f"❌ 加载命令历史时发生错误: {e}")
+    
+    def _update_command_history(self, command: str):
+        """智能更新命令历史：防止重复插入，只调整顺序"""
+        if not command or not command.strip():
+            return
+        
+        try:
+            # 检查命令是否已存在于ComboBox中
+            existing_index = -1
+            for i in range(self.ui.cmd_buffer.count()):
+                if self.ui.cmd_buffer.itemText(i) == command:
+                    existing_index = i
+                    break
+            
+            if existing_index >= 0:
+                # 如果命令已存在，移除旧位置的项目
+                self.ui.cmd_buffer.removeItem(existing_index)
+                logger.debug(f"📋 移除重复命令: {command}")
+            
+            # 将命令插入到最前面（索引0）
+            self.ui.cmd_buffer.insertItem(0, command)
+            
+            # 同步更新配置管理器
+            if self.connection_dialog:
+                # 更新settings中的cmd列表（保持兼容性）
+                if hasattr(self.connection_dialog, 'settings') and 'cmd' in self.connection_dialog.settings:
+                    if command in self.connection_dialog.settings['cmd']:
+                        self.connection_dialog.settings['cmd'].remove(command)
+                    self.connection_dialog.settings['cmd'].insert(0, command)
+                
+                # 保存到配置文件
+                self.connection_dialog.config.add_command_to_history(command)
+            
+            # 限制ComboBox项目数量，避免过多
+            max_items = 100
+            while self.ui.cmd_buffer.count() > max_items:
+                self.ui.cmd_buffer.removeItem(self.ui.cmd_buffer.count() - 1)
+            
+            logger.debug(f"📋 命令历史已更新: {command} (总数: {self.ui.cmd_buffer.count()})")
                     
         except Exception as e:
-            logger.error(f"❌ 读取cmd.txt文件时发生未预期错误: {e}")
+            logger.error(f"❌ 更新命令历史失败: {e}")
     
     def _convert_cmd_file_to_utf8(self):
         """将cmd.txt文件转换为UTF-8编码"""
@@ -2514,6 +2771,13 @@ class FindDialog(QDialog):
         self.setModal(False)
         self.resize(400, 120)
         
+        # 设置窗口标志以避免在任务栏Aero Peek中显示
+        current_flags = self.windowFlags()
+        new_flags = current_flags | Qt.Tool
+        # 确保保留关闭按钮和系统菜单
+        new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+        self.setWindowFlags(new_flags)
+        
         # 创建界面
         self.setup_ui()
         
@@ -2712,6 +2976,16 @@ class ConnectionDialog(QDialog):
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART Connection Configuration"))
         self.setWindowModality(Qt.ApplicationModal)
+        
+        # 设置窗口标志以避免在任务栏Aero Peek中显示
+        # Tool窗口不会在任务栏显示预览，但保持可访问性
+        current_flags = self.windowFlags()
+        new_flags = current_flags | Qt.Tool
+        # 确保保留关闭按钮和系统菜单
+        new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+        self.setWindowFlags(new_flags)
+        
+        logger.info("ConnectionDialog window flags set to prevent Aero Peek display")
         
         # 使用新的配置管理器
         self.config = config_manager
@@ -2986,7 +3260,7 @@ class ConnectionDialog(QDialog):
         self.ui.checkBox_resettarget.setChecked(self.config.get_reset_target())
         self.ui.checkBox_log_split.setChecked(self.config.get_log_split())
         
-        # 应用序列号设置 
+        # 应用序列号设置
         self.ui.comboBox_serialno.setCurrentText(self.config.get_serial_number())
         self.ui.lineEdit_ip.setText(self.config.get_ip_address())
         
@@ -4001,6 +4275,13 @@ class ConnectionDialog(QDialog):
         dialog.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         dialog.setModal(True)
         dialog.resize(500, 350)
+        
+        # 设置窗口标志以避免在任务栏Aero Peek中显示
+        current_flags = dialog.windowFlags()
+        new_flags = current_flags | Qt.Tool
+        # 确保保留关闭按钮和系统菜单
+        new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+        dialog.setWindowFlags(new_flags)
         
         layout = QVBoxLayout(dialog)
         
