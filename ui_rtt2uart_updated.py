@@ -112,9 +112,15 @@ class Ui_dialog(object):
         self.checkBox_serialno = QCheckBox(self.groupBox_3)
         self.checkBox_serialno.setObjectName(u"checkBox_serialno")
         self.checkBox_serialno.setGeometry(QRect(150, 20, 81, 20))
-        self.lineEdit_serialno = QLineEdit(self.groupBox_3)
-        self.lineEdit_serialno.setObjectName(u"lineEdit_serialno")
-        self.lineEdit_serialno.setGeometry(QRect(240, 18, 131, 20))
+        self.comboBox_serialno = QComboBox(self.groupBox_3)
+        self.comboBox_serialno.setObjectName(u"comboBox_serialno")
+        self.comboBox_serialno.setGeometry(QRect(240, 18, 125, 20))  # 增加宽度
+        self.comboBox_serialno.setEditable(True)  # 允许手动输入
+        self.comboBox_serialno.setInsertPolicy(QComboBox.NoInsert)  # 防止自动插入
+        self.pushButton_refresh_jlink = QPushButton(self.groupBox_3)
+        self.pushButton_refresh_jlink.setObjectName(u"pushButton_refresh_jlink")
+        self.pushButton_refresh_jlink.setGeometry(QRect(370, 18, 16, 20))  # 更紧凑的按钮
+        self.pushButton_refresh_jlink.setText("🔄")  # 使用刷新图标
         self.lineEdit_ip = QLineEdit(self.groupBox_3)
         self.lineEdit_ip.setObjectName(u"lineEdit_ip")
         self.lineEdit_ip.setEnabled(False)

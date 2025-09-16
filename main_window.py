@@ -513,6 +513,19 @@ class RTTMainWindow(QMainWindow):
         self.resize(adaptive_width, adaptive_height)
         logger.info(f"📏 Window size adjusted to: {adaptive_width}x{adaptive_height}")
         
+        # 设置最小窗口尺寸 - 允许极小窗口以便多设备同时使用
+        min_width = 200  # 极小宽度，只显示核心信息
+        min_height = 150  # 极小高度
+        self.setMinimumSize(min_width, min_height)
+        logger.info(f"📏 Minimum window size set to: {min_width}x{min_height}")
+        
+        # 紧凑模式状态
+        self.compact_mode = False
+        
+        # 添加右键菜单支持紧凑模式
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
         # 创建中心部件
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -603,6 +616,11 @@ class RTTMainWindow(QMainWindow):
         self.find_action = QAction(self)
         self.find_action.setShortcut(QKeySequence("Ctrl+F"))
         self.find_action.triggered.connect(self.show_find_dialog)
+        
+        # 添加强制退出快捷键
+        self.force_quit_action = QAction(self)
+        self.force_quit_action.setShortcut(QKeySequence("Ctrl+Alt+Q"))
+        self.force_quit_action.triggered.connect(self._force_quit)
                 
         #self.actionenter = QAction(self)
         #self.actionenter.setShortcut(QKeySequence(Qt.Key_Return, Qt.Key_Enter))
@@ -618,6 +636,7 @@ class RTTMainWindow(QMainWindow):
 
         self.addAction(self.action9)
         self.addAction(self.find_action)
+        self.addAction(self.force_quit_action)
         #self.addAction(self.actionenter)
 
         # 连接动作的触发事件
@@ -705,6 +724,10 @@ class RTTMainWindow(QMainWindow):
                 # 设置TAB控件的大小策略为完全扩展
                 self.ui.tem_switch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                 self.ui.tem_switch.setMinimumSize(0, 0)  # 移除最小尺寸限制
+                
+                # 🎯 极小窗口优化：设置TAB控件支持极小尺寸
+                self.ui.tem_switch.setUsesScrollButtons(True)  # 当标签过多时使用滚动按钮
+                self.ui.tem_switch.setElideMode(Qt.ElideRight)  # 标签文本过长时省略显示
                 
                 # 设置GridLayout的行拉伸因子，让第0行（TAB控件行）占据主要垂直空间
                 grid_layout = self.ui.gridLayout
@@ -805,6 +828,17 @@ class RTTMainWindow(QMainWindow):
         new_window_action.setStatusTip(QCoreApplication.translate("main_window", "Open a new window"))
         new_window_action.triggered.connect(self._new_window)
         window_menu.addAction(new_window_action)
+        
+        window_menu.addSeparator()
+        
+        # 紧凑模式切换动作
+        self.compact_mode_action = QAction(QCoreApplication.translate("main_window", "Compact Mode(&M)"), self)
+        self.compact_mode_action.setCheckable(True)
+        self.compact_mode_action.setChecked(False)
+        self.compact_mode_action.setShortcut(QKeySequence("Ctrl+M"))
+        self.compact_mode_action.setStatusTip(QCoreApplication.translate("main_window", "Toggle compact mode for multi-device usage"))
+        self.compact_mode_action.triggered.connect(self._toggle_compact_mode)
+        window_menu.addAction(self.compact_mode_action)
         
         # 工具菜单
         tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
@@ -931,6 +965,203 @@ class RTTMainWindow(QMainWindow):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
     
+    def _toggle_compact_mode(self):
+        """切换紧凑模式"""
+        self.compact_mode = not self.compact_mode
+        
+        if self.compact_mode:
+            # 进入紧凑模式
+            logger.info("Entering compact mode for multi-device usage")
+            
+            # 保存当前窗口状态
+            self._normal_geometry = self.geometry()
+            self._normal_menu_visible = self.menuBar().isVisible()
+            self._normal_status_visible = self.statusBar().isVisible()
+            
+            # 隐藏菜单栏和状态栏
+            self.menuBar().setVisible(False)
+            self.statusBar().setVisible(False)
+            
+            # 隐藏JLink日志区域
+            if hasattr(self, 'jlink_log_widget'):
+                self._normal_jlink_log_visible = self.jlink_log_widget.isVisible()
+                self.jlink_log_widget.setVisible(False)
+            
+            # 设置为紧凑尺寸 - 更合理的尺寸
+            compact_width = 400
+            compact_height = 250
+            self.resize(compact_width, compact_height)
+            
+            # 设置窗口标题显示紧凑模式
+            original_title = self.windowTitle()
+            if " - 紧凑模式" not in original_title:
+                self.setWindowTitle(original_title + " - 紧凑模式")
+            
+            # 设置窗口始终置顶（紧凑模式特性）
+            try:
+                current_flags = self.windowFlags()
+                # 确保保留关闭按钮和其他必要的窗口控件
+                new_flags = current_flags | Qt.WindowStaysOnTopHint
+                # 明确保留窗口系统菜单和关闭按钮
+                new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+                self.setWindowFlags(new_flags)
+                self.show()  # 重新显示以应用新的窗口标志
+                logger.info("Window set to stay on top in compact mode with close button enabled")
+            except Exception as ex:
+                logger.warning(f"Failed to set window stay-on-top: {ex}")
+                
+        else:
+            # 退出紧凑模式
+            logger.info("Exiting compact mode")
+            
+            # 取消置顶
+            try:
+                current_flags = self.windowFlags()
+                new_flags = current_flags & ~Qt.WindowStaysOnTopHint
+                # 确保保留关闭按钮和其他必要的窗口控件
+                new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+                self.setWindowFlags(new_flags)
+                self.show()  # 重新显示以应用新的窗口标志
+                logger.info("Window stay-on-top flag removed with close button enabled")
+            except Exception as ex:
+                logger.warning(f"Failed to clear window stay-on-top: {ex}")
+            
+            # 恢复菜单栏和状态栏
+            if hasattr(self, '_normal_menu_visible'):
+                self.menuBar().setVisible(self._normal_menu_visible)
+            else:
+                self.menuBar().setVisible(True)
+                
+            if hasattr(self, '_normal_status_visible'):
+                self.statusBar().setVisible(self._normal_status_visible)
+            else:
+                self.statusBar().setVisible(True)
+            
+            # 恢复JLink日志区域
+            if hasattr(self, 'jlink_log_widget'):
+                if hasattr(self, '_normal_jlink_log_visible'):
+                    self.jlink_log_widget.setVisible(self._normal_jlink_log_visible)
+                else:
+                    self.jlink_log_widget.setVisible(True)
+            
+            # 恢复窗口几何
+            if hasattr(self, '_normal_geometry'):
+                self.setGeometry(self._normal_geometry)
+            else:
+                # 默认恢复尺寸
+                normal_width = 800
+                normal_height = 600
+                self.resize(normal_width, normal_height)
+            
+            # 恢复原始窗口标题
+            current_title = self.windowTitle()
+            if " - 紧凑模式" in current_title:
+                self.setWindowTitle(current_title.replace(" - 紧凑模式", ""))
+        
+        # 更新菜单项状态
+        if hasattr(self, 'compact_mode_action'):
+            self.compact_mode_action.setChecked(self.compact_mode)
+    
+    def _show_context_menu(self, position):
+        """显示右键菜单"""
+        context_menu = QMenu(self)
+        
+        # 紧凑模式选项 - 根据当前状态显示不同文本
+        if self.compact_mode:
+            compact_action = context_menu.addAction("🔍 恢复正常模式 (Ctrl+M)")
+            compact_action.setToolTip("退出紧凑模式，恢复完整界面")
+        else:
+            compact_action = context_menu.addAction("📱 切换到紧凑模式 (Ctrl+M)")
+            compact_action.setToolTip("进入紧凑模式，适合多窗口使用")
+        
+        compact_action.triggered.connect(self._toggle_compact_mode)
+        
+        context_menu.addSeparator()
+        
+        # 窗口管理
+        window_menu = context_menu.addMenu("🪟 窗口管理")
+        
+        # 新建窗口
+        new_window_action = window_menu.addAction("新建窗口 (Ctrl+N)")
+        new_window_action.triggered.connect(self._new_window)
+        
+        # 最小化窗口
+        minimize_action = window_menu.addAction("最小化窗口")
+        minimize_action.triggered.connect(self.showMinimized)
+        
+        # 最大化/还原
+        if self.isMaximized():
+            maximize_action = window_menu.addAction("还原窗口")
+            maximize_action.triggered.connect(self.showNormal)
+        else:
+            maximize_action = window_menu.addAction("最大化窗口")
+            maximize_action.triggered.connect(self.showMaximized)
+        
+        context_menu.addSeparator()
+        
+        # 连接管理
+        connection_menu = context_menu.addMenu("🔗 连接管理")
+        
+        # 连接设置
+        settings_action = connection_menu.addAction("连接设置...")
+        settings_action.triggered.connect(self._show_connection_settings)
+        
+        # 重新连接
+        if hasattr(self, 'connection_dialog') and self.connection_dialog:
+            if self.connection_dialog.start_state:
+                reconnect_action = connection_menu.addAction("断开连接")
+                reconnect_action.triggered.connect(self.on_dis_connect_clicked)
+            else:
+                reconnect_action = connection_menu.addAction("重新连接")
+                reconnect_action.triggered.connect(self.on_re_connect_clicked)
+        
+        context_menu.addSeparator()
+        
+        # 程序控制
+        program_menu = context_menu.addMenu("⚙️ 程序控制")
+        
+        # 正常退出
+        quit_action = program_menu.addAction("退出程序")
+        quit_action.triggered.connect(self.close)
+        
+        # 强制退出
+        force_quit_action = program_menu.addAction("强制退出 (Ctrl+Alt+Q)")
+        force_quit_action.triggered.connect(self._force_quit)
+        force_quit_action.setToolTip("用于程序无响应时的紧急退出")
+        
+        # 显示菜单
+        context_menu.exec(self.mapToGlobal(position))
+    
+    def _force_quit(self):
+        """强制退出程序 - 用于紧急情况"""
+        logger.info("Force quit triggered by user (Ctrl+Alt+Q)")
+        
+        try:
+            # 立即清除窗口置顶标志
+            if self.compact_mode:
+                current_flags = self.windowFlags()
+                new_flags = current_flags & ~Qt.WindowStaysOnTopHint
+                # 确保保留关闭按钮
+                new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+                self.setWindowFlags(new_flags)
+            
+            # 强制关闭所有子窗口
+            for widget in QApplication.allWidgets():
+                if widget != self:
+                    try:
+                        widget.close()
+                    except:
+                        pass
+            
+            # 强制退出应用程序
+            QApplication.quit()
+            
+        except Exception as e:
+            logger.error(f"Error in force quit: {e}")
+            # 如果以上方法都失败，使用系统退出
+            import sys
+            sys.exit(0)
+        
     def _show_about(self):
         """显示关于对话框"""
         QMessageBox.about(self, 
@@ -1435,6 +1666,18 @@ class RTTMainWindow(QMainWindow):
         
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
+        
+        # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
+        if self.compact_mode:
+            try:
+                current_flags = self.windowFlags()
+                new_flags = current_flags & ~Qt.WindowStaysOnTopHint
+                # 确保保留关闭按钮
+                new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+                self.setWindowFlags(new_flags)
+                logger.info("Cleared window stay-on-top flag for clean shutdown")
+            except Exception as ex:
+                logger.warning(f"Error clearing window flags: {ex}")
         
         try:
             # 1. 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
@@ -2573,6 +2816,13 @@ class ConnectionDialog(QDialog):
             self.buadrate_change_slot)
         self.ui.checkBox_serialno.stateChanged.connect(
             self.serial_no_change_slot)
+        # 安全地连接ComboBox信号
+        if hasattr(self.ui, 'comboBox_serialno'):
+            self.ui.comboBox_serialno.currentTextChanged.connect(
+                self.serial_no_text_changed_slot)
+        if hasattr(self.ui, 'pushButton_refresh_jlink'):
+            self.ui.pushButton_refresh_jlink.clicked.connect(
+                self._refresh_jlink_devices)
         self.ui.checkBox_resettarget.stateChanged.connect(
             self.reset_target_change_slot)
         self.ui.checkBox_log_split.stateChanged.connect(
@@ -2586,6 +2836,13 @@ class ConnectionDialog(QDialog):
         except:
             logger.error('Find jlink dll failed', exc_info=True)
             raise Exception(QCoreApplication.translate("main_window", "Find jlink dll failed !"))
+        
+        # 初始化JLINK设备选择相关属性
+        self.available_jlinks = []
+        self.selected_jlink_serial = None
+        
+        # 检测可用的JLINK设备
+        self._detect_jlink_devices()
 
         try:
             # 导出器件列表文件
@@ -2729,9 +2986,12 @@ class ConnectionDialog(QDialog):
         self.ui.checkBox_resettarget.setChecked(self.config.get_reset_target())
         self.ui.checkBox_log_split.setChecked(self.config.get_log_split())
         
-        # 应用序列号设置
-        self.ui.lineEdit_serialno.setText(self.config.get_serial_number())
+        # 应用序列号设置 
+        self.ui.comboBox_serialno.setCurrentText(self.config.get_serial_number())
         self.ui.lineEdit_ip.setText(self.config.get_ip_address())
+        
+        # 初始化设备列表
+        self._initialize_device_combo()
         
         # 如果没有保存的设置，使用合理的默认值
         if not device_list:
@@ -2800,7 +3060,7 @@ class ConnectionDialog(QDialog):
                 self.config.set_connection_type('Existing')
             
             # 保存序列号和IP设置
-            self.config.set_serial_number(self.ui.lineEdit_serialno.text())
+            self.config.set_serial_number(self.ui.comboBox_serialno.currentText())
             self.config.set_ip_address(self.ui.lineEdit_ip.text())
             self.config.set_auto_reconnect(self.ui.checkBox__auto.isChecked())
             
@@ -3048,8 +3308,53 @@ class ConnectionDialog(QDialog):
                         raise Exception(QCoreApplication.translate("main_window", "Please selete the target device !"))
                     
                 # 获取接入方式的参数
-                if self.ui.radioButton_usb.isChecked() and self.ui.checkBox_serialno.isChecked():
-                    connect_para = self.ui.lineEdit_serialno.text()
+                if self.ui.radioButton_usb.isChecked():
+                    if self.ui.checkBox_serialno.isChecked():
+                        # 从ComboBox获取选择的设备序列号
+                        selected_text = self.ui.comboBox_serialno.currentText().strip()
+                        
+                        # 检查是否有有效选择
+                        if selected_text and selected_text != "":
+                            # 提取实际的序列号（去除⭐标记和编号）
+                            if selected_text.startswith("⭐#"):
+                                # 格式: ⭐#0 序列号
+                                selected_text = selected_text.split(" ", 1)[1] if " " in selected_text else ""
+                            elif selected_text.startswith("#"):
+                                # 格式: #0 序列号
+                                selected_text = selected_text.split(" ", 1)[1] if " " in selected_text else ""
+                            
+                            connect_para = selected_text
+                            
+                            # 保存选择到配置
+                            self.config.set_last_jlink_serial(connect_para)
+                            self.config.add_preferred_jlink_serial(connect_para)
+                            self.config.save_config()
+                        else:
+                            # 当ComboBox未选择设备时，回退到原有的JLINK内置选择框
+                            logger.info("ComboBox未选择设备，使用JLINK内置选择框")
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log("📋 未指定设备序列号，将使用JLINK内置设备选择框")
+                            
+                            if len(self.available_jlinks) > 1:
+                                if not self._select_jlink_device():
+                                    # 用户取消选择，停止连接
+                                    return
+                                connect_para = self.selected_jlink_serial
+                            elif len(self.available_jlinks) == 1:
+                                self.selected_jlink_serial = self.available_jlinks[0]['serial']
+                                connect_para = self.selected_jlink_serial
+                            else:
+                                # 没有检测到设备，使用空参数让JLINK自动选择
+                                connect_para = None
+                    else:
+                        # 未勾选序列号选项，使用原有逻辑
+                        if len(self.available_jlinks) > 1:
+                            if not self._select_jlink_device():
+                                # 用户取消选择，停止连接
+                                return
+                        elif len(self.available_jlinks) == 1:
+                            self.selected_jlink_serial = self.available_jlinks[0]['serial']
+                        connect_para = self.selected_jlink_serial if hasattr(self, 'selected_jlink_serial') else None
                 elif self.ui.radioButton_tcpip.isChecked():
                     connect_para = self.ui.lineEdit_ip.text()
                 elif self.ui.radioButton_existing.isChecked():
@@ -3288,10 +3593,32 @@ class ConnectionDialog(QDialog):
         self.config.save_config()
 
     def serial_no_change_slot(self):
-        if self.ui.checkBox_serialno.isChecked():
-            self.ui.lineEdit_serialno.setVisible(True)
-        else:
-            self.ui.lineEdit_serialno.setVisible(False)
+        try:
+            if self.ui.checkBox_serialno.isChecked():
+                # 显示ComboBox和刷新按钮
+                if hasattr(self.ui, 'comboBox_serialno'):
+                    self.ui.comboBox_serialno.setVisible(True)
+                if hasattr(self.ui, 'pushButton_refresh_jlink'):
+                    self.ui.pushButton_refresh_jlink.setVisible(True)
+                
+                # 当勾选序列号时，刷新设备列表
+                self._refresh_jlink_devices()
+            else:
+                # 隐藏ComboBox和刷新按钮
+                if hasattr(self.ui, 'comboBox_serialno'):
+                    self.ui.comboBox_serialno.setVisible(False)
+                if hasattr(self.ui, 'pushButton_refresh_jlink'):
+                    self.ui.pushButton_refresh_jlink.setVisible(False)
+        except Exception as e:
+            logger.error(f"Error in serial_no_change_slot: {e}")
+    
+    def serial_no_text_changed_slot(self, text):
+        """序列号文本变更处理"""
+        # 当用户选择或输入序列号时，保存选择到配置
+        if text:
+            self.config.set_last_jlink_serial(text)
+            self.config.add_preferred_jlink_serial(text)
+            self.config.save_config()
     
     def reset_target_change_slot(self):
         """重置连接选项变更处理"""
@@ -3599,6 +3926,345 @@ class ConnectionDialog(QDialog):
                 self.main_window.append_jlink_log(f"❌ 连接重置失败: {e}")
             logger.error(f'Connection reset failed: {e}', exc_info=True)
 
+    def _detect_jlink_devices(self):
+        """检测可用的JLINK设备"""
+        try:
+            # 确保available_jlinks已初始化
+            if not hasattr(self, 'available_jlinks'):
+                self.available_jlinks = []
+            else:
+                self.available_jlinks.clear()
+            
+            # 检查jlink对象是否可用
+            if not hasattr(self, 'jlink') or self.jlink is None:
+                logger.warning("JLink对象未初始化，跳过设备检测")
+                self.available_jlinks.append({
+                    'serial': '',
+                    'product_name': '自动检测 (JLink未初始化)',
+                    'connection': 'USB'
+                })
+                return
+            
+            # 尝试枚举USB连接的JLink设备
+            try:
+                # 使用JLink的内部方法获取设备列表
+                devices = self.jlink.connected_emulators()
+                if devices:
+                    for device in devices:
+                        try:
+                            # 安全地获取设备信息
+                            serial_num = getattr(device, 'SerialNumber', None)
+                            if serial_num:
+                                device_info = {
+                                    'serial': str(serial_num),
+                                    'product_name': getattr(device, 'acProduct', 'J-Link'),
+                                    'connection': 'USB'
+                                }
+                                self.available_jlinks.append(device_info)
+                                logger.info(f"Found JLink device: {device_info}")
+                        except Exception as e:
+                            logger.warning(f"Error processing device: {e}")
+                            continue
+                else:
+                    logger.info("No JLink devices found")
+                        
+            except Exception as e:
+                logger.warning(f"Could not enumerate JLink devices: {e}")
+                # 如果枚举失败，添加一个默认的"自动检测"选项
+                self.available_jlinks.append({
+                    'serial': '',
+                    'product_name': '自动检测',
+                    'connection': 'USB'
+                })
+            
+            # 如果没有找到设备，添加默认选项
+            if not self.available_jlinks:
+                self.available_jlinks.append({
+                    'serial': '',
+                    'product_name': '自动检测 (无设备)',
+                    'connection': 'USB'
+                })
+                
+        except Exception as e:
+            logger.error(f"Error detecting JLink devices: {e}")
+            # 确保always有一个默认选项
+            self.available_jlinks = [{
+                'serial': '',
+                'product_name': '自动检测',
+                'connection': 'USB'
+            }]
+    
+    def _create_jlink_selection_dialog(self):
+        """创建JLINK设备选择对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("选择 J-Link 设备")
+        dialog.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        dialog.setModal(True)
+        dialog.resize(500, 350)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 说明标签
+        info_label = QLabel("检测到多个 J-Link 设备，请选择要使用的设备：")
+        layout.addWidget(info_label)
+        
+        # 设备列表
+        device_list = QListWidget()
+        device_list.setAlternatingRowColors(True)
+        
+        # 获取偏好的序列号列表
+        preferred_serials = self.config.get_preferred_jlink_serials()
+        last_serial = self.config.get_last_jlink_serial()
+        
+        # 添加设备到列表，优先显示偏好的设备
+        items_added = set()
+        selected_index = 0
+        
+        # 首先添加偏好的设备
+        for preferred_serial in preferred_serials:
+            for i, device in enumerate(self.available_jlinks):
+                if device['serial'] == preferred_serial and device['serial'] not in items_added:
+                    display_text = f"⭐ {device['product_name']}"
+                    if device['serial']:
+                        display_text += f" (序列号: {device['serial']})"
+                    else:
+                        display_text += " (自动检测)"
+                    
+                    item = QListWidgetItem(display_text)
+                    item.setData(Qt.UserRole, device)
+                    device_list.addItem(item)
+                    items_added.add(device['serial'])
+                    
+                    # 如果是上次使用的设备，设为选中
+                    if device['serial'] == last_serial:
+                        selected_index = device_list.count() - 1
+        
+        # 然后添加其他设备
+        for device in self.available_jlinks:
+            if device['serial'] not in items_added:
+                display_text = device['product_name']
+                if device['serial']:
+                    display_text += f" (序列号: {device['serial']})"
+                else:
+                    display_text += " (自动检测)"
+                
+                item = QListWidgetItem(display_text)
+                item.setData(Qt.UserRole, device)
+                device_list.addItem(item)
+                items_added.add(device['serial'])
+        
+        # 设置默认选中项
+        if device_list.count() > 0:
+            device_list.setCurrentRow(selected_index)
+        
+        layout.addWidget(device_list)
+        
+        # 选项复选框
+        options_layout = QHBoxLayout()
+        remember_checkbox = QCheckBox("记住此设备作为偏好选择")
+        remember_checkbox.setChecked(True)
+        auto_select_checkbox = QCheckBox("下次自动选择上次使用的设备")
+        auto_select_checkbox.setChecked(self.config.get_auto_select_jlink())
+        
+        options_layout.addWidget(remember_checkbox)
+        options_layout.addWidget(auto_select_checkbox)
+        layout.addLayout(options_layout)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        refresh_btn = QPushButton("刷新设备列表")
+        ok_btn = QPushButton("确定")
+        cancel_btn = QPushButton("取消")
+        
+        refresh_btn.clicked.connect(lambda: self._refresh_device_list(device_list))
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        button_layout.addWidget(refresh_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(ok_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # 设置对话框属性
+        dialog.device_list = device_list
+        dialog.remember_checkbox = remember_checkbox
+        dialog.auto_select_checkbox = auto_select_checkbox
+        
+        return dialog
+    
+    def _refresh_device_list(self, device_list_widget):
+        """刷新设备列表"""
+        self._detect_jlink_devices()
+        device_list_widget.clear()
+        
+        for device in self.available_jlinks:
+            display_text = device['product_name']
+            if device['serial']:
+                display_text += f" (序列号: {device['serial']})"
+            else:
+                display_text += " (自动检测)"
+            
+            item = QListWidgetItem(display_text)
+            item.setData(Qt.UserRole, device)
+            device_list_widget.addItem(item)
+        
+        if device_list_widget.count() > 0:
+            device_list_widget.setCurrentRow(0)
+    
+    def _select_jlink_device(self):
+        """选择JLINK设备"""
+        if len(self.available_jlinks) <= 1:
+            # 只有一个或没有设备，直接使用
+            if self.available_jlinks:
+                self.selected_jlink_serial = self.available_jlinks[0]['serial']
+            return True
+        
+        # 检查是否启用自动选择
+        if self.config.get_auto_select_jlink():
+            last_serial = self.config.get_last_jlink_serial()
+            for device in self.available_jlinks:
+                if device['serial'] == last_serial:
+                    self.selected_jlink_serial = last_serial
+                    logger.info(f"Auto-selected JLink device: {last_serial}")
+                    return True
+        
+        # 显示选择对话框
+        dialog = self._create_jlink_selection_dialog()
+        if dialog.exec() == QDialog.Accepted:
+            current_item = dialog.device_list.currentItem()
+            if current_item:
+                device = current_item.data(Qt.UserRole)
+                self.selected_jlink_serial = device['serial']
+                
+                # 保存选择
+                if dialog.remember_checkbox.isChecked():
+                    self.config.add_preferred_jlink_serial(device['serial'])
+                
+                self.config.set_last_jlink_serial(device['serial'])
+                self.config.set_auto_select_jlink(dialog.auto_select_checkbox.isChecked())
+                self.config.save_config()
+                
+                logger.info(f"Selected JLink device: {device}")
+                return True
+        
+        return False
+    
+    def _initialize_device_combo(self):
+        """初始化设备ComboBox"""
+        try:
+            # 检查ComboBox是否存在
+            if not hasattr(self.ui, 'comboBox_serialno'):
+                logger.warning("ComboBox未找到，跳过初始化")
+                return
+            
+            # 清空现有列表
+            try:
+                self.ui.comboBox_serialno.clear()
+            except Exception as e:
+                logger.warning(f"清空ComboBox失败: {e}")
+                return
+            
+            # 添加空选项（自动检测）
+            self.ui.comboBox_serialno.addItem("")
+            
+            # 检测并添加设备
+            self._refresh_jlink_devices()
+            
+            # 设置默认选择
+            try:
+                saved_serial = self.config.get_last_jlink_serial()
+                if saved_serial:
+                    index = self.ui.comboBox_serialno.findText(saved_serial)
+                    if index >= 0:
+                        self.ui.comboBox_serialno.setCurrentIndex(index)
+            except Exception as e:
+                logger.warning(f"设置默认选择失败: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error initializing device combo: {e}")
+    
+    def _refresh_jlink_devices(self):
+        """刷新JLINK设备列表"""
+        try:
+            # 检查ComboBox是否存在
+            if not hasattr(self.ui, 'comboBox_serialno'):
+                logger.warning("ComboBox未找到，跳过设备列表刷新")
+                return
+            
+            # 重新检测设备
+            self._detect_jlink_devices()
+            
+            # 保存当前选择
+            current_text = ""
+            try:
+                current_text = self.ui.comboBox_serialno.currentText()
+            except Exception as e:
+                logger.warning(f"获取当前选择失败: {e}")
+            
+            # 清空ComboBox（保留第一个空项）
+            try:
+                while self.ui.comboBox_serialno.count() > 1:
+                    self.ui.comboBox_serialno.removeItem(1)
+            except Exception as e:
+                logger.warning(f"清空ComboBox失败: {e}")
+                # 重新清空整个ComboBox
+                self.ui.comboBox_serialno.clear()
+                self.ui.comboBox_serialno.addItem("")  # 添加空项
+            
+            # 添加检测到的设备
+            device_serials = set()  # 避免重复
+            
+            try:
+                # 优先添加偏好设备
+                preferred_serials = self.config.get_preferred_jlink_serials()
+                device_index = 0
+                
+                for serial in preferred_serials:
+                    if serial and serial not in device_serials:
+                        # 检查设备是否真实存在
+                        for device in self.available_jlinks:
+                            if device.get('serial') == serial:
+                                display_text = f"⭐#{device_index} {serial}"
+                                self.ui.comboBox_serialno.addItem(display_text, serial)
+                                device_serials.add(serial)
+                                device_index += 1
+                                break
+                
+                # 添加其他检测到的设备
+                for device in self.available_jlinks:
+                    serial = device.get('serial', '')
+                    if serial and serial not in device_serials:
+                        display_text = f"#{device_index} {serial}"
+                        self.ui.comboBox_serialno.addItem(display_text, serial)
+                        device_serials.add(serial)
+                        device_index += 1
+                
+                # 恢复之前的选择
+                if current_text:
+                    index = self.ui.comboBox_serialno.findText(current_text)
+                    if index >= 0:
+                        self.ui.comboBox_serialno.setCurrentIndex(index)
+                    else:
+                        # 如果找不到完全匹配，尝试按数据匹配
+                        for i in range(self.ui.comboBox_serialno.count()):
+                            try:
+                                item_data = self.ui.comboBox_serialno.itemData(i)
+                                if item_data == current_text:
+                                    self.ui.comboBox_serialno.setCurrentIndex(i)
+                                    break
+                            except Exception:
+                                continue
+                
+                logger.info(f"Refreshed device list: {len(device_serials)} devices found")
+                
+            except Exception as e:
+                logger.error(f"Error adding devices to ComboBox: {e}")
+            
+        except Exception as e:
+            logger.error(f"Error refreshing device list: {e}")
+
     def usb_selete_slot(self):
         self.connect_type = 'USB'
 
@@ -3617,7 +4283,10 @@ class ConnectionDialog(QDialog):
         self.connect_type = 'EXISTING'
 
         self.ui.checkBox_serialno.setVisible(False)
-        self.ui.lineEdit_serialno.setVisible(False)
+        if hasattr(self.ui, 'comboBox_serialno'):
+            self.ui.comboBox_serialno.setVisible(False)
+        if hasattr(self.ui, 'pushButton_refresh_jlink'):
+            self.ui.pushButton_refresh_jlink.setVisible(False)
         self.ui.lineEdit_ip.setVisible(False)
         self.ui.checkBox__auto.setVisible(True)
         # 通过existing_session方式接入时，以下功能无效，禁止使用

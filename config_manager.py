@@ -60,7 +60,10 @@ class ConfigManager:
             'connection_type': 'USB',  # USB, TCP/IP, Existing
             'serial_number': '',
             'ip_address': '',
-            'auto_reconnect': 'true'
+            'auto_reconnect': 'true',
+            'preferred_jlink_serials': '[]',  # JSON格式的偏好JLINK序列号列表
+            'last_jlink_serial': '',         # 上次使用的JLINK序列号
+            'auto_select_jlink': 'false'     # 是否自动选择上次使用的JLINK
         }
         
         # 串口设置
@@ -274,6 +277,44 @@ class ConfigManager:
     def set_ip_address(self, ip: str):
         """设置IP地址"""
         self.config.set('Connection', 'ip_address', ip)
+    
+    def get_preferred_jlink_serials(self) -> List[str]:
+        """获取偏好的JLINK序列号列表"""
+        try:
+            serials_json = self.config.get('Connection', 'preferred_jlink_serials', fallback='[]')
+            return json.loads(serials_json)
+        except (json.JSONDecodeError, ValueError):
+            return []
+    
+    def set_preferred_jlink_serials(self, serials: List[str]):
+        """设置偏好的JLINK序列号列表"""
+        self.config.set('Connection', 'preferred_jlink_serials', json.dumps(serials))
+    
+    def add_preferred_jlink_serial(self, serial: str):
+        """添加偏好的JLINK序列号"""
+        serials = self.get_preferred_jlink_serials()
+        if serial and serial not in serials:
+            serials.insert(0, serial)  # 新的序列号放在最前面
+            # 限制最多保存10个序列号
+            if len(serials) > 10:
+                serials = serials[:10]
+            self.set_preferred_jlink_serials(serials)
+    
+    def get_last_jlink_serial(self) -> str:
+        """获取上次使用的JLINK序列号"""
+        return self.config.get('Connection', 'last_jlink_serial', fallback='')
+    
+    def set_last_jlink_serial(self, serial: str):
+        """设置上次使用的JLINK序列号"""
+        self.config.set('Connection', 'last_jlink_serial', serial)
+    
+    def get_auto_select_jlink(self) -> bool:
+        """获取是否自动选择JLINK"""
+        return self.config.getboolean('Connection', 'auto_select_jlink', fallback=False)
+    
+    def set_auto_select_jlink(self, auto_select: bool):
+        """设置是否自动选择JLINK"""
+        self.config.set('Connection', 'auto_select_jlink', str(auto_select).lower())
     
     def get_auto_reconnect(self) -> bool:
         """获取自动重连设置"""
