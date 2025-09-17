@@ -33,12 +33,12 @@ def _get_autoreset_patterns():
     """从 config.ini 的 [Autoreset] 读取 reset_msg(JSON数组)，无配置则使用默认。"""
     try:
         cfg = config_manager.config
-        raw = cfg.get('Autoreset', 'reset_msg', fallback='["JLink connection failed after open"]')
+        raw = cfg.get('Autoreset', 'reset_msg', fallback='["JLink连接打开后失败"]')
         arr = json.loads(raw)
         return [s for s in arr if isinstance(s, str) and s.strip()]
     except Exception as e:
-        logger.warning(f"Failed to read Autoreset.reset_msg: {e}")
-        return ["JLink connection failed after open"]
+        logger.warning(QCoreApplication.translate("rtt2uart", "读取自动重置配置失败: %s") % str(e))
+        return [QCoreApplication.translate("rtt2uart", "JLink连接打开后失败")]
 
 
 class AnsiProcessor:
@@ -191,7 +191,7 @@ def zip_folder(folder_path, zip_file_path):
 
 
 class rtt_to_serial():
-    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, last_log_directory=None):
+    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, window_id=None, jlink_index=None):
         # jlink接入方式
         self._connect_inf = connect_inf
         # jlink接入参数
@@ -223,7 +223,7 @@ class rtt_to_serial():
         try:
             self.serial = serial.Serial()
         except:
-            logger.error('Creat serial object failed', exc_info=True)
+            logger.error(QCoreApplication.translate("rtt2uart", "创建串口对象失败"), exc_info=True)
             raise
 
         self.rtt_thread = None
@@ -234,6 +234,10 @@ class rtt_to_serial():
         # JLink日志回调函数
         self.jlink_log_callback = None
         
+        # 记录连接信息到日志
+        if self.jlink_log_callback:
+            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "🔗 设备连接信息: %s") % self.device_info)
+        
         # 串口转发设置
         self.serial_forward_tab = -1  # -1表示禁用转发
         self.serial_forward_mode = 'LOG'  # 'LOG' 或 'DATA'
@@ -243,21 +247,47 @@ class rtt_to_serial():
         # 设置日志文件名
         log_directory = None
         
+        # 生成JLINK连接编号和文件夹名
+        if jlink_index is not None:
+            # 使用传入的实际设备索引
+            actual_jlink_index = jlink_index
+        else:
+            # 兼容旧版本，如果没有传入索引则使用0
+            actual_jlink_index = 0
+        
+        # 保存设备连接信息，用于日志显示
+        self.device_info = f"USB_{actual_jlink_index}_{connect_para}" if connect_para else f"USB_{actual_jlink_index}"
+        self.jlink_index = actual_jlink_index
+        self.connect_serial = connect_para
+        
+        # 生成文件夹名：USB_索引_序列号_时间戳
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        if connect_para:
+            # 有连接参数（序列号）时，格式：USB_0_69741391_20250916165124
+            folder_name = f"USB_{actual_jlink_index}_{connect_para}_{timestamp}"
+        else:
+            # 没有连接参数时，格式：USB_0_20250916165124
+            folder_name = f"USB_{actual_jlink_index}_{timestamp}"
+        
         if log_split:
             # 日志拆分模式：每次连接使用新的日志目录
             desktop_path = Path.home() / "Desktop/XexunRTT_Log"
-            log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
+            log_directory = desktop_path / folder_name
             # 确保日志文件夹存在，如果不存在则创建
             log_directory.mkdir(parents=True, exist_ok=True)
         else:
-            # 非拆分模式：继续使用上次的日志目录
-            if last_log_directory and os.path.exists(last_log_directory):
-                log_directory = Path(last_log_directory)
+            # 非拆分模式：使用启动时的默认文件夹
+            # 每个窗口使用独立的日志文件夹（通过window_id区分）
+            desktop_path = Path.home() / "Desktop/XexunRTT_Log"
+            if window_id:
+                # 使用窗口ID确保不同窗口使用不同文件夹
+                log_directory = desktop_path / f"{folder_name}_{window_id}"
             else:
-                # 如果上次目录不存在，创建新目录
-                desktop_path = Path.home() / "Desktop/XexunRTT_Log"
-                log_directory = desktop_path / (str(device) + datetime.datetime.now().strftime("_%Y%m%d%H%M%S"))
-                log_directory.mkdir(parents=True, exist_ok=True)
+                # 兼容旧版本
+                log_directory = desktop_path / folder_name
+            
+            # 确保日志文件夹存在
+            log_directory.mkdir(parents=True, exist_ok=True)
             
         self.log_directory = log_directory
         self.rtt_log_filename = os.path.join(log_directory, "rtt_log.log")
@@ -265,7 +295,7 @@ class rtt_to_serial():
 
 
     def __del__(self):
-        logger.debug('close app')
+        logger.debug(QCoreApplication.translate("rtt2uart", "关闭应用"))
         self.stop()
     
     def set_jlink_log_callback(self, callback):
@@ -526,7 +556,10 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Raw RTT data forward error: %s") % str(e))
 
     def start(self):
-        logger.debug('start rtt2uart')
+        logger.debug(QCoreApplication.translate("rtt2uart", "启动RTT2UART"))
+        # 记录设备连接信息
+        if self.jlink_log_callback:
+            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "🔗 连接设备: %s") % self.device_info)
         try:
             if self._connect_inf != 'EXISTING':
                 # 检查并确保 JLink 连接状态
@@ -642,6 +675,11 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT..."))
                     self.jlink.rtt_start()
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
+                    
+                    # 🔧 修复首次启动问题：RTT启动后需要清理缓冲区并等待稳定
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Initializing RTT buffers..."))
+                    self._initialize_rtt_buffers()
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT buffers initialized"))
 
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Connect target failed: {e}"
@@ -920,13 +958,13 @@ class rtt_to_serial():
                         except pylink.errors.JLinkException as e:
                             current_time = time.time()
                             if current_time - last_rtt_read_warning_time > rtt_read_warning_interval:
-                                logger.warning(f'RTT read failed: {e}')
+                                logger.warning(QCoreApplication.translate("rtt2uart", "RTT读取失败: %s") % str(e))
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT read failed: %s") % str(e))
                                 last_rtt_read_warning_time = current_time
                             
                             # 检查是否是连接丢失错误，如果是则自动停止
                             if "connection has been lost" in str(e).lower():
-                                self._log_to_gui("🚨 RTT读取检测到JLink连接丢失，自动停止RTT功能")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "🚨 RTT读取检测到JLink连接丢失，自动停止RTT功能"))
                                 self._auto_stop_on_connection_lost()
                                 return  # 退出整个线程函数
                             
@@ -1013,10 +1051,108 @@ class rtt_to_serial():
                     logger.error(f"Unexpected error in RTT thread: {e}")
                     time.sleep(0.01)  # 发生错误时稍长休眠
 
+    def _initialize_rtt_buffers(self):
+        """初始化RTT缓冲区，清理首次启动时的垃圾数据"""
+        import time
+        
+        try:
+            # 等待RTT完全稳定
+            time.sleep(0.5)
+            
+            # 清理RTT Channel 0 和 Channel 1 的缓冲区
+            # 多次读取直到缓冲区清空，丢弃这些初始垃圾数据
+            for channel in [0, 1]:
+                cleared_bytes = 0
+                max_clear_attempts = 10
+                
+                for attempt in range(max_clear_attempts):
+                    try:
+                        # 读取并丢弃垃圾数据
+                        garbage_data = self.jlink.rtt_read(channel, 4096)
+                        if not garbage_data or len(garbage_data) == 0:
+                            break  # 缓冲区已空
+                        
+                        cleared_bytes += len(garbage_data)
+                        
+                        # 检查是否全是空字节
+                        if isinstance(garbage_data, (list, tuple)):
+                            null_count = sum(1 for b in garbage_data if b == 0)
+                        else:
+                            null_count = garbage_data.count(0) if hasattr(garbage_data, 'count') else 0
+                        
+                        # 如果读取到的数据超过50%是空字节，认为是垃圾数据
+                        if len(garbage_data) > 0:
+                            null_percentage = (null_count / len(garbage_data)) * 100
+                            if null_percentage > 50:
+                                logger.debug(QCoreApplication.translate("rtt2uart", "清理RTT Channel %d垃圾数据: %d字节 (%.1f%%空字节)") % (channel, len(garbage_data), null_percentage))
+                        
+                        # 短暂等待，避免过快读取
+                        time.sleep(0.01)
+                        
+                    except pylink.errors.JLinkException as e:
+                        # RTT读取错误，可能缓冲区已空或RTT未就绪
+                        logger.debug(f"RTT Channel {channel} clear attempt {attempt+1} failed: {e}")
+                        break
+                
+                if cleared_bytes > 0:
+                    logger.info(QCoreApplication.translate("rtt2uart", "RTT Channel %d初始化完成，清理了%d字节垃圾数据") % (channel, cleared_bytes))
+            
+            # 最后再等待一小段时间，确保RTT完全稳定
+            time.sleep(0.2)
+            
+        except Exception as e:
+            logger.warning(QCoreApplication.translate("rtt2uart", "RTT缓冲区初始化警告: %s") % str(e))
+            # 即使初始化失败，也继续执行，不影响正常功能
+
+    def _filter_rtt_data(self, raw_data):
+        """过滤RTT原始数据，仅在首次启动时过滤明显的垃圾数据，保持RAW数据完整性"""
+        if not raw_data:
+            return b''
+        
+        # 将数据转换为bytes
+        if isinstance(raw_data, (list, tuple)):
+            data_bytes = bytes(raw_data)
+        elif isinstance(raw_data, (bytes, bytearray)):
+            data_bytes = bytes(raw_data)
+        else:
+            return b''
+        
+        total_bytes = len(data_bytes)
+        if total_bytes == 0:
+            return b''
+        
+        # 🔧 修复：只在极端情况下过滤，保持RAW数据完整性
+        # 统计空字节比例
+        null_count = data_bytes.count(0)
+        null_percentage = (null_count / total_bytes) * 100
+        
+        # 只有在以下极端情况下才丢弃数据：
+        # 1. 100%都是空字节（完全无效数据）
+        # 2. 超过95%是空字节且数据块较大（>1KB，明显异常）
+        if null_count == total_bytes:
+            # 全部是空字节，丢弃
+            logger.debug(QCoreApplication.translate("rtt2uart", "丢弃全空字节数据: %d字节") % total_bytes)
+            return b''
+        elif null_percentage > 95 and total_bytes > 1024:
+            # 超过95%空字节且数据块大于1KB，可能是异常数据
+            logger.debug(QCoreApplication.translate("rtt2uart", "丢弃异常数据块: %d字节 (%.1f%%空字节)") % (total_bytes, null_percentage))
+            return b''
+        
+        # 对于正常情况，保持RAW数据完整性，不做任何过滤
+        # RAW格式需要保持所有字节的原始状态，包括0x00
+        return data_bytes
+
+
     def rtt2uart_exec(self):
         # 打开日志文件，如果不存在将自动创建
         with open(self.rtt_data_filename, 'ab') as data_file:
             import time
+            
+            # 🔧 RTT2UART线程启动时等待RTT完全就绪
+            startup_wait_time = 1.0  # 等待1秒确保RTT完全启动
+            logger.debug(QCoreApplication.translate("rtt2uart", "RTT2UART线程等待RTT就绪..."))
+            time.sleep(startup_wait_time)
+            logger.debug(QCoreApplication.translate("rtt2uart", "RTT2UART线程开始数据读取"))
             
             # 连接状态检查优化：减少检查频率
             connection_check_counter = 0
@@ -1064,9 +1200,19 @@ class rtt_to_serial():
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):
-                            # rtt_data.log 保存原始RAW数据，不进行任何处理
-                            data_file.write(bytes(rtt_recv_data))
-                            data_file.flush()  # 确保及时写入
+                            # rtt_data.log 保存有效的原始数据，过滤掉空字节和无效数据
+                            original_size = len(rtt_recv_data)
+                            filtered_data = self._filter_rtt_data(rtt_recv_data)
+                            filtered_size = len(filtered_data)
+                            
+                            if filtered_data:  # 只有在有有效数据时才写入
+                                data_file.write(filtered_data)
+                                data_file.flush()  # 确保及时写入
+                                
+                                # 记录过滤统计（仅在实际过滤时记录）
+                                if filtered_size < original_size:
+                                    reduction_percent = (1 - filtered_size / original_size) * 100
+                                    logger.info(QCoreApplication.translate("rtt2uart", "RTT数据过滤: 原始%d字节 → 过滤后%d字节 (减少%.1f%%)") % (original_size, filtered_size, reduction_percent))
                             
                             # 使用我们的转发逻辑而不是直接写入串口
                             # 这样可以按照UI设置进行转发

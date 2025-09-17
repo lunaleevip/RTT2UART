@@ -1,0 +1,21 @@
+---
+description:
+globs:
+alwaysApply: true
+# Qt 项目国际化规则
+
+## 基本原则
+- 所有UI文本默认使用英文
+- 使用Qt的国际化机制(QCoreApplication.translate)进行文本翻译
+- 日志信息保持原语言，不进行翻译
+- 通过.ts文件管理翻译，生成.qm文件和资源文件
+
+## 代码规范
+
+### UI文本处理
+- 所有用户界面显示的文本必须使用 `QCoreApplication.translate()` 包装
+- 格式：`QCoreApplication.translate("context", "source_text")`
+- context通常使用类名或模块名
+- 默认文本使用英文
+
+### 示例

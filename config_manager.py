@@ -577,13 +577,9 @@ class ConfigManager:
         """设置日志拆分"""
         self.config.set('Logging', 'log_split', str(enabled).lower())
     
-    def get_last_log_directory(self) -> str:
-        """获取上次使用的日志目录"""
-        return self.config.get('Logging', 'last_log_directory', fallback='')
+    # get_last_log_directory 方法已移除 - 不再使用上次日志目录功能
     
-    def set_last_log_directory(self, directory: str):
-        """设置上次使用的日志目录"""
-        self.config.set('Logging', 'last_log_directory', directory)
+    # set_last_log_directory 方法已移除 - 不再使用上次日志目录功能
     
     def get_clean_trigger_ms(self) -> int:
         """获取触发清理的UI耗时阈值（毫秒）"""

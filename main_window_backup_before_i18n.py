@@ -22,7 +22,6 @@ import serial
 import ctypes.util as ctypes_util
 import xml.etree.ElementTree as ET
 import pylink
-import re
 from rtt2uart import rtt_to_serial
 import logging
 import time
@@ -503,19 +502,6 @@ class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
         
-        # 为每个窗口生成唯一标识符，确保日志文件夹不冲突
-        import uuid
-        import time
-        import threading
-        
-        # 使用UUID + 时间戳 + 线程ID确保绝对唯一性
-        timestamp = str(int(time.time() * 1000000))[-8:]  # 微秒时间戳后8位
-        thread_id = str(threading.get_ident())[-4:]  # 线程ID后4位
-        uuid_part = str(uuid.uuid4())[:4]  # UUID前4位
-        self.window_id = f"{uuid_part}{timestamp[-4:]}{thread_id}"
-        
-        logger.info(f"🪟 Window initialized with ID: {self.window_id}")
-        
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
         
@@ -830,36 +816,36 @@ class RTTMainWindow(QMainWindow):
         menubar = self.menuBar()
         
         # 连接菜单
-        self.connection_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Connection(&C)"))
+        connection_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Connection(&C)"))
         
         # 重新连接动作
         reconnect_action = QAction(QCoreApplication.translate("main_window", "Reconnect(&R)"), self)
         reconnect_action.triggered.connect(self.on_re_connect_clicked)
-        self.connection_menu.addAction(reconnect_action)
+        connection_menu.addAction(reconnect_action)
         
         # 断开连接动作
         disconnect_action = QAction(QCoreApplication.translate("main_window", "Disconnect(&D)"), self)
         disconnect_action.triggered.connect(self.on_dis_connect_clicked)
-        self.connection_menu.addAction(disconnect_action)
+        connection_menu.addAction(disconnect_action)
         
-        self.connection_menu.addSeparator()
+        connection_menu.addSeparator()
         
         # 连接设置动作
         settings_action = QAction(QCoreApplication.translate("main_window", "Connection Settings(&S)..."), self)
         settings_action.triggered.connect(self._show_connection_settings)
-        self.connection_menu.addAction(settings_action)
+        connection_menu.addAction(settings_action)
         
         # 窗口菜单
-        self.window_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Window(&W)"))
+        window_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Window(&W)"))
         
         # 新建窗口动作
         new_window_action = QAction(QCoreApplication.translate("main_window", "New Window(&N)"), self)
         new_window_action.setShortcut(QKeySequence("Ctrl+N"))
         new_window_action.setStatusTip(QCoreApplication.translate("main_window", "Open a new window"))
         new_window_action.triggered.connect(self._new_window)
-        self.window_menu.addAction(new_window_action)
+        window_menu.addAction(new_window_action)
         
-        self.window_menu.addSeparator()
+        window_menu.addSeparator()
         
         # 紧凑模式切换动作
         self.compact_mode_action = QAction(QCoreApplication.translate("main_window", "Compact Mode(&M)"), self)
@@ -868,34 +854,34 @@ class RTTMainWindow(QMainWindow):
         self.compact_mode_action.setShortcut(QKeySequence("Ctrl+M"))
         self.compact_mode_action.setStatusTip(QCoreApplication.translate("main_window", "Toggle compact mode for multi-device usage"))
         self.compact_mode_action.triggered.connect(self._toggle_compact_mode)
-        self.window_menu.addAction(self.compact_mode_action)
+        window_menu.addAction(self.compact_mode_action)
         
         # 工具菜单
-        self.tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
+        tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
         
         # 清除日志动作
         clear_action = QAction(QCoreApplication.translate("main_window", "Clear Current Page(&C)"), self)
         clear_action.triggered.connect(self.on_clear_clicked)
-        self.tools_menu.addAction(clear_action)
+        tools_menu.addAction(clear_action)
         
         # 打开日志文件夹动作
         open_folder_action = QAction(QCoreApplication.translate("main_window", "Open Log Folder(&O)"), self)
         open_folder_action.triggered.connect(self.on_openfolder_clicked)
-        self.tools_menu.addAction(open_folder_action)
+        tools_menu.addAction(open_folder_action)
         
         # 打开配置文件夹动作
         open_config_folder_action = QAction(QCoreApplication.translate("main_window", "Open Config Folder(&F)"), self)
         open_config_folder_action.triggered.connect(self.on_open_config_folder_clicked)
-        self.tools_menu.addAction(open_config_folder_action)
+        tools_menu.addAction(open_config_folder_action)
         
-        self.tools_menu.addSeparator()
+        tools_menu.addSeparator()
         
         # 编码设置子菜单（仅在断开时可切换）
-        self.encoding_menu = self.tools_menu.addMenu(QCoreApplication.translate("main_window", "Encoding(&E)"))
+        self.encoding_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "Encoding(&E)"))
         self._build_encoding_submenu()
         
         # 重启 APP 子菜单（选择方式），执行通过F9
-        restart_menu = self.tools_menu.addMenu(QCoreApplication.translate("main_window", "Restart APP F9(&A)"))
+        restart_menu = tools_menu.addMenu(QCoreApplication.translate("main_window", "Restart APP F9(&A)"))
         self.action_restart_sfr = QAction(QCoreApplication.translate("main_window", "via SFR access"), self)
         self.action_restart_pin = QAction(QCoreApplication.translate("main_window", "via reset pin"), self)
         self.action_restart_sfr.setCheckable(True)
@@ -918,7 +904,7 @@ class RTTMainWindow(QMainWindow):
         # 样式切换动作
         style_action = QAction(QCoreApplication.translate("main_window", "Switch Theme(&T)"), self)
         style_action.triggered.connect(self.toggle_style_checkbox)
-        self.tools_menu.addAction(style_action)
+        tools_menu.addAction(style_action)
         
         # tools_menu.addSeparator()
         
@@ -938,12 +924,12 @@ class RTTMainWindow(QMainWindow):
         # tools_menu.addAction(self.turbo_mode_action)
         
         # 帮助菜单
-        self.help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Help(&H)"))
+        help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Help(&H)"))
         
         # 关于动作
         about_action = QAction(QCoreApplication.translate("main_window", "About(&A)..."), self)
         about_action.triggered.connect(self._show_about)
-        self.help_menu.addAction(about_action)
+        help_menu.addAction(about_action)
     
     def _create_status_bar(self):
         """创建状态栏"""
@@ -1344,13 +1330,6 @@ class RTTMainWindow(QMainWindow):
         self._set_rtt_controls_enabled(True)
         # 连接中禁止切换编码
         self._set_encoding_menu_enabled(False)
-        
-        # 更新连接状态显示，包含设备信息
-        if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
-            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
-        else:
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
         
         # 应用保存的设置
         self._apply_saved_settings()
@@ -2540,61 +2519,8 @@ class RTTMainWindow(QMainWindow):
     
     def _update_ui_translations(self):
         """更新UI元素的翻译文本"""
-        # 更新窗口标题
-        self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
-        
-        # 更新菜单项
-        if hasattr(self, 'connection_menu'):
-            self.connection_menu.setTitle(QCoreApplication.translate("main_window", "Connection(&C)"))
-        if hasattr(self, 'window_menu'):
-            self.window_menu.setTitle(QCoreApplication.translate("main_window", "Window(&W)"))
-        if hasattr(self, 'tools_menu'):
-            self.tools_menu.setTitle(QCoreApplication.translate("main_window", "Tools(&T)"))
-        if hasattr(self, 'help_menu'):
-            self.help_menu.setTitle(QCoreApplication.translate("main_window", "Help(&H)"))
-        
-        # 更新菜单动作
-        if hasattr(self, 'reconnect_action'):
-            self.reconnect_action.setText(QCoreApplication.translate("main_window", "Reconnect(&R)"))
-        if hasattr(self, 'disconnect_action'):
-            self.disconnect_action.setText(QCoreApplication.translate("main_window", "Disconnect(&D)"))
-        if hasattr(self, 'connection_settings_action'):
-            self.connection_settings_action.setText(QCoreApplication.translate("main_window", "Connection Settings(&S)..."))
-        if hasattr(self, 'new_window_action'):
-            self.new_window_action.setText(QCoreApplication.translate("main_window", "New Window(&N)"))
-        if hasattr(self, 'compact_mode_action'):
-            self.compact_mode_action.setText(QCoreApplication.translate("main_window", "Compact Mode(&M)"))
-        if hasattr(self, 'clear_current_page_action'):
-            self.clear_current_page_action.setText(QCoreApplication.translate("main_window", "Clear Current Page(&C)"))
-        if hasattr(self, 'open_log_folder_action'):
-            self.open_log_folder_action.setText(QCoreApplication.translate("main_window", "Open Log Folder(&O)"))
-        if hasattr(self, 'open_config_folder_action'):
-            self.open_config_folder_action.setText(QCoreApplication.translate("main_window", "Open Config Folder(&F)"))
-        if hasattr(self, 'encoding_menu'):
-            self.encoding_menu.setTitle(QCoreApplication.translate("main_window", "Encoding(&E)"))
-        if hasattr(self, 'restart_app_action'):
-            self.restart_app_action.setText(QCoreApplication.translate("main_window", "Restart APP F9(&A)"))
-        if hasattr(self, 'theme_menu'):
-            self.theme_menu.setTitle(QCoreApplication.translate("main_window", "Switch Theme(&T)"))
-        if hasattr(self, 'about_action'):
-            self.about_action.setText(QCoreApplication.translate("main_window", "About(&A)..."))
-        
-        # 更新状态栏
-        if hasattr(self, 'connection_status_label'):
-            current_text = self.connection_status_label.text()
-            if "Connected" in current_text or "已连接" in current_text:
-                # 尝试从当前文本中提取设备信息
-                match = re.search(r'(USB_\d+(_\w+)?)$', current_text)
-                device_info = match.group(1) if match else ""
-                if device_info:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
-                else:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
-            else:
-                self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
-        
-        # 更新JLink日志区域的文本
         if hasattr(self, 'jlink_log_widget'):
+            # 更新JLink日志区域的文本
             title_label = self.jlink_log_widget.findChild(QLabel)
             if title_label:
                 title_label.setText(QCoreApplication.translate("main_window", "JLink Debug Log"))
@@ -2620,9 +2546,7 @@ class RTTMainWindow(QMainWindow):
             
         # 更新连接状态
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            # 显示设备连接信息：USB_X_SN格式
-            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
         else:
             self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
         
@@ -3727,46 +3651,24 @@ class ConnectionDialog(QDialog):
                 
                 # 获取日志拆分配置
                 log_split_enabled = self.config.get_log_split()
-                # last_log_directory 功能已移除
-                
-                # 获取当前选择的设备索引
-                device_index = self._get_current_device_index(connect_para)
-                
-                # 🔍 调试信息：显示设备选择详情
-                combo_index = self.ui.comboBox_serialno.currentIndex()
-                combo_text = self.ui.comboBox_serialno.currentText()
-                print(f"🔍 设备选择调试信息:")
-                print(f"   ComboBox索引: {combo_index}")
-                print(f"   ComboBox文本: {combo_text}")
-                print(f"   连接参数: {connect_para}")
-                print(f"   计算的设备索引: {device_index}")
-                print(f"   可用设备数量: {len(self.available_jlinks)}")
-                if self.available_jlinks:
-                    for i, dev in enumerate(self.available_jlinks):
-                        marker = "👉" if i == device_index else "  "
-                        print(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
+                last_log_directory = self.config.get_last_log_directory()
                 
                 self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
-                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False, log_split_enabled, self.main_window.window_id, device_index)  # 重置后不再需要在rtt2uart中重置
-
-                # 🔧 在start()之前设置JLink日志回调，确保所有日志都能显示
-                if hasattr(self.main_window, 'append_jlink_log'):
-                    self.rtt2uart.set_jlink_log_callback(self.main_window.append_jlink_log)
-                    # 显示连接开始信息
-                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "开始连接设备: %s") % str(self.target_device))
-                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "连接类型: %s") % str(self.connect_type))
-                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "串口: %s, 波特率: %s") % (self.get_selected_port_name(), self.ui.comboBox_baudrate.currentText()))
-                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT连接启动成功"))
-                    
-                    # 🔍 调试信息：确认设备连接
-                    device_info = f"USB_{device_index}_{connect_para}" if connect_para else f"USB_{device_index}"
-                    print(f"📱 设备连接确认: {device_info}")
-                    print(f"   目标设备: {self.target_device}")
-                    print(f"   连接类型: {self.connect_type}")
+                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False, log_split_enabled, last_log_directory)  # 重置后不再需要在rtt2uart中重置
 
                 self.rtt2uart.start()
                 
-                # last_log_directory 功能已移除，每次启动使用新的日志文件夹
+                # 保存当前日志目录供下次使用
+                self.config.set_last_log_directory(str(self.rtt2uart.log_directory))
+                self.config.save_config()
+                
+                # 设置JLink日志回调
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.rtt2uart.set_jlink_log_callback(self.main_window.append_jlink_log)
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Starting connection to device: %s") % str(self.target_device))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Connection type: %s") % str(self.connect_type))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial port: %s, Baud rate: %s") % (self.get_selected_port_name(), self.ui.comboBox_baudrate.currentText()))
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection started successfully"))
                 
                 # 检查是否有待启用的JLink文件日志
                 if hasattr(self.main_window, 'pending_jlink_log_file'):
@@ -4298,46 +4200,6 @@ class ConnectionDialog(QDialog):
                 self.main_window.append_jlink_log(f"❌ 连接重置失败: {e}")
             logger.error(f'Connection reset failed: {e}', exc_info=True)
 
-    def _get_current_device_index(self, connect_para):
-        """获取当前连接参数对应的设备索引 - 直接使用ComboBox索引"""
-        try:
-            # 🔧 关键修复：直接使用ComboBox的当前选择索引，忽略空项
-            current_combo_index = self.ui.comboBox_serialno.currentIndex()
-            
-            # 如果选择的是空项（索引0），跳过
-            if current_combo_index <= 0:
-                print("⚠️ 选择了空项或无效索引，使用默认值0")
-                return 0
-            
-            # ComboBox索引需要减1，因为索引0是空项
-            actual_device_index = current_combo_index - 1
-            
-            # 验证设备索引有效性
-            if 0 <= actual_device_index < len(self.available_jlinks):
-                selected_device = self.available_jlinks[actual_device_index]
-                
-                print(f"🎯 ComboBox选择: 索引{current_combo_index} -> 设备索引{actual_device_index}")
-                print(f"   对应设备: {selected_device['serial']} ({selected_device['product_name']})")
-                print(f"   连接参数: {connect_para}")
-                
-                # 验证序列号是否匹配
-                if selected_device['serial'] == connect_para:
-                    print(f"✅ 序列号匹配，使用设备索引: {actual_device_index} (USB_{actual_device_index})")
-                    return actual_device_index
-                else:
-                    print(f"⚠️ 序列号不匹配: 期望{connect_para}, 实际{selected_device['serial']}")
-                    print(f"   仍然使用ComboBox选择的索引: {actual_device_index}")
-                    return actual_device_index
-            else:
-                print(f"⚠️ 设备索引无效: {actual_device_index}, 设备数量: {len(self.available_jlinks)}")
-                
-        except Exception as e:
-            print(f"❌ 设备索引获取失败: {e}")
-        
-        # 如果出现问题，返回0作为默认值
-        print("⚠️ 使用默认索引: 0")
-        return 0
-
     def _detect_jlink_devices(self):
         """检测可用的JLINK设备"""
         try:
@@ -4540,8 +4402,14 @@ class ConnectionDialog(QDialog):
                 self.selected_jlink_serial = self.available_jlinks[0]['serial']
             return True
         
-        # 🔧 不使用配置文件自动选择，每次都让用户手动选择
-        # 设备选择是一次性的，不需要持久化到配置文件
+        # 检查是否启用自动选择
+        if self.config.get_auto_select_jlink():
+            last_serial = self.config.get_last_jlink_serial()
+            for device in self.available_jlinks:
+                if device['serial'] == last_serial:
+                    self.selected_jlink_serial = last_serial
+                    logger.info(f"Auto-selected JLink device: {last_serial}")
+                    return True
         
         # 显示选择对话框
         dialog = self._create_jlink_selection_dialog()
@@ -4626,20 +4494,33 @@ class ConnectionDialog(QDialog):
                 self.ui.comboBox_serialno.clear()
                 self.ui.comboBox_serialno.addItem("")  # 添加空项
             
-            # 🔧 简化设备列表填充：不使用偏好设备，直接按检测顺序添加
+            # 添加检测到的设备
+            device_serials = set()  # 避免重复
+            
             try:
-                # 直接按available_jlinks的顺序添加所有设备
-                for device_index, device in enumerate(self.available_jlinks):
+                # 优先添加偏好设备
+                preferred_serials = self.config.get_preferred_jlink_serials()
+                device_index = 0
+                
+                for serial in preferred_serials:
+                    if serial and serial not in device_serials:
+                        # 检查设备是否真实存在
+                        for device in self.available_jlinks:
+                            if device.get('serial') == serial:
+                                display_text = f"⭐#{device_index} {serial}"
+                                self.ui.comboBox_serialno.addItem(display_text, serial)
+                                device_serials.add(serial)
+                                device_index += 1
+                                break
+                
+                # 添加其他检测到的设备
+                for device in self.available_jlinks:
                     serial = device.get('serial', '')
-                    if serial:
-                        # 不使用星标，直接显示索引和序列号
+                    if serial and serial not in device_serials:
                         display_text = f"#{device_index} {serial}"
                         self.ui.comboBox_serialno.addItem(display_text, serial)
-                        print(f"🔍 添加设备到ComboBox: 索引{device_index} -> {display_text}")
-                    else:
-                        display_text = f"#{device_index} 自动检测"
-                        self.ui.comboBox_serialno.addItem(display_text, "")
-                        print(f"🔍 添加设备到ComboBox: 索引{device_index} -> {display_text}")
+                        device_serials.add(serial)
+                        device_index += 1
                 
                 # 恢复之前的选择
                 if current_text:
@@ -5958,31 +5839,24 @@ if __name__ == "__main__":
     # Try to load translation files from multiple locations
     translation_loaded = False
     
-    # Check system locale to determine which translation to load
-    locale = QLocale.system()
-    
-    # If system is Chinese, load complete Chinese translation (all contexts)
-    if locale.language() == QLocale.Chinese:
-        # Try to load complete translation from current directory
-        if translator.load("xexunrtt_complete.qm"):
-            QCoreApplication.installTranslator(translator)
-            translation_loaded = True
-            print("Complete Chinese translation loaded from current directory.")
-            # Test if translation is working
-            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-        # If current directory loading fails, try loading from resource files
-        elif translator.load(":/xexunrtt_complete.qm"):
-            QCoreApplication.installTranslator(translator)
-            translation_loaded = True
-            print("Complete Chinese translation loaded from resources.")
-            # Test if translation is working
-            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-        else:
-            print("Failed to load complete Chinese translation file, using English default.")
+    # Try to load from current directory (development environment)
+    if translator.load("xexunrtt.qm"):
+        QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from current directory.")
+        # Test if translation is working
+        test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+        print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
+    # If current directory loading fails, try loading from resource files
+    elif translator.load(QLocale.system(), ":/xexunrtt.qm"):
+        QCoreApplication.installTranslator(translator)
+        translation_loaded = True
+        print("Translation loaded from resources.")
+        # Test if translation is working
+        test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+        print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
     else:
-        print("Using English interface (default).")
+        print("Failed to load translation file.")
 
     # Load Qt built-in translation files
     qt_translator = QTranslator()
