@@ -1399,6 +1399,7 @@ class RTTMainWindow(QMainWindow):
             
         try:
             settings = self.connection_dialog.settings
+            print(f"🔄 恢复滚动条锁定设置: 水平={settings['lock_h']}, 垂直={settings['lock_v']}")
             self.ui.LockH_checkBox.setChecked(settings['lock_h'])
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
@@ -2497,14 +2498,20 @@ class RTTMainWindow(QMainWindow):
     def on_lock_h_changed(self):
         """水平滚动条锁定状态改变时保存配置"""
         if self.connection_dialog:
+            # 🔧 BUG修复：同时更新settings字典和配置文件
+            self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
             self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
             self.connection_dialog.config.save_config()
+            print(f"💾 水平滚动条锁定状态已保存: {self.ui.LockH_checkBox.isChecked()}")
     
     def on_lock_v_changed(self):
         """垂直滚动条锁定状态改变时保存配置"""
         if self.connection_dialog:
+            # 🔧 BUG修复：同时更新settings字典和配置文件
+            self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
             self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
             self.connection_dialog.config.save_config()
+            print(f"💾 垂直滚动条锁定状态已保存: {self.ui.LockV_checkBox.isChecked()}")
     
     def _update_jlink_log_style(self):
         """更新JLink日志区域的样式以匹配当前主题"""
@@ -3746,6 +3753,12 @@ class ConnectionDialog(QDialog):
                         marker = "👉" if i == device_index else "  "
                         print(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
                 
+                # 🚨 重大BUG修复：清空Worker缓存，防止历史数据写入新文件夹
+                if hasattr(self.main_window, 'append_jlink_log'):
+                    self.main_window.append_jlink_log("🧹 清理Worker缓存，确保新连接使用干净的数据...")
+                
+                self._clear_all_worker_caches()
+                
                 self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
                 ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False, log_split_enabled, self.main_window.window_id, device_index)  # 重置后不再需要在rtt2uart中重置
 
@@ -4297,6 +4310,105 @@ class ConnectionDialog(QDialog):
             if hasattr(self.main_window, 'append_jlink_log'):
                 self.main_window.append_jlink_log(f"❌ 连接重置失败: {e}")
             logger.error(f'Connection reset failed: {e}', exc_info=True)
+
+
+    def _clear_main_window_ui(self):
+        """清空主窗口的所有TAB显示内容"""
+        try:
+            if not self.main_window:
+                return
+                
+            # 清空所有TAB的文本显示
+            for i in range(MAX_TAB_SIZE):
+                current_page_widget = self.main_window.ui.tem_switch.widget(i)
+                if isinstance(current_page_widget, QWidget):
+                    # 优先使用QPlainTextEdit，回退到QTextEdit
+                    from PySide6.QtWidgets import QPlainTextEdit
+                    text_edit = current_page_widget.findChild(QPlainTextEdit)
+                    if not text_edit:
+                        text_edit = current_page_widget.findChild(QTextEdit)
+                    
+                    if text_edit and hasattr(text_edit, 'clear'):
+                        text_edit.clear()
+            
+            # 清空JLink日志显示（保留当前会话的日志）
+            # if hasattr(self.main_window, 'jlink_log_text'):
+            #     self.main_window.jlink_log_text.clear()
+            
+            print("🧹 主窗口UI显示已清理")
+            
+        except Exception as e:
+            print(f"❌ 清理主窗口UI时出错: {e}")
+
+    def _clear_all_worker_caches(self):
+        """🚨 彻底清空Worker的所有缓存，防止历史数据污染新连接"""
+        if not hasattr(self, 'worker') or not self.worker:
+            return
+            
+        try:
+            worker = self.worker
+            
+            # 1. 清空所有数据缓冲区
+            for i in range(MAX_TAB_SIZE):
+                # 主缓冲区
+                if hasattr(worker.buffers[i], 'clear'):
+                    worker.buffers[i].clear()
+                else:
+                    worker.buffers[i] = []
+                worker.buffer_lengths[i] = 0
+                
+                # 彩色缓冲区
+                if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
+                    if hasattr(worker.colored_buffers[i], 'clear'):
+                        worker.colored_buffers[i].clear()
+                    else:
+                        worker.colored_buffers[i] = []
+                    worker.colored_buffer_lengths[i] = 0
+                
+                # HTML缓冲区
+                if hasattr(worker, 'html_buffers') and i < len(worker.html_buffers):
+                    worker.html_buffers[i] = ""
+                
+                # 显示长度重置
+                if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
+                    worker.display_lengths[i] = 0
+                
+                # 字节缓冲区
+                if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
+                    worker.byte_buffer[i].clear()
+                
+                # 批量缓冲区
+                if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
+                    worker.batch_buffers[i].clear()
+            
+            # 2. 清空日志文件缓冲区（这是关键！）
+            if hasattr(worker, 'log_buffers'):
+                worker.log_buffers.clear()
+                print(f"🧹 已清空 {len(worker.log_buffers)} 个日志文件缓冲区")
+            
+            # 3. 重置性能计数器
+            if hasattr(worker, 'update_counter'):
+                worker.update_counter = 0
+            
+            # 4. 重置容量配置
+            if hasattr(worker, 'buffer_capacities'):
+                for i in range(MAX_TAB_SIZE):
+                    worker.buffer_capacities[i] = worker.initial_capacity
+                    if hasattr(worker, 'colored_buffer_capacities'):
+                        worker.colored_buffer_capacities[i] = worker.initial_capacity
+            
+            print("🎉 Worker所有缓存已彻底清理，新连接将使用干净的数据")
+            
+            # 5. 清空主窗口UI显示
+            self._clear_main_window_ui()
+            
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log("✅ Worker缓存清理完成，新连接将生成干净的日志文件")
+                
+        except Exception as e:
+            print(f"❌ 清理Worker缓存时出错: {e}")
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(f"⚠️ 清理Worker缓存时出错: {e}")
 
     def _get_current_device_index(self, connect_para):
         """获取当前连接参数对应的设备索引 - 直接使用ComboBox索引"""
