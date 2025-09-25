@@ -6085,14 +6085,24 @@ if __name__ == "__main__":
     
     # Check system locale to determine which translation to load
     locale = QLocale.system()
+    print(f"System locale: {locale.name()}, language: {locale.language()}, country: {locale.country()}")
     
-    # If system is Chinese, load complete Chinese translation (all contexts)
-    if locale.language() == QLocale.Chinese:
+    # Force Chinese translation for testing, or if system is Chinese
+    force_chinese = True  # 强制使用中文翻译
+    if force_chinese or locale.language() == QLocale.Chinese:
         # Try to load complete translation from current directory
         if translator.load("xexunrtt_complete.qm"):
             QCoreApplication.installTranslator(translator)
             translation_loaded = True
             print("Complete Chinese translation loaded from current directory.")
+            # Test if translation is working
+            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
+        # Try to load from Resources directory (for packaged app)
+        elif translator.load("../Resources/xexunrtt_complete.qm"):
+            QCoreApplication.installTranslator(translator)
+            translation_loaded = True
+            print("Complete Chinese translation loaded from Resources directory.")
             # Test if translation is working
             test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
             print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
@@ -6118,6 +6128,11 @@ if __name__ == "__main__":
         QCoreApplication.installTranslator(qt_translator)
         qt_translation_loaded = True
         print("Qt translation loaded from current directory.")
+    # Try to load from Resources directory (for packaged app)
+    elif qt_translator.load("../Resources/qt_zh_CN.qm"):
+        QCoreApplication.installTranslator(qt_translator)
+        qt_translation_loaded = True
+        print("Qt translation loaded from Resources directory.")
     # If current directory loading fails, try loading from resource files
     elif qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
         QCoreApplication.installTranslator(qt_translator)

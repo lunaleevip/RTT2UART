@@ -151,7 +151,8 @@ from pathlib import Path
 
 # 数据文件配置
 datas = [
-    ('xexunrtt.qm', '.'),
+    ('xexunrtt_complete.qm', '.'),
+    ('xexunrtt_en.qm', '.'),
     ('qt_zh_CN.qm', '.'),
     ('JLinkCommandFile.jlink', '.'),
     ('JLinkDevicesBuildIn.xml', '.'),
@@ -183,6 +184,7 @@ hiddenimports = [
     'sys',
     'pathlib',
     'qdarkstyle',
+    'resources_rc',  # 包含资源文件
 ]
 
 # 排除的模块（减少包大小）
@@ -300,13 +302,13 @@ app = BUNDLE(
     name='XexunRTT.app',
     {icon_option}
     bundle_identifier='com.xexun.rtt2uart',
-    version='2.1.0',
+    version='2.1.3',
     info_plist={{
         'CFBundleName': 'XexunRTT',
         'CFBundleDisplayName': 'XexunRTT - J-Link RTT Viewer',
         'CFBundleIdentifier': 'com.xexun.rtt2uart',
-        'CFBundleVersion': '2.1.0',
-        'CFBundleShortVersionString': '2.1.0',
+        'CFBundleVersion': '2.1.3',
+        'CFBundleShortVersionString': '2.1.3',
         'CFBundleInfoDictionaryVersion': '6.0',
         'CFBundleExecutable': 'XexunRTT',
         'CFBundlePackageType': 'APPL',
@@ -421,7 +423,7 @@ def create_dmg_installer(app_path):
     except:
         pass
     
-    dmg_name = "XexunRTT_macOS_v2.1.0.dmg"
+    dmg_name = "XexunRTT_macOS_v2.1.3.dmg"
     dmg_path = Path('dist') / dmg_name
     
     # 删除已存在的 DMG

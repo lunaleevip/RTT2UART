@@ -65,9 +65,9 @@ def create_info_plist(app_path):
     <key>CFBundleIdentifier</key>
     <string>com.xexun.rtt2uart</string>
     <key>CFBundleVersion</key>
-    <string>1.0.5</string>
+    <string>2.1.3</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.5</string>
+    <string>2.1.3</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleExecutable</key>

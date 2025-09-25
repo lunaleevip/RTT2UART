@@ -46,9 +46,9 @@ cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.xexun.rtt2uart</string>
     <key>CFBundleVersion</key>
-    <string>1.0.5</string>
+    <string>2.1.3</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.5</string>
+    <string>2.1.3</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleExecutable</key>
@@ -89,7 +89,7 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "📦 创建 DMG 安装包..."
     
-    DMG_NAME="XexunRTT_macOS_v1.0.5.dmg"
+    DMG_NAME="XexunRTT_macOS_v2.1.3.dmg"
     DMG_TEMP_DIR="dist_macos_final/dmg_temp"
     
     # 创建临时目录
