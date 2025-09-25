@@ -1690,8 +1690,8 @@ class RTTMainWindow(QMainWindow):
                 recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
                 
                 # 添加到JLink日志
-                self.append_jlink_log(f"📤 Command sent: {command}")
-                self.append_jlink_log("📥 RTT Channel 1 Response:")
+                self.append_jlink_log(f"📤 {QCoreApplication.translate('main_window', 'Command sent')}: {command}")
+                self.append_jlink_log(f"📥 {QCoreApplication.translate('main_window', 'RTT Channel 1 Response')}:")
                 
                 # 如果内容被截取，显示省略提示
                 if len(lines) > max_lines:
@@ -1721,8 +1721,8 @@ class RTTMainWindow(QMainWindow):
                 self.append_jlink_log("─" * 50)  # 分隔线
             else:
                 # 如果没有内容，显示提示信息
-                self.append_jlink_log(f"📤 Command sent: {command}")
-                self.append_jlink_log("📥 RTT Channel 1: No response data")
+                self.append_jlink_log(f"📤 {QCoreApplication.translate('main_window', 'Command sent')}: {command}")
+                self.append_jlink_log(f"📥 {QCoreApplication.translate('main_window', 'RTT Channel 1: No response data')}")
                 self.append_jlink_log("─" * 50)  # 分隔线
                 
         except Exception as e:
@@ -5394,8 +5394,8 @@ class Worker(QObject):
         if self.buffer_flush_timer is None:
             self.buffer_flush_timer = QTimer()
             self.buffer_flush_timer.timeout.connect(self.flush_log_buffers)
-            # 🚀 更频繁的刷新，避免缓冲区积累过多数据
-            self.buffer_flush_timer.start(500)  # 每500ms刷新一次缓冲
+            # 🚀 更频繁的刷新，确保TAB日志实时输出
+            self.buffer_flush_timer.start(200)  # 每200ms刷新一次缓冲，提高实时性
             
         # 🔧 立即执行一次刷新，确保启动时的数据能及时写入
         QTimer.singleShot(100, self.flush_log_buffers)
@@ -5406,8 +5406,8 @@ class Worker(QObject):
             # 创建字典的副本以避免运行时修改错误
             log_buffers_copy = dict(self.log_buffers)
             
-            # 🔧 限制同时打开的文件数量，避免文件句柄耗尽
-            max_files_per_flush = 10
+            # 🚀 提高文件处理数量，确保TAB日志实时输出
+            max_files_per_flush = 50  # 增加到50个文件，确保不会延迟
             processed_files = 0
             
             for filepath, content in log_buffers_copy.items():
@@ -5489,6 +5489,19 @@ class Worker(QObject):
                     logger.error(f"Buffer overflow, truncated for {filepath}: {e}")
             
             self.log_buffers[filepath] += content
+            
+            # 🚀 实时刷新机制：当缓冲区达到一定大小时立即刷新，提高TAB日志实时性
+            immediate_flush_threshold = 8192  # 8KB阈值，确保及时刷新
+            if len(self.log_buffers[filepath]) >= immediate_flush_threshold:
+                try:
+                    import os
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                    with open(filepath, 'a', encoding='utf-8') as f:
+                        f.write(self.log_buffers[filepath])
+                        f.flush()
+                    self.log_buffers[filepath] = ""
+                except Exception as e:
+                    logger.error(f"Immediate flush failed for {filepath}: {e}")
             
             # 🔧 检查总缓冲区数量，避免文件过多
             if len(self.log_buffers) > 100:  # 限制同时缓冲的文件数量
