@@ -223,6 +223,30 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>编辑筛选文本</translation>
     </message>
     <message>
+        <source>Filter Text:</source>
+        <translation>筛选文本：</translation>
+    </message>
+    <message>
+        <source>Enter filter text...</source>
+        <translation>输入筛选文本...</translation>
+    </message>
+    <message>
+        <source>Enable Regular Expression</source>
+        <translation>启用正则表达式</translation>
+    </message>
+    <message>
+        <source>Use regular expression for pattern matching</source>
+        <translation>使用正则表达式进行模式匹配</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>取消</translation>
+    </message>
+    <message>
         <location filename="main_window.py" line="480"/>
         <source>Enter new text:</source>
         <translation>输入新文本:</translation>
@@ -1122,6 +1146,16 @@ RTT调试工具
         <location filename="xexunrtt.ui" line="388"/>
         <source>Lock Vertical</source>
         <translation>锁定垂直</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="385"/>
+        <source>Enable regular expression for filter matching</source>
+        <translation>启用正则表达式筛选匹配</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="388"/>
+        <source>Regex Filter</source>
+        <translation>正则筛选</translation>
     </message>
 </context>
 </TS>

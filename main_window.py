@@ -1301,7 +1301,7 @@ class RTTMainWindow(QMainWindow):
         QMessageBox.about(self, 
                          QCoreApplication.translate("main_window", "About XexunRTT"),
                          QCoreApplication.translate("main_window", 
-                                                   "XexunRTT v2.1.3\n\n"
+                                                   "XexunRTT v2.2\n\n"
                                                    "RTT Debug Tool\n\n"
                                                    "Based on PySide6"))
 

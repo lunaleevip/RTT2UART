@@ -43,7 +43,7 @@ class Ui_xexun_rtt(object):
         self.cmd_buffer.setSizePolicy(sizePolicy)
         self.cmd_buffer.setMaximumSize(QSize(16777215, 26))
         font = QFont()
-        font.setFamilies([u"\u65b0\u5b8b\u4f53"])
+        font.setFamilies([u"Arial"])
         self.cmd_buffer.setFont(font)
         self.cmd_buffer.setEditable(True)
 
@@ -51,9 +51,7 @@ class Ui_xexun_rtt(object):
 
         self.dis_connect = QPushButton(self.layoutWidget)
         self.dis_connect.setObjectName(u"dis_connect")
-        font1 = QFont()
-        font1.setFamilies([u"Arial"])
-        self.dis_connect.setFont(font1)
+        self.dis_connect.setFont(font)
 
         self.gridLayout.addWidget(self.dis_connect, 2, 3, 1, 1)
 
@@ -64,7 +62,7 @@ class Ui_xexun_rtt(object):
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.fontsize_box.sizePolicy().hasHeightForWidth())
         self.fontsize_box.setSizePolicy(sizePolicy1)
-        self.fontsize_box.setFont(font1)
+        self.fontsize_box.setFont(font)
         self.fontsize_box.setMinimum(6)
         self.fontsize_box.setMaximum(24)
         self.fontsize_box.setValue(9)
@@ -73,13 +71,13 @@ class Ui_xexun_rtt(object):
 
         self.clear = QPushButton(self.layoutWidget)
         self.clear.setObjectName(u"clear")
-        self.clear.setFont(font1)
+        self.clear.setFont(font)
 
         self.gridLayout.addWidget(self.clear, 2, 4, 1, 1)
 
         self.openfolder = QPushButton(self.layoutWidget)
         self.openfolder.setObjectName(u"openfolder")
-        self.openfolder.setFont(font1)
+        self.openfolder.setFont(font)
 
         self.gridLayout.addWidget(self.openfolder, 2, 1, 1, 1)
 
@@ -107,7 +105,7 @@ class Ui_xexun_rtt(object):
         self.pushButton.setObjectName(u"pushButton")
         self.pushButton.setEnabled(True)
         self.pushButton.setMaximumSize(QSize(80, 26))
-        self.pushButton.setFont(font1)
+        self.pushButton.setFont(font)
         self.pushButton.setAutoDefault(True)
 
         self.gridLayout.addWidget(self.pushButton, 1, 20, 1, 1)
@@ -118,14 +116,14 @@ class Ui_xexun_rtt(object):
 
         self.light_checkbox = QCheckBox(self.layoutWidget)
         self.light_checkbox.setObjectName(u"light_checkbox")
-        self.light_checkbox.setFont(font1)
+        self.light_checkbox.setFont(font)
 
         self.gridLayout.addWidget(self.light_checkbox, 2, 12, 1, 1)
 
         self.tem_switch = QTabWidget(self.layoutWidget)
         self.tem_switch.setObjectName(u"tem_switch")
         self.tem_switch.setMinimumSize(QSize(100, 200))
-        self.tem_switch.setFont(font1)
+        self.tem_switch.setFont(font)
         self.tab = QWidget()
         self.tab.setObjectName(u"tab")
         self.tem_switch.addTab(self.tab, "")
@@ -140,7 +138,7 @@ class Ui_xexun_rtt(object):
         sizePolicy1.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
         self.label.setSizePolicy(sizePolicy1)
         self.label.setMinimumSize(QSize(50, 20))
-        self.label.setFont(font1)
+        self.label.setFont(font)
 
         self.gridLayout.addWidget(self.label, 2, 14, 1, 1)
 
@@ -150,19 +148,25 @@ class Ui_xexun_rtt(object):
 
         self.re_connect = QPushButton(self.layoutWidget)
         self.re_connect.setObjectName(u"re_connect")
-        self.re_connect.setFont(font1)
+        self.re_connect.setFont(font)
 
         self.gridLayout.addWidget(self.re_connect, 2, 2, 1, 1)
 
         self.LockH_checkBox = QCheckBox(self.layoutWidget)
         self.LockH_checkBox.setObjectName(u"LockH_checkBox")
-        self.LockH_checkBox.setFont(font1)
+        self.LockH_checkBox.setFont(font)
 
         self.gridLayout.addWidget(self.LockH_checkBox, 2, 7, 1, 1)
 
+        self.regex_checkbox = QCheckBox(self.layoutWidget)
+        self.regex_checkbox.setObjectName(u"regex_checkbox")
+        self.regex_checkbox.setFont(font)
+
+        self.gridLayout.addWidget(self.regex_checkbox, 2, 8, 1, 1)
+
         self.LockV_checkBox = QCheckBox(self.layoutWidget)
         self.LockV_checkBox.setObjectName(u"LockV_checkBox")
-        self.LockV_checkBox.setFont(font1)
+        self.LockV_checkBox.setFont(font)
 
         self.gridLayout.addWidget(self.LockV_checkBox, 2, 6, 1, 1)
 
@@ -225,6 +229,10 @@ class Ui_xexun_rtt(object):
         self.LockH_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
 #endif // QT_CONFIG(tooltip)
         self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
+#if QT_CONFIG(tooltip)
+        self.regex_checkbox.setToolTip(QCoreApplication.translate("xexun_rtt", u"Enable regular expression for filter matching", None))
+#endif // QT_CONFIG(tooltip)
+        self.regex_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Regex Filter", None))
 #if QT_CONFIG(tooltip)
         self.LockV_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
 #endif // QT_CONFIG(tooltip)
