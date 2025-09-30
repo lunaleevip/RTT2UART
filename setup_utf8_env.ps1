@@ -13,6 +13,13 @@ $env:PYTHONIOENCODING = "utf-8"
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# Configure Git for UTF-8
+Write-Host "Configuring Git for UTF-8..." -ForegroundColor Yellow
+git config --global core.quotepath false
+git config --global i18n.commitencoding utf-8
+git config --global i18n.logoutputencoding utf-8
+git config --global core.precomposeunicode true
+
 # Test encoding
 Write-Host "UTF-8 encoding setup completed!" -ForegroundColor Green
 Write-Host "Testing Python UTF-8 support..." -ForegroundColor Yellow
