@@ -94,7 +94,8 @@ class ConfigManager:
             'lock_vertical': 'false',
             'window_geometry': '',  # 主窗口几何信息
             'dialog_geometry': '',  # 连接对话框几何信息
-            'dpi_scale': 'auto'     # DPI缩放设置: auto或具体数值(0.1-5.0)
+            'dpi_scale': 'auto',    # DPI缩放设置: auto或具体数值(0.1-5.0)
+            'regex_filter': 'false' # 正则表达式筛选开关，默认关闭
         }
         
         # 文本编码设置（读取/写入日志与显示）
@@ -445,6 +446,26 @@ class ConfigManager:
     def set_lock_vertical(self, enabled: bool):
         """设置垂直锁定"""
         self.config.set('UI', 'lock_vertical', str(enabled).lower())
+    
+    def get_regex_filter(self) -> bool:
+        """获取全局正则表达式筛选开关设置（向后兼容）"""
+        return self._safe_getboolean('UI', 'regex_filter', False)
+    
+    def set_regex_filter(self, enabled: bool):
+        """设置全局正则表达式筛选开关（向后兼容）"""
+        self.config.set('UI', 'regex_filter', str(enabled).lower())
+    
+    def get_tab_regex_filter(self, tab_index: int) -> bool:
+        """获取指定TAB的正则表达式筛选开关设置"""
+        key = f'regex_filter_{tab_index}'
+        return self._safe_getboolean('TabRegex', key, False)
+    
+    def set_tab_regex_filter(self, tab_index: int, enabled: bool):
+        """设置指定TAB的正则表达式筛选开关"""
+        if not self.config.has_section('TabRegex'):
+            self.config.add_section('TabRegex')
+        key = f'regex_filter_{tab_index}'
+        self.config.set('TabRegex', key, str(enabled).lower())
     
     # ===========================================
     # 过滤器相关方法

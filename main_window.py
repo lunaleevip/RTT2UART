@@ -1,5 +1,40 @@
 from pickle import NONE
 import sys
+import os
+import io
+
+# 🔧 修复Python控制台编码问题 - 确保UTF-8输出正常显示
+def fix_console_encoding():
+    """修复控制台编码，防止中文乱码"""
+    try:
+        # 设置环境变量
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        
+        # 重新配置标准输出流
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        else:
+            # 对于较老版本的Python
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, 
+                encoding='utf-8', 
+                errors='replace'
+            )
+        
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        else:
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, 
+                encoding='utf-8', 
+                errors='replace'
+            )
+    except Exception as e:
+        # 如果编码设置失败，至少记录错误
+        print(f"Warning: Failed to set console encoding: {e}")
+
+# 立即修复编码问题
+fix_console_encoding()
 from PySide6.QtCore import *
 from PySide6.QtGui import *
 from PySide6.QtWidgets import *
@@ -205,7 +240,7 @@ speed_list = [5, 10, 20, 30, 50, 100, 200, 300, 400, 500, 600, 750,
 baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
                  9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
 
-MAX_TAB_SIZE = 24
+MAX_TAB_SIZE = 32
 
 def get_speed_index_from_value(speed_value):
     """根据速度值获取索引"""
@@ -476,6 +511,56 @@ class DeviceSelectDialog(QDialog):
         self.refresh_selected_device()
         super().accept()  # 调用父类的accept()以正确设置对话框结果
 
+class FilterEditDialog(QDialog):
+    """筛选文本编辑对话框，支持正则表达式"""
+    def __init__(self, parent=None, current_text="", current_regex_state=False):
+        super().__init__(parent)
+        self.setWindowTitle(QCoreApplication.translate("main_window", "Edit Filter Text"))
+        self.setModal(True)
+        self.resize(400, 150)
+        
+        # 创建布局
+        layout = QVBoxLayout(self)
+        
+        # 文本输入标签和输入框
+        text_label = QLabel(QCoreApplication.translate("main_window", "Filter Text:"))
+        layout.addWidget(text_label)
+        
+        self.text_edit = QLineEdit(current_text)
+        self.text_edit.setPlaceholderText(QCoreApplication.translate("main_window", "Enter filter text..."))
+        layout.addWidget(self.text_edit)
+        
+        # 正则表达式复选框
+        self.regex_checkbox = QCheckBox(QCoreApplication.translate("main_window", "Enable Regular Expression"))
+        self.regex_checkbox.setChecked(current_regex_state)
+        self.regex_checkbox.setToolTip(QCoreApplication.translate("main_window", "Use regular expression for pattern matching"))
+        layout.addWidget(self.regex_checkbox)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        
+        self.ok_button = QPushButton(QCoreApplication.translate("main_window", "OK"))
+        self.ok_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.ok_button)
+        
+        self.cancel_button = QPushButton(QCoreApplication.translate("main_window", "Cancel"))
+        self.cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 设置焦点到文本输入框
+        self.text_edit.setFocus()
+        self.text_edit.selectAll()
+    
+    def get_filter_text(self):
+        """获取筛选文本"""
+        return self.text_edit.text().strip()
+    
+    def is_regex_enabled(self):
+        """获取正则表达式状态"""
+        return self.regex_checkbox.isChecked()
+
 class EditableTabBar(QTabBar):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -485,19 +570,35 @@ class EditableTabBar(QTabBar):
         index = self.tabAt(event.pos())
         if index >= 17:
             old_text = self.tabText(index)
-            new_text, ok = QInputDialog.getText(self, QCoreApplication.translate("main_window", "Edit Filter Text"), QCoreApplication.translate("main_window", "Enter new text:"), QLineEdit.Normal, old_text)
-            if ok:
+            
+            # 获取当前TAB的正则表达式状态
+            current_regex_state = False
+            if self.main_window and self.main_window.connection_dialog:
+                current_regex_state = self.main_window.connection_dialog.config.get_tab_regex_filter(index)
+            
+            # 显示自定义对话框
+            dialog = FilterEditDialog(self, old_text, current_regex_state)
+            if dialog.exec() == QDialog.Accepted:
+                new_text = dialog.get_filter_text()
+                regex_enabled = dialog.is_regex_enabled()
+                
+                # 更新TAB文本
                 if new_text:
                     self.setTabText(index, new_text)
                 else:
                     self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
                 
-                # 保存过滤器设置
+                # 保存过滤器设置和正则表达式状态
                 if self.main_window and self.main_window.connection_dialog:
                     filter_text = new_text if new_text else QCoreApplication.translate("main_window", "filter")
                     if filter_text != QCoreApplication.translate("main_window", "filter"):
                         self.main_window.connection_dialog.config.set_filter(index, filter_text)
-                        self.main_window.connection_dialog.config.save_config()
+                    
+                    # 🔧 修改：为单个TAB保存正则表达式状态
+                    self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
+                    self.main_window.connection_dialog.config.save_config()
+                    
+                    print(f"💾 TAB {index} 正则表达式状态已保存: {regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
     def __init__(self):
@@ -807,6 +908,9 @@ class RTTMainWindow(QMainWindow):
         # 连接滚动条锁定复选框的信号
         self.ui.LockH_checkBox.stateChanged.connect(self.on_lock_h_changed)
         self.ui.LockV_checkBox.stateChanged.connect(self.on_lock_v_changed)
+        
+        # 连接正则表达式筛选复选框的信号
+        self.ui.regex_checkbox.stateChanged.connect(self.on_regex_filter_changed)
         
         self.set_style()
         
@@ -1404,6 +1508,11 @@ class RTTMainWindow(QMainWindow):
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
+            
+            # 恢复正则表达式筛选开关状态
+            regex_enabled = self.connection_dialog.config.get_regex_filter()
+            self.ui.regex_checkbox.setChecked(regex_enabled)
+            print(f"🔄 恢复正则表达式筛选设置: {regex_enabled}")
             # 命令历史已在populateComboBox()中加载，这里只需要同步到settings
             cmd_history = self.connection_dialog.config.get_command_history()
             # 使用集合去重，保持顺序
@@ -2512,6 +2621,15 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
             self.connection_dialog.config.save_config()
             print(f"💾 垂直滚动条锁定状态已保存: {self.ui.LockV_checkBox.isChecked()}")
+    
+    def on_regex_filter_changed(self):
+        """正则表达式筛选开关状态改变时保存配置"""
+        if self.connection_dialog:
+            # 保存正则表达式筛选开关状态到配置文件
+            regex_enabled = self.ui.regex_checkbox.isChecked()
+            self.connection_dialog.config.set_regex_filter(regex_enabled)
+            self.connection_dialog.config.save_config()
+            print(f"💾 正则表达式筛选开关状态已保存: {regex_enabled}")
     
     def _update_jlink_log_style(self):
         """更新JLink日志区域的样式以匹配当前主题"""
@@ -4974,22 +5092,34 @@ class ConnectionDialog(QDialog):
                         # 🎨 修复：TAB切换时重新渲染颜色 - 无论QPlainTextEdit还是QTextEdit都使用ANSI彩色处理
                         from PySide6.QtWidgets import QPlainTextEdit
                         
-                        # 检查是否需要重新渲染整个页面（TAB刚被选中）
-                        needs_full_render = (hasattr(self.worker, 'display_lengths') and 
-                                           self.worker.display_lengths[index] == 0 and 
-                                           len(self.worker.colored_buffers[index]) > 0)
+                        # 🔧 修复TAB切换重复数据问题：严格控制完全重新渲染条件
+                        # 只有在真正需要时才进行完全重新渲染，避免旧数据重新出现
+                        current_text_length = len(text_edit.toPlainText()) if hasattr(text_edit, 'toPlainText') else 0
+                        has_display_data = hasattr(self.worker, 'display_lengths') and self.worker.display_lengths[index] > 0
+                        
+                        # 🔧 关键修复：严格限制完全重新渲染的条件
+                        # 只有在文本编辑器完全为空且从未显示过任何数据时才完全重新渲染
+                        needs_full_render = (current_text_length == 0 and  # 文本编辑器为空
+                                           not has_display_data and  # 且从未显示过数据
+                                           len(self.worker.colored_buffers[index]) > 0)  # 且有新数据要显示
                         
                         if isinstance(text_edit, QPlainTextEdit):
                             if needs_full_render:
-                                # 🎨 完全重新渲染：确保TAB切换时颜色正确显示
+                                # 🎨 完全重新渲染：只显示最新数据，避免旧数据重新出现
                                 ui_start_time = time.time()
                                 text_edit.clear()  # 清空当前显示
                                 all_colored_data = ''.join(self.worker.colored_buffers[index])
+                                
+                                # 🔧 关键修复：只显示最新的一小部分数据，避免大量旧数据重新出现
                                 if len(all_colored_data) > max_insert_length:
-                                    # 只显示最新部分，避免性能问题
                                     all_colored_data = all_colored_data[-max_insert_length:]
+                                    # 同步更新display_lengths，确保下次增量计算正确
+                                    total_buffer_length = len(''.join(self.worker.buffers[index]))
+                                    self.worker.display_lengths[index] = max(0, total_buffer_length - max_insert_length)
+                                else:
+                                    self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                                    
                                 self._insert_ansi_text_fast(text_edit, all_colored_data, index)
-                                self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
                             else:
                                 # 🎨 增量更新：使用ANSI彩色处理而不是纯文本
                                 incremental_colored, current_total = self.worker._extract_increment_from_chunks(
@@ -5004,21 +5134,32 @@ class ConnectionDialog(QDialog):
                         else:
                             # QTextEdit 保持彩色路径
                             if needs_full_render:
-                                # 完全重新渲染
+                                # 🎨 完全重新渲染：只显示最新数据，避免旧数据重新出现
                                 ui_start_time = time.time()
                                 text_edit.clear()
                                 all_colored_data = ''.join(self.worker.colored_buffers[index])
+                                
+                                # 🔧 关键修复：只显示最新的一小部分数据，避免大量旧数据重新出现
                                 if len(all_colored_data) > max_insert_length:
                                     all_colored_data = all_colored_data[-max_insert_length:]
+                                    # 同步更新display_lengths，确保下次增量计算正确
+                                    total_buffer_length = len(''.join(self.worker.buffers[index]))
+                                    self.worker.display_lengths[index] = max(0, total_buffer_length - max_insert_length)
+                                else:
+                                    self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                                    
                                 self._insert_ansi_text_fast(text_edit, all_colored_data, index)
-                                self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
                             else:
-                                # 增量更新
-                                incremental_colored_data = ''.join(self.worker.colored_buffers[index])
-                                if len(incremental_colored_data) > max_insert_length:
-                                    incremental_colored_data = incremental_colored_data[-max_insert_length:]
+                                # 🔧 修复：真正的增量更新，只插入新数据而不是全部数据
+                                incremental_colored, current_total = self.worker._extract_increment_from_chunks(
+                                    self.worker.colored_buffers[index],
+                                    self.worker.display_lengths[index],
+                                    max_insert_length
+                                )
                                 ui_start_time = time.time()
-                                self._insert_ansi_text_fast(text_edit, incremental_colored_data, index)
+                                if incremental_colored:
+                                    self._insert_ansi_text_fast(text_edit, incremental_colored, index)
+                                    self.worker.display_lengths[index] = current_total
                         
                         # 自动滚动到底部
                         text_edit.verticalScrollBar().setValue(
@@ -5038,7 +5179,7 @@ class ConnectionDialog(QDialog):
                             pass
                         
                         if ui_time > clean_trigger:  # 使用配置的清理触发阈值
-                            data_size = len(incremental_colored_data) // 1024  # KB
+                            data_size = len(incremental_colored) // 1024 if 'incremental_colored' in locals() else 0  # KB
                             if ui_time > warning_trigger:  # 使用配置的警告触发阈值
                                 logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
                             
@@ -5109,19 +5250,11 @@ class ConnectionDialog(QDialog):
                         text_edit.verticalScrollBar().setValue(
                             text_edit.verticalScrollBar().maximum())
                     
-                    # 只在连接状态下清空已处理的缓冲区，断开连接后保留数据供查看
-                    if hasattr(self.worker, 'colored_buffers') and is_connected:
-                        self.worker.colored_buffer_lengths[index] = 0
-                        self.worker.colored_buffers[index].clear()
+                    # 🔧 移除TAB切换后清空缓冲区的逻辑，避免显示旧数据后再清空
+                    # 注释：不再在TAB切换后清空缓冲区，让增量更新机制正常工作
                         
                 except Exception as e:
-                    # 异常处理：只在连接状态下清空缓冲区避免数据堆积
-                    if hasattr(self.worker, 'colored_buffers') and is_connected:
-                        try:
-                            self.worker.colored_buffer_lengths[index] = 0
-                            self.worker.colored_buffers[index].clear()
-                        except Exception:
-                            self.worker.colored_buffers[index] = []
+                    # 🔧 异常处理：不再清空缓冲区，只记录错误
                     print(f"文本更新异常: {e}")  # 调试信息
                 
                 # 📋 使用正确的显示模式：累积显示全部数据
@@ -5694,6 +5827,7 @@ class Worker(QObject):
                 self.batch_timers[index].stop()
             else:
                 self.batch_timers[index] = QTimer()
+                # 🔧 修复重复问题：只连接一次信号，避免重复连接导致重复触发
                 self.batch_timers[index].timeout.connect(
                     lambda idx=index: self._process_batch_buffer(idx)
                 )
@@ -5762,7 +5896,10 @@ class Worker(QObject):
                     self._append_to_colored_buffer(0, ''.join(buffer_parts))
                     
             except Exception as e:
-                # 如果ANSI处理失败，回退到原始文本处理
+                # 🔧 修复重复问题：如果ANSI处理失败，使用原始数据但避免重复添加
+                logger.warning(f"ANSI处理失败，使用原始数据: {e}")
+                # 只有在之前没有成功添加数据时才添加原始数据
+                # 由于异常发生，之前的数据添加可能没有完成，所以这里需要添加
                 self._append_to_buffer(index+1, data)
                 self._append_to_buffer(0, ''.join(buffer_parts))
                 if hasattr(self, 'colored_buffers'):
@@ -5795,12 +5932,22 @@ class Worker(QObject):
             self.finished.emit()
     
     def _append_to_buffer(self, index, data):
-        """🚀 智能缓冲区追加：预分配 + 成倍扩容机制"""
+        """🚀 智能缓冲区追加：预分配 + 成倍扩容机制 + 重复检查"""
         if index < len(self.buffers):
             # 防御：如果被外部代码误置为字符串，立即恢复为分块列表
             if not isinstance(self.buffers[index], list):
                 self.buffers[index] = []
                 self.buffer_lengths[index] = 0
+            
+            # 🔧 增强重复检查：防止相同数据被添加（检查最近10条记录）
+            if len(self.buffers[index]) > 0:
+                # 检查最近的10条记录，防止非连续重复
+                check_count = min(10, len(self.buffers[index]))
+                recent_data = self.buffers[index][-check_count:]
+                if data in recent_data:
+                    # 检测到重复数据，跳过添加
+                    logger.debug(f"检测到重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
+                    return
             current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
             
@@ -5831,12 +5978,22 @@ class Worker(QObject):
             self.buffer_lengths[index] += len(data)
     
     def _append_to_colored_buffer(self, index, data):
-        """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制"""
+        """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制 + 重复检查"""
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
             # 防御：如果被误置为字符串，恢复为分块列表
             if not isinstance(self.colored_buffers[index], list):
                 self.colored_buffers[index] = []
                 self.colored_buffer_lengths[index] = 0
+            
+            # 🔧 增强重复检查：防止相同数据被添加（检查最近10条记录）
+            if len(self.colored_buffers[index]) > 0:
+                # 检查最近的10条记录，防止非连续重复
+                check_count = min(10, len(self.colored_buffers[index]))
+                recent_data = self.colored_buffers[index][-check_count:]
+                if data in recent_data:
+                    # 检测到重复数据，跳过添加
+                    logger.debug(f"检测到重复彩色数据，跳过添加到colored_buffer[{index}]: {data[:50]}...")
+                    return
             current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
             
@@ -5966,49 +6123,162 @@ class Worker(QObject):
             return line
 
     def process_filter_lines(self, lines):
-        """优化的过滤处理逻辑"""
+        """优化的过滤处理逻辑 - 支持单个TAB独立正则表达式配置"""
         # 预编译搜索词以提高性能
         search_words = []
+        
         for i in range(17, MAX_TAB_SIZE):
             try:
                 if self.parent.main_window:
                     tag_text = self.parent.main_window.ui.tem_switch.tabText(i)
                     if tag_text != QCoreApplication.translate("main_window", "filter"):
-                        search_words.append((i, tag_text))
+                        # 🔧 修改：检查单个TAB的正则表达式状态
+                        tab_regex_enabled = False
+                        if hasattr(self.parent.main_window, 'connection_dialog') and self.parent.main_window.connection_dialog:
+                            tab_regex_enabled = self.parent.main_window.connection_dialog.config.get_tab_regex_filter(i)
+                        
+                        # 如果该TAB启用正则表达式，预编译正则模式
+                        if tab_regex_enabled:
+                            try:
+                                compiled_pattern = re.compile(tag_text, re.IGNORECASE)
+                                search_words.append((i, tag_text, compiled_pattern, True))  # 添加正则标记
+                            except re.error:
+                                # 如果正则表达式无效，回退到普通字符串匹配
+                                search_words.append((i, tag_text, None, False))
+                        else:
+                            search_words.append((i, tag_text, None, False))
             except:
                 continue
         
-        # 批量处理行
+        # 批量处理行 - 修复重复添加问题
         for line in lines:
             if not line.strip():
                 continue
+            
+            # 🔧 修复重复问题：为每行数据记录已匹配的TAB索引，避免同一TAB重复添加
+            matched_tabs = set()  # 记录当前行已匹配的TAB索引
                 
-            for i, search_word in search_words:
-                # 🎨 修改匹配规则：大小写一致即匹配成功（不要求全文本匹配）
-                if search_word.lower() in line.lower():
-                    filtered_data = line + '\n'
-                    # 分块追加，避免大字符串反复拷贝
-                    if i < len(self.buffers):
-                        self.buffers[i].append(filtered_data)
+            for item in search_words:
+                # 支持新格式 (i, tag_text, compiled_pattern, is_regex)
+                if len(item) == 4:
+                    i, search_word, compiled_pattern, is_regex = item
                     
-                    # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
-                    if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
-                        # 创建带高亮的彩色数据
-                        highlighted_line = self._highlight_filter_text(line, search_word)
-                        if i < len(self.colored_buffers):
-                            self.colored_buffers[i].append(highlighted_line + '\n')
+                    # 🔧 防重复：如果该TAB已经匹配过这行数据，跳过
+                    if i in matched_tabs:
+                        continue
                     
-                    # 标记页面需要更新
-                    if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
-                        self.parent.main_window.page_dirty_flags[i] = True
+                    # 根据是否启用正则表达式决定匹配方式
+                    if compiled_pattern is not None and is_regex:
+                        # 正则表达式匹配
+                        match_found = compiled_pattern.search(line) is not None
+                    else:
+                        # 普通字符串匹配（大小写不敏感）
+                        match_found = search_word.lower() in line.lower()
+                        
+                    if match_found:
+                        # 🔧 记录已匹配的TAB，防止同一TAB重复添加
+                        matched_tabs.add(i)
+                        
+                        filtered_data = line + '\n'
+                        # 🔧 使用重复检测机制添加筛选数据
+                        self._append_to_buffer(i, filtered_data)
+                        
+                        # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
+                        if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
+                            # 创建带高亮的彩色数据
+                            highlighted_line = self._highlight_filter_text(line, search_word)
+                            highlighted_data = highlighted_line + '\n'
+                            self._append_to_colored_buffer(i, highlighted_data)
+                        
+                        # 标记页面需要更新
+                        if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+                            self.parent.main_window.page_dirty_flags[i] = True
+                        
+                        # 串口转发功能：转发筛选后的数据
+                        if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+                            self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
+                        
+                        # 📋 统一日志处理：筛选数据写入对应的日志文件
+                        new_path = replace_special_characters(search_word)
+                        self.write_data_to_buffer_log(i, filtered_data, new_path)
+                elif len(item) == 3:
+                    # 兼容旧格式 (i, tag_text, compiled_pattern)
+                    i, search_word, compiled_pattern = item
                     
-                    # 串口转发功能：转发筛选后的数据
-                    if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
-                        self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
+                    # 🔧 防重复：如果该TAB已经匹配过这行数据，跳过
+                    if i in matched_tabs:
+                        continue
                     
-                    # 📋 统一日志处理：筛选数据写入对应的日志文件
-                    new_path = replace_special_characters(search_word)
-                    self.write_data_to_buffer_log(i, filtered_data, new_path)
+                    # 根据是否有编译的正则模式决定匹配方式
+                    if compiled_pattern is not None:
+                        # 正则表达式匹配
+                        match_found = compiled_pattern.search(line) is not None
+                    else:
+                        # 普通字符串匹配（大小写不敏感）
+                        match_found = search_word.lower() in line.lower()
+                        
+                    if match_found:
+                        # 🔧 记录已匹配的TAB，防止同一TAB重复添加
+                        matched_tabs.add(i)
+                        
+                        filtered_data = line + '\n'
+                        # 🔧 使用重复检测机制添加筛选数据
+                        self._append_to_buffer(i, filtered_data)
+                        
+                        # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
+                        if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
+                            # 创建带高亮的彩色数据
+                            highlighted_line = self._highlight_filter_text(line, search_word)
+                            highlighted_data = highlighted_line + '\n'
+                            self._append_to_colored_buffer(i, highlighted_data)
+                        
+                        # 标记页面需要更新
+                        if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+                            self.parent.main_window.page_dirty_flags[i] = True
+                        
+                        # 串口转发功能：转发筛选后的数据
+                        if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+                            self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
+                        
+                        # 📋 统一日志处理：筛选数据写入对应的日志文件
+                        new_path = replace_special_characters(search_word)
+                        self.write_data_to_buffer_log(i, filtered_data, new_path)
+                else:
+                    # 兼容旧格式
+                    i, search_word = item
+                    
+                    # 🔧 防重复：如果该TAB已经匹配过这行数据，跳过
+                    if i in matched_tabs:
+                        continue
+                        
+                    match_found = search_word.lower() in line.lower()
+                    
+                    if match_found:
+                        # 🔧 记录已匹配的TAB，防止同一TAB重复添加
+                        matched_tabs.add(i)
+                        
+                        filtered_data = line + '\n'
+                        # 🔧 使用重复检测机制添加筛选数据
+                        self._append_to_buffer(i, filtered_data)
+                        
+                        # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
+                        if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
+                            # 创建带高亮的彩色数据
+                            highlighted_line = self._highlight_filter_text(line, search_word)
+                            highlighted_data = highlighted_line + '\n'
+                            self._append_to_colored_buffer(i, highlighted_data)
+                        
+                        # 标记页面需要更新
+                        if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+                            self.parent.main_window.page_dirty_flags[i] = True
+                        
+                        # 串口转发功能：转发筛选后的数据
+                        if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+                            self.parent.rtt2uart.add_tab_data_for_forwarding(i, filtered_data)
+                        
+                        # 📋 统一日志处理：筛选数据写入对应的日志文件
+                        new_path = replace_special_characters(search_word)
+                        self.write_data_to_buffer_log(i, filtered_data, new_path)
 
 def replace_special_characters(path, replacement='_'):
     # 定义需要替换的特殊字符的正则表达式模式
