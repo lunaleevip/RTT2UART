@@ -2,21 +2,6 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN">
 <context>
-    <name>Dialog</name>
-    <message>
-        <source>Target Device Settings</source>
-        <translation type="vanished">目标设备设置</translation>
-    </message>
-    <message>
-        <source>Seleted Device:</source>
-        <translation type="vanished">已选择的设备:</translation>
-    </message>
-    <message>
-        <source>Filter</source>
-        <translation type="vanished">筛选</translation>
-    </message>
-</context>
-<context>
     <name>MainWindow</name>
     <message>
         <location filename="main_window.py" line="4007"/>
@@ -218,33 +203,54 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>解析设备数据库文件失败！</translation>
     </message>
     <message>
-        <location filename="main_window.py" line="480"/>
+        <location filename="main_window.py" line="518"/>
         <source>Edit Filter Text</source>
         <translation>编辑筛选文本</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="526"/>
         <source>Filter Text:</source>
         <translation>筛选文本：</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="530"/>
         <source>Enter filter text...</source>
         <translation>输入筛选文本...</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="534"/>
         <source>Enable Regular Expression</source>
         <translation>启用正则表达式</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="536"/>
         <source>Use regular expression for pattern matching</source>
         <translation>使用正则表达式进行模式匹配</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="542"/>
         <source>OK</source>
         <translation>确定</translation>
     </message>
     <message>
+        <location filename="main_window.py" line="546"/>
         <source>Cancel</source>
         <translation>取消</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="322"/>
+        <source>Target Device Settings</source>
+        <translation>目标设备设置</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="323"/>
+        <source>Selected Device:</source>
+        <translation>已选择的设备：</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="324"/>
+        <source>Filter</source>
+        <translation>筛选</translation>
     </message>
     <message>
         <location filename="main_window.py" line="480"/>

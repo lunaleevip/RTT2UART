@@ -51,7 +51,7 @@
     </rect>
    </property>
    <property name="text">
-    <string>Seleted Device:</string>
+    <string>Selected Device:</string>
    </property>
   </widget>
   <widget class="QLabel" name="label_sel_dev">

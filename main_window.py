@@ -318,6 +318,11 @@ class DeviceSelectDialog(QDialog):
         new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
         self.setWindowFlags(new_flags)
         
+        # 设置对话框标题和标签文本（支持国际化）
+        self.setWindowTitle(QCoreApplication.translate("main_window", "Target Device Settings"))
+        self.ui.label.setText(QCoreApplication.translate("main_window", "Selected Device:"))
+        self.ui.lineEdit_filter.setPlaceholderText(QCoreApplication.translate("main_window", "Filter"))
+        
 		#创建筛选模型
         self.proxy_model = QSortFilterProxyModel()
 		#连接文本框设置筛选条件
@@ -909,9 +914,6 @@ class RTTMainWindow(QMainWindow):
         self.ui.LockH_checkBox.stateChanged.connect(self.on_lock_h_changed)
         self.ui.LockV_checkBox.stateChanged.connect(self.on_lock_v_changed)
         
-        # 连接正则表达式筛选复选框的信号
-        self.ui.regex_checkbox.stateChanged.connect(self.on_regex_filter_changed)
-        
         self.set_style()
         
         # 创建定时器并连接到槽函数
@@ -1412,6 +1414,8 @@ class RTTMainWindow(QMainWindow):
         
         # 显示对话框
         self.connection_dialog.show()
+        self.connection_dialog.raise_()
+        self.connection_dialog.activateWindow()
         
         # 将对话框居中显示在主窗口中
         self._center_dialog_on_parent(self.connection_dialog)
@@ -1509,10 +1513,6 @@ class RTTMainWindow(QMainWindow):
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
             
-            # 恢复正则表达式筛选开关状态
-            regex_enabled = self.connection_dialog.config.get_regex_filter()
-            self.ui.regex_checkbox.setChecked(regex_enabled)
-            print(f"🔄 恢复正则表达式筛选设置: {regex_enabled}")
             # 命令历史已在populateComboBox()中加载，这里只需要同步到settings
             cmd_history = self.connection_dialog.config.get_command_history()
             # 使用集合去重，保持顺序
@@ -2323,6 +2323,8 @@ class RTTMainWindow(QMainWindow):
         # 显示连接对话框供用户重新连接
         if self.connection_dialog and not self._is_closing:
             self.connection_dialog.show()
+            self.connection_dialog.raise_()
+            self.connection_dialog.activateWindow()
 
     def on_clear_clicked(self):
         """F4清空当前TAB - 完整的清空逻辑"""
@@ -2622,14 +2624,6 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.config.save_config()
             print(f"💾 垂直滚动条锁定状态已保存: {self.ui.LockV_checkBox.isChecked()}")
     
-    def on_regex_filter_changed(self):
-        """正则表达式筛选开关状态改变时保存配置"""
-        if self.connection_dialog:
-            # 保存正则表达式筛选开关状态到配置文件
-            regex_enabled = self.ui.regex_checkbox.isChecked()
-            self.connection_dialog.config.set_regex_filter(regex_enabled)
-            self.connection_dialog.config.save_config()
-            print(f"💾 正则表达式筛选开关状态已保存: {regex_enabled}")
     
     def _update_jlink_log_style(self):
         """更新JLink日志区域的样式以匹配当前主题"""
@@ -4431,78 +4425,58 @@ class ConnectionDialog(QDialog):
 
 
     def _clear_main_window_ui(self):
-        """清空主窗口的所有TAB显示内容"""
-        try:
-            if not self.main_window:
-                return
-                
-            # 清空所有TAB的文本显示
-            for i in range(MAX_TAB_SIZE):
-                current_page_widget = self.main_window.ui.tem_switch.widget(i)
-                if isinstance(current_page_widget, QWidget):
-                    # 优先使用QPlainTextEdit，回退到QTextEdit
-                    from PySide6.QtWidgets import QPlainTextEdit
-                    text_edit = current_page_widget.findChild(QPlainTextEdit)
-                    if not text_edit:
-                        text_edit = current_page_widget.findChild(QTextEdit)
-                    
-                    if text_edit and hasattr(text_edit, 'clear'):
-                        text_edit.clear()
-            
-            # 清空JLink日志显示（保留当前会话的日志）
-            # if hasattr(self.main_window, 'jlink_log_text'):
-            #     self.main_window.jlink_log_text.clear()
-            
-            print("🧹 主窗口UI显示已清理")
-            
-        except Exception as e:
-            print(f"❌ 清理主窗口UI时出错: {e}")
+        """清空主窗口的所有TAB显示内容 - 已禁用，保留旧数据显示"""
+        # BUG2修复：新连接时保留窗口旧数据，只清除写入文件的缓冲区
+        print("🔄 保留窗口旧数据显示，仅清除文件写入缓冲区")
+        pass
 
     def _clear_all_worker_caches(self):
-        """🚨 彻底清空Worker的所有缓存，防止历史数据污染新连接"""
+        """🚨 清空Worker的文件写入缓存，但保留UI显示数据"""
         if not hasattr(self, 'worker') or not self.worker:
             return
             
         try:
             worker = self.worker
             
-            # 1. 清空所有数据缓冲区
+            # BUG2修复：只清除写入文件的缓冲区，不清除UI显示缓冲区
+            # 1. 清空日志文件缓冲区（关键：防止旧数据写入新文件）
+            if hasattr(worker, 'log_buffers'):
+                cleared_count = len(worker.log_buffers)
+                worker.log_buffers.clear()
+                print(f"🧹 已清空 {cleared_count} 个日志文件缓冲区")
+            
+            # 2. BUG1修复：清空字节缓冲区和批量缓冲区，防止残余数据
             for i in range(MAX_TAB_SIZE):
-                # 主缓冲区
-                if hasattr(worker.buffers[i], 'clear'):
-                    worker.buffers[i].clear()
-                else:
-                    worker.buffers[i] = []
-                worker.buffer_lengths[i] = 0
-                
-                # 彩色缓冲区
-                if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
-                    if hasattr(worker.colored_buffers[i], 'clear'):
-                        worker.colored_buffers[i].clear()
-                    else:
-                        worker.colored_buffers[i] = []
-                    worker.colored_buffer_lengths[i] = 0
-                
-                # HTML缓冲区
-                if hasattr(worker, 'html_buffers') and i < len(worker.html_buffers):
-                    worker.html_buffers[i] = ""
-                
-                # 显示长度重置
-                if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
-                    worker.display_lengths[i] = 0
-                
-                # 字节缓冲区
+                # 字节缓冲区 - 强制清除，防止残余数据
                 if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
+                    if len(worker.byte_buffer[i]) > 0:
+                        print(f"⚠️ 清除通道{i}字节缓冲区中的残余数据: {len(worker.byte_buffer[i])} 字节")
                     worker.byte_buffer[i].clear()
                 
                 # 批量缓冲区
                 if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
+                    if len(worker.batch_buffers[i]) > 0:
+                        print(f"⚠️ 清除通道{i}批量缓冲区中的残余数据: {len(worker.batch_buffers[i])} 项")
                     worker.batch_buffers[i].clear()
-            
-            # 2. 清空日志文件缓冲区（这是关键！）
-            if hasattr(worker, 'log_buffers'):
-                worker.log_buffers.clear()
-                print(f"🧹 已清空 {len(worker.log_buffers)} 个日志文件缓冲区")
+                
+                # BUG1修复：清空筛选TAB(17+)的buffers和colored_buffers，避免重复检测失效
+                # 只清除筛选TAB，保留通道TAB(0-16)的显示数据
+                if i >= 17:
+                    if hasattr(worker.buffers[i], 'clear'):
+                        worker.buffers[i].clear()
+                    else:
+                        worker.buffers[i] = []
+                    worker.buffer_lengths[i] = 0
+                    
+                    if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
+                        if hasattr(worker.colored_buffers[i], 'clear'):
+                            worker.colored_buffers[i].clear()
+                        else:
+                            worker.colored_buffers[i] = []
+                        worker.colored_buffer_lengths[i] = 0
+                    
+                    if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
+                        worker.display_lengths[i] = 0
             
             # 3. 重置性能计数器
             if hasattr(worker, 'update_counter'):
@@ -4515,13 +4489,13 @@ class ConnectionDialog(QDialog):
                     if hasattr(worker, 'colored_buffer_capacities'):
                         worker.colored_buffer_capacities[i] = worker.initial_capacity
             
-            print("🎉 Worker所有缓存已彻底清理，新连接将使用干净的数据")
+            print("🎉 Worker文件写入缓存已清理，保留通道TAB旧数据，筛选TAB已清空")
             
-            # 5. 清空主窗口UI显示
-            self._clear_main_window_ui()
+            # 注意：保留通道TAB(0-16)的buffers和colored_buffers用于UI显示
+            # 清空筛选TAB(17+)以确保重复检测正常工作
             
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("✅ Worker缓存清理完成，新连接将生成干净的日志文件")
+                self.main_window.append_jlink_log("✅ 文件写入缓存已清理，通道TAB保留旧数据，筛选TAB已清空，新文件将生成干净日志")
                 
         except Exception as e:
             print(f"❌ 清理Worker缓存时出错: {e}")
@@ -5110,14 +5084,17 @@ class ConnectionDialog(QDialog):
                                 text_edit.clear()  # 清空当前显示
                                 all_colored_data = ''.join(self.worker.colored_buffers[index])
                                 
-                                # 🔧 关键修复：只显示最新的一小部分数据，避免大量旧数据重新出现
-                                if len(all_colored_data) > max_insert_length:
+                                # 🔧 BUG1修复：display_lengths必须基于colored_buffers计算，而不是buffers
+                                # 因为实际显示的是colored_buffers，长度不一致会导致增量更新时重复数据
+                                total_colored_length = len(all_colored_data)
+                                
+                                if total_colored_length > max_insert_length:
                                     all_colored_data = all_colored_data[-max_insert_length:]
-                                    # 同步更新display_lengths，确保下次增量计算正确
-                                    total_buffer_length = len(''.join(self.worker.buffers[index]))
-                                    self.worker.display_lengths[index] = max(0, total_buffer_length - max_insert_length)
+                                    # 同步更新display_lengths，基于colored_buffers的长度
+                                    self.worker.display_lengths[index] = max(0, total_colored_length - max_insert_length)
                                 else:
-                                    self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                                    # 直接使用colored_buffers的长度
+                                    self.worker.display_lengths[index] = total_colored_length
                                     
                                 self._insert_ansi_text_fast(text_edit, all_colored_data, index)
                             else:
@@ -5139,14 +5116,17 @@ class ConnectionDialog(QDialog):
                                 text_edit.clear()
                                 all_colored_data = ''.join(self.worker.colored_buffers[index])
                                 
-                                # 🔧 关键修复：只显示最新的一小部分数据，避免大量旧数据重新出现
-                                if len(all_colored_data) > max_insert_length:
+                                # 🔧 BUG1修复：display_lengths必须基于colored_buffers计算，而不是buffers
+                                # 因为实际显示的是colored_buffers，长度不一致会导致增量更新时重复数据
+                                total_colored_length = len(all_colored_data)
+                                
+                                if total_colored_length > max_insert_length:
                                     all_colored_data = all_colored_data[-max_insert_length:]
-                                    # 同步更新display_lengths，确保下次增量计算正确
-                                    total_buffer_length = len(''.join(self.worker.buffers[index]))
-                                    self.worker.display_lengths[index] = max(0, total_buffer_length - max_insert_length)
+                                    # 同步更新display_lengths，基于colored_buffers的长度
+                                    self.worker.display_lengths[index] = max(0, total_colored_length - max_insert_length)
                                 else:
-                                    self.worker.display_lengths[index] = len(''.join(self.worker.buffers[index]))
+                                    # 直接使用colored_buffers的长度
+                                    self.worker.display_lengths[index] = total_colored_length
                                     
                                 self._insert_ansi_text_fast(text_edit, all_colored_data, index)
                             else:

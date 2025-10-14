@@ -374,21 +374,6 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="8">
-     <widget class="QCheckBox" name="regex_checkbox">
-      <property name="font">
-       <font>
-        <family>Arial</family>
-       </font>
-      </property>
-      <property name="toolTip">
-       <string>Enable regular expression for filter matching</string>
-      </property>
-      <property name="text">
-       <string>Regex Filter</string>
-      </property>
-     </widget>
-    </item>
     <item row="2" column="6">
      <widget class="QCheckBox" name="LockV_checkBox">
       <property name="font">

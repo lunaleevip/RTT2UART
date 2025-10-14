@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'xexunrtt.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.9.2
+## Created by: Qt User Interface Compiler version 6.9.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -158,12 +158,6 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.LockH_checkBox, 2, 7, 1, 1)
 
-        self.regex_checkbox = QCheckBox(self.layoutWidget)
-        self.regex_checkbox.setObjectName(u"regex_checkbox")
-        self.regex_checkbox.setFont(font)
-
-        self.gridLayout.addWidget(self.regex_checkbox, 2, 8, 1, 1)
-
         self.LockV_checkBox = QCheckBox(self.layoutWidget)
         self.LockV_checkBox.setObjectName(u"LockV_checkBox")
         self.LockV_checkBox.setFont(font)
@@ -229,10 +223,6 @@ class Ui_xexun_rtt(object):
         self.LockH_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
 #endif // QT_CONFIG(tooltip)
         self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
-#if QT_CONFIG(tooltip)
-        self.regex_checkbox.setToolTip(QCoreApplication.translate("xexun_rtt", u"Enable regular expression for filter matching", None))
-#endif // QT_CONFIG(tooltip)
-        self.regex_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Regex Filter", None))
 #if QT_CONFIG(tooltip)
         self.LockV_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
 #endif // QT_CONFIG(tooltip)

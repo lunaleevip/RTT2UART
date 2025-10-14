@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'sel_device.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.6.1
+## Created by: Qt User Interface Compiler version 6.9.1
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -43,8 +43,8 @@ class Ui_Dialog(object):
         self.line = QFrame(Dialog)
         self.line.setObjectName(u"line")
         self.line.setGeometry(QRect(10, 340, 761, 16))
-        self.line.setFrameShape(QFrame.HLine)
-        self.line.setFrameShadow(QFrame.Sunken)
+        self.line.setFrameShape(QFrame.Shape.HLine)
+        self.line.setFrameShadow(QFrame.Shadow.Sunken)
         self.lineEdit_filter = QLineEdit(Dialog)
         self.lineEdit_filter.setObjectName(u"lineEdit_filter")
         self.lineEdit_filter.setGeometry(QRect(240, 6, 113, 21))
@@ -58,7 +58,7 @@ class Ui_Dialog(object):
 
     def retranslateUi(self, Dialog):
         Dialog.setWindowTitle(QCoreApplication.translate("Dialog", u"Target Device Settings", None))
-        self.label.setText(QCoreApplication.translate("Dialog", u"Seleted Device:", None))
+        self.label.setText(QCoreApplication.translate("Dialog", u"Selected Device:", None))
         self.label_sel_dev.setText("")
         self.lineEdit_filter.setPlaceholderText(QCoreApplication.translate("Dialog", u"Filter", None))
     # retranslateUi
