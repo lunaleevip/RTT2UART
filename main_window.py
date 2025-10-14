@@ -4451,6 +4451,11 @@ class ConnectionDialog(QDialog):
                 worker.log_buffers.clear()
                 print(f"🧹 已清空 {cleared_count} 个日志文件缓冲区")
             
+            # 💾 标记进入"新连接等待期"，暂停日志写入直到新数据到来
+            worker.waiting_for_new_connection = True
+            worker.new_connection_data_count = 0
+            print(f"⏸️ 进入新连接等待期，暂停日志写入直到新数据到来")
+            
             # 2. BUG1修复：清空字节缓冲区和批量缓冲区，防止残余数据
             for i in range(MAX_TAB_SIZE):
                 # 字节缓冲区 - 强制清除，防止残余数据
@@ -5473,6 +5478,10 @@ class Worker(QObject):
         # 延迟创建定时器，确保在正确的线程中
         self.buffer_flush_timer = None
         
+        # 💾 新连接等待标志（用于新连接时不写入旧数据）
+        self.waiting_for_new_connection = False
+        self.new_connection_data_count = 0
+        
         # 性能计数器
         self.update_counter = 0
         
@@ -5728,6 +5737,15 @@ class Worker(QObject):
             log_suffix: 日志文件后缀 (如果为空，使用buffer_index)
         """
         try:
+            # 💾 新连接等待期：跳过前几条数据的日志写入（避免写入旧数据）
+            if hasattr(self, 'waiting_for_new_connection') and self.waiting_for_new_connection:
+                self.new_connection_data_count += 1
+                # 跳过前10条数据（确保旧数据都被跳过）
+                if self.new_connection_data_count > 10:
+                    self.waiting_for_new_connection = False
+                    print(f"▶️ 已接收{self.new_connection_data_count}条新数据，恢复日志写入")
+                return  # 等待期内不写入日志
+            
             if (hasattr(self.parent, 'rtt2uart') and 
                 self.parent.rtt2uart):
                 
