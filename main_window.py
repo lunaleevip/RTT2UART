@@ -3869,6 +3869,12 @@ class ConnectionDialog(QDialog):
                 if hasattr(self.main_window, 'append_jlink_log'):
                     self.main_window.append_jlink_log("🧹 清理Worker缓存，确保新连接使用干净的数据...")
                 
+                # 💾 先强制刷新所有待写入的日志到旧文件，避免旧数据写入新文件
+                if hasattr(self.worker, 'flush_log_buffers'):
+                    self.worker.flush_log_buffers()
+                    if hasattr(self.main_window, 'append_jlink_log'):
+                        self.main_window.append_jlink_log("💾 已刷新所有待写入日志到旧文件")
+                
                 self._clear_all_worker_caches()
                 
                 self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
