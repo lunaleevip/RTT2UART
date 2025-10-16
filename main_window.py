@@ -573,6 +573,7 @@ class ColumnSelectTextEdit(QTextEdit):
         self.column_select_mode = False
         self.column_select_start = None
         self.column_select_cursor_start = None
+        self.column_select_ranges = None  # 保存选择范围(起始行列，结束行列)
         
     def mousePressEvent(self, event):
         """鼠标按下事件"""
@@ -629,22 +630,36 @@ class ColumnSelectTextEdit(QTextEdit):
     
     def _saveColumnSelection(self):
         """保存纵向选择的数据"""
-        if not self.column_select_cursor_start:
+        if not self.column_select_ranges:
             return
         
-        # 获取所有选区的文本
-        extra_selections = self.extraSelections()
-        if not extra_selections:
-            return
+        start_line, start_col, end_line, end_col = self.column_select_ranges
         
         # 收集每行选中的文本
         selected_texts = []
-        for selection in extra_selections:
-            cursor = selection.cursor
-            selected_texts.append(cursor.selectedText())
+        document = self.document()
         
-        # 保存选择数据
+        for line_num in range(start_line, end_line + 1):
+            block = document.findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+            
+            block_text = block.text()
+            block_length = len(block_text)
+            
+            # 计算本行的选择范围
+            line_start_col = min(start_col, block_length)
+            line_end_col = min(end_col, block_length)
+            
+            if line_start_col < line_end_col:
+                selected_text = block_text[line_start_col:line_end_col]
+                selected_texts.append(selected_text)
+        
+        # 保存选择数据（用于复制）
         self._column_selection_data = selected_texts
+        
+        # 重新应用高亮以确保显示
+        self._applyColumnHighlight()
     
     def _copyColumnSelection(self):
         """复制纵向选择的文本到剪贴板"""
@@ -658,6 +673,46 @@ class ColumnSelectTextEdit(QTextEdit):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
     
+    def _applyColumnHighlight(self):
+        """应用纵向选择的高亮"""
+        if not self.column_select_ranges:
+            return
+        
+        start_line, start_col, end_line, end_col = self.column_select_ranges
+        
+        # 创建纵向选择
+        extra_selections = []
+        document = self.document()
+        
+        for line_num in range(start_line, end_line + 1):
+            block = document.findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+            
+            block_text = block.text()
+            block_length = len(block_text)
+            
+            # 计算本行的选择范围
+            line_start_col = min(start_col, block_length)
+            line_end_col = min(end_col, block_length)
+            
+            if line_start_col < line_end_col:
+                # 创建选区
+                selection = QTextEdit.ExtraSelection()
+                cursor = QTextCursor(block)
+                cursor.setPosition(block.position() + line_start_col)
+                cursor.setPosition(block.position() + line_end_col, QTextCursor.KeepAnchor)
+                
+                # 设置选区样式
+                selection.cursor = cursor
+                selection.format.setBackground(self.palette().highlight())
+                selection.format.setForeground(self.palette().highlightedText())
+                
+                extra_selections.append(selection)
+        
+        # 应用选区
+        self.setExtraSelections(extra_selections)
+    
     def _clearColumnSelection(self):
         """清除纵向选择的高亮"""
         # 清除ExtraSelections高亮
@@ -665,11 +720,22 @@ class ColumnSelectTextEdit(QTextEdit):
         # 清除保存的选择数据
         if hasattr(self, '_column_selection_data'):
             delattr(self, '_column_selection_data')
+        if hasattr(self, '_column_selections'):
+            delattr(self, '_column_selections')
+        # 清除选择范围
+        self.column_select_ranges = None
     
     def focusOutEvent(self, event):
         """失去焦点时清除纵向选择高亮"""
         self._clearColumnSelection()
         super().focusOutEvent(event)
+    
+    def paintEvent(self, event):
+        """重绘事件 - 保持纵向选择高亮"""
+        super().paintEvent(event)
+        # 如果有保存的选择范围，重新应用高亮
+        if self.column_select_ranges and not self.column_select_mode:
+            self._applyColumnHighlight()
     
     def _updateColumnSelection(self, end_pos):
         """更新纵向选择"""
@@ -699,39 +765,11 @@ class ColumnSelectTextEdit(QTextEdit):
         if start_col > end_col:
             start_col, end_col = end_col, start_col
         
-        # 创建纵向选择
-        # Qt的QTextEdit不直接支持多重选区，我们使用ExtraSelections来模拟
-        extra_selections = []
+        # 保存选择范围用于后续重新应用
+        self.column_select_ranges = (start_line, start_col, end_line, end_col)
         
-        document = self.document()
-        for line_num in range(start_line, end_line + 1):
-            block = document.findBlockByNumber(line_num)
-            if not block.isValid():
-                continue
-            
-            block_text = block.text()
-            block_length = len(block_text)
-            
-            # 计算本行的选择范围
-            line_start_col = min(start_col, block_length)
-            line_end_col = min(end_col, block_length)
-            
-            if line_start_col < line_end_col:
-                # 创建选区
-                selection = QTextEdit.ExtraSelection()
-                cursor = QTextCursor(block)
-                cursor.setPosition(block.position() + line_start_col)
-                cursor.setPosition(block.position() + line_end_col, QTextCursor.KeepAnchor)
-                
-                # 设置选区样式
-                selection.cursor = cursor
-                selection.format.setBackground(self.palette().highlight())
-                selection.format.setForeground(self.palette().highlightedText())
-                
-                extra_selections.append(selection)
-        
-        # 应用选区
-        self.setExtraSelections(extra_selections)
+        # 应用高亮
+        self._applyColumnHighlight()
 
 
 class EditableTabBar(QTabBar):
