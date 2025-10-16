@@ -111,16 +111,10 @@ class Ui_dialog(object):
         self.radioButton_tcpip.setGeometry(QRect(10, 40, 89, 20))
         self.checkBox_serialno = QCheckBox(self.groupBox_3)
         self.checkBox_serialno.setObjectName(u"checkBox_serialno")
-        self.checkBox_serialno.setGeometry(QRect(100, 20, 81, 20))
-        self.comboBox_serialno = QComboBox(self.groupBox_3)
-        self.comboBox_serialno.setObjectName(u"comboBox_serialno")
-        self.comboBox_serialno.setGeometry(QRect(180, 18, 160, 20))  # 增加宽度
-        self.comboBox_serialno.setEditable(False)  # 禁止手动输入
-        self.comboBox_serialno.setInsertPolicy(QComboBox.NoInsert)  # 防止自动插入
-        self.pushButton_refresh_jlink = QPushButton(self.groupBox_3)
-        self.pushButton_refresh_jlink.setObjectName(u"pushButton_refresh_jlink")
-        self.pushButton_refresh_jlink.setGeometry(QRect(350, 18, 20, 20))  # 更紧凑的按钮
-        self.pushButton_refresh_jlink.setText("🔄")  # 使用刷新图标
+        self.checkBox_serialno.setGeometry(QRect(150, 20, 81, 20))
+        self.lineEdit_serialno = QLineEdit(self.groupBox_3)
+        self.lineEdit_serialno.setObjectName(u"lineEdit_serialno")
+        self.lineEdit_serialno.setGeometry(QRect(240, 18, 131, 20))
         self.lineEdit_ip = QLineEdit(self.groupBox_3)
         self.lineEdit_ip.setObjectName(u"lineEdit_ip")
         self.lineEdit_ip.setEnabled(False)
@@ -155,7 +149,7 @@ class Ui_dialog(object):
     # setupUi
 
     def retranslateUi(self, dialog):
-        dialog.setWindowTitle(QCoreApplication.translate("dialog", u"Connection Configuration", None))
+        dialog.setWindowTitle(QCoreApplication.translate("dialog", u"RTT2UART Control Panel", None))
         self.pushButton_Start.setText(QCoreApplication.translate("dialog", u"Start", None))
         self.groupBox.setTitle(QCoreApplication.translate("dialog", u"Target Interface And Speed", None))
         self.comboBox_Speed.setCurrentText("")

@@ -17,6 +17,14 @@
     </message>
 </context>
 <context>
+    <name>dialog</name>
+    <message>
+        <location filename="rtt2uart_updated.ui" line="270"/>
+        <source>Connection to J-Link</source>
+        <translation>连接配置</translation>
+    </message>
+</context>
+<context>
     <name>FindAllResultsWindow</name>
     <message>
         <location filename="main_window.py" line="3809"/>
@@ -238,10 +246,6 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     <message>
         <source>Log Split</source>
         <translation type="vanished">日志拆分</translation>
-    </message>
-    <message>
-        <source>Connection to J-Link</source>
-        <translation type="vanished">连接到 J-Link</translation>
     </message>
     <message>
         <source>USB</source>
