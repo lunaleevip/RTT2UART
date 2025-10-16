@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>dialog</class>
- <widget class="QDialog" name="dialog">
+ <class>ConnectionDialog</class>
+ <widget class="QDialog" name="ConnectionDialog">
   <property name="windowModality">
    <enum>Qt::WindowModality::NonModal</enum>
   </property>
@@ -332,12 +332,28 @@
      <rect>
       <x>240</x>
       <y>18</y>
-      <width>131</width>
+      <width>100</width>
       <height>20</height>
      </rect>
     </property>
     <property name="editable">
      <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="pushButton_refresh_jlink">
+    <property name="geometry">
+     <rect>
+      <x>345</x>
+      <y>18</y>
+      <width>26</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>↻</string>
+    </property>
+    <property name="toolTip">
+     <string>Refresh JLink devices</string>
     </property>
    </widget>
    <widget class="QLineEdit" name="lineEdit_ip">

@@ -2,11 +2,15 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN">
 <context>
-    <name>dialog</name>
+    <name>ConnectionDialog</name>
     <message>
         <location filename="rtt2uart_updated.ui" line="270"/>
         <source>Connection to J-Link</source>
         <translation>连接配置</translation>
+    </message>
+    <message>
+        <source>Refresh JLink devices</source>
+        <translation>刷新JLink设备</translation>
     </message>
     <message>
         <source>Target Device Settings</source>
