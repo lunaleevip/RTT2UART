@@ -2,7 +2,12 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN">
 <context>
-    <name>Dialog</name>
+    <name>dialog</name>
+    <message>
+        <location filename="rtt2uart_updated.ui" line="270"/>
+        <source>Connection to J-Link</source>
+        <translation>连接配置</translation>
+    </message>
     <message>
         <source>Target Device Settings</source>
         <translation type="vanished">目标设备设置</translation>
@@ -14,14 +19,6 @@
     <message>
         <source>Filter</source>
         <translation type="vanished">筛选</translation>
-    </message>
-</context>
-<context>
-    <name>dialog</name>
-    <message>
-        <location filename="rtt2uart_updated.ui" line="270"/>
-        <source>Connection to J-Link</source>
-        <translation>连接配置</translation>
     </message>
 </context>
 <context>

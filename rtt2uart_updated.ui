@@ -327,7 +327,7 @@
      <string>Serial NO</string>
     </property>
    </widget>
-   <widget class="QLineEdit" name="lineEdit_serialno">
+   <widget class="QComboBox" name="comboBox_serialno">
     <property name="geometry">
      <rect>
       <x>240</x>
@@ -335,6 +335,9 @@
       <width>131</width>
       <height>20</height>
      </rect>
+    </property>
+    <property name="editable">
+     <bool>true</bool>
     </property>
    </widget>
    <widget class="QLineEdit" name="lineEdit_ip">
