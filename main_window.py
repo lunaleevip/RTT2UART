@@ -566,6 +566,174 @@ class FilterEditDialog(QDialog):
         """获取正则表达式状态"""
         return self.regex_checkbox.isChecked()
 
+class ColumnSelectTextEdit(QTextEdit):
+    """支持ALT键纵向选择文本的QTextEdit"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.column_select_mode = False
+        self.column_select_start = None
+        self.column_select_cursor_start = None
+        
+    def mousePressEvent(self, event):
+        """鼠标按下事件"""
+        # 检查是否按住ALT键
+        if event.modifiers() & Qt.AltModifier:
+            self.column_select_mode = True
+            # 记录起始位置
+            self.column_select_start = event.pos()
+            cursor = self.cursorForPosition(event.pos())
+            self.column_select_cursor_start = cursor
+            # 清除现有选择
+            cursor.clearSelection()
+            self.setTextCursor(cursor)
+            event.accept()
+        else:
+            self.column_select_mode = False
+            # 🔧 清除纵向选择的高亮
+            self._clearColumnSelection()
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """鼠标移动事件"""
+        if self.column_select_mode and self.column_select_start:
+            # 执行纵向选择
+            self._updateColumnSelection(event.pos())
+            event.accept()
+        else:
+            # 🔧 普通拖动选择时清除纵向选择高亮
+            if hasattr(self, '_column_selection_data') and event.buttons():
+                self._clearColumnSelection()
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """鼠标释放事件"""
+        if self.column_select_mode:
+            self.column_select_mode = False
+            # 保存选择信息以便复制
+            self._saveColumnSelection()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def keyPressEvent(self, event):
+        """键盘事件 - 支持Ctrl+C复制纵向选择的文本"""
+        if event.matches(QKeySequence.Copy) and hasattr(self, '_column_selection_data'):
+            # 复制纵向选择的文本
+            self._copyColumnSelection()
+            event.accept()
+        else:
+            # 🔧 其他键盘操作时清除纵向选择高亮
+            if hasattr(self, '_column_selection_data'):
+                self._clearColumnSelection()
+            super().keyPressEvent(event)
+    
+    def _saveColumnSelection(self):
+        """保存纵向选择的数据"""
+        if not self.column_select_cursor_start:
+            return
+        
+        # 获取所有选区的文本
+        extra_selections = self.extraSelections()
+        if not extra_selections:
+            return
+        
+        # 收集每行选中的文本
+        selected_texts = []
+        for selection in extra_selections:
+            cursor = selection.cursor
+            selected_texts.append(cursor.selectedText())
+        
+        # 保存选择数据
+        self._column_selection_data = selected_texts
+    
+    def _copyColumnSelection(self):
+        """复制纵向选择的文本到剪贴板"""
+        if not hasattr(self, '_column_selection_data') or not self._column_selection_data:
+            return
+        
+        # 将每行文本用换行符连接
+        text = '\n'.join(self._column_selection_data)
+        
+        # 复制到剪贴板
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+    
+    def _clearColumnSelection(self):
+        """清除纵向选择的高亮"""
+        # 清除ExtraSelections高亮
+        self.setExtraSelections([])
+        # 清除保存的选择数据
+        if hasattr(self, '_column_selection_data'):
+            delattr(self, '_column_selection_data')
+    
+    def focusOutEvent(self, event):
+        """失去焦点时清除纵向选择高亮"""
+        self._clearColumnSelection()
+        super().focusOutEvent(event)
+    
+    def _updateColumnSelection(self, end_pos):
+        """更新纵向选择"""
+        if not self.column_select_cursor_start:
+            return
+        
+        # 获取起始和结束光标位置
+        start_cursor = self.column_select_cursor_start
+        end_cursor = self.cursorForPosition(end_pos)
+        
+        # 获取起始和结束的行号和列号
+        start_block = start_cursor.block()
+        end_block = end_cursor.block()
+        
+        start_line = start_block.blockNumber()
+        end_line = end_block.blockNumber()
+        
+        start_col = start_cursor.positionInBlock()
+        end_col = end_cursor.positionInBlock()
+        
+        # 确保起始行小于结束行
+        if start_line > end_line:
+            start_line, end_line = end_line, start_line
+            start_col, end_col = end_col, start_col
+        
+        # 确保起始列小于结束列
+        if start_col > end_col:
+            start_col, end_col = end_col, start_col
+        
+        # 创建纵向选择
+        # Qt的QTextEdit不直接支持多重选区，我们使用ExtraSelections来模拟
+        extra_selections = []
+        
+        document = self.document()
+        for line_num in range(start_line, end_line + 1):
+            block = document.findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+            
+            block_text = block.text()
+            block_length = len(block_text)
+            
+            # 计算本行的选择范围
+            line_start_col = min(start_col, block_length)
+            line_end_col = min(end_col, block_length)
+            
+            if line_start_col < line_end_col:
+                # 创建选区
+                selection = QTextEdit.ExtraSelection()
+                cursor = QTextCursor(block)
+                cursor.setPosition(block.position() + line_start_col)
+                cursor.setPosition(block.position() + line_end_col, QTextCursor.KeepAnchor)
+                
+                # 设置选区样式
+                selection.cursor = cursor
+                selection.format.setBackground(self.palette().highlight())
+                selection.format.setForeground(self.palette().highlightedText())
+                
+                extra_selections.append(selection)
+        
+        # 应用选区
+        self.setExtraSelections(extra_selections)
+
+
 class EditableTabBar(QTabBar):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -800,10 +968,10 @@ class RTTMainWindow(QMainWindow):
             page = QWidget()
             page.setToolTip("")  # 清除页面的工具提示
             
-            # 🎨 全部TAB支持ANSI彩色显示：统一使用QTextEdit
+            # 🎨 全部TAB支持ANSI彩色显示：统一使用支持纵向选择的ColumnSelectTextEdit
             from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
             
-            text_edit = QTextEdit(page)
+            text_edit = ColumnSelectTextEdit(page)
             text_edit.setAcceptRichText(True)
             text_edit.setReadOnly(True)
             text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
@@ -3869,12 +4037,6 @@ class ConnectionDialog(QDialog):
                 if hasattr(self.main_window, 'append_jlink_log'):
                     self.main_window.append_jlink_log("🧹 清理Worker缓存，确保新连接使用干净的数据...")
                 
-                # 💾 先强制刷新所有待写入的日志到旧文件，避免旧数据写入新文件
-                if hasattr(self.worker, 'flush_log_buffers'):
-                    self.worker.flush_log_buffers()
-                    if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("💾 已刷新所有待写入日志到旧文件")
-                
                 self._clear_all_worker_caches()
                 
                 self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
@@ -4451,10 +4613,6 @@ class ConnectionDialog(QDialog):
                 worker.log_buffers.clear()
                 print(f"🧹 已清空 {cleared_count} 个日志文件缓冲区")
             
-            # 💾 标记进入"新连接等待期"，暂停日志写入直到新数据到来
-            worker.waiting_for_new_connection = True
-            worker.new_connection_data_count = 0
-            print(f"⏸️ 进入新连接等待期，暂停日志写入直到新数据到来")
             
             # 2. BUG1修复：清空字节缓冲区和批量缓冲区，防止残余数据
             for i in range(MAX_TAB_SIZE):
@@ -5478,9 +5636,6 @@ class Worker(QObject):
         # 延迟创建定时器，确保在正确的线程中
         self.buffer_flush_timer = None
         
-        # 💾 新连接等待标志（用于新连接时不写入旧数据）
-        self.waiting_for_new_connection = False
-        self.new_connection_data_count = 0
         
         # 性能计数器
         self.update_counter = 0
@@ -5737,15 +5892,6 @@ class Worker(QObject):
             log_suffix: 日志文件后缀 (如果为空，使用buffer_index)
         """
         try:
-            # 💾 新连接等待期：跳过前几条数据的日志写入（避免写入旧数据）
-            if hasattr(self, 'waiting_for_new_connection') and self.waiting_for_new_connection:
-                self.new_connection_data_count += 1
-                # 跳过前10条数据（确保旧数据都被跳过）
-                if self.new_connection_data_count > 10:
-                    self.waiting_for_new_connection = False
-                    print(f"▶️ 已接收{self.new_connection_data_count}条新数据，恢复日志写入")
-                return  # 等待期内不写入日志
-            
             if (hasattr(self.parent, 'rtt2uart') and 
                 self.parent.rtt2uart):
                 
@@ -6361,35 +6507,38 @@ if __name__ == "__main__":
     locale = QLocale.system()
     print(f"System locale: {locale.name()}, language: {locale.language()}, country: {locale.country()}")
     
+    # 🔧 获取资源文件路径（支持PyInstaller打包）
+    def get_resource_path(filename):
+        """获取资源文件的正确路径（支持开发环境和PyInstaller打包环境）"""
+        # PyInstaller打包后，资源文件在临时目录_MEIPASS中
+        if hasattr(sys, '_MEIPASS'):
+            return os.path.join(sys._MEIPASS, filename)
+        # 开发环境，资源文件在当前目录
+        return filename
+    
     # Force Chinese translation for testing, or if system is Chinese
     force_chinese = True  # 强制使用中文翻译
     if force_chinese or locale.language() == QLocale.Chinese:
-        # Try to load complete translation from current directory
-        if translator.load("xexunrtt_complete.qm"):
-            QCoreApplication.installTranslator(translator)
-            translation_loaded = True
-            print("Complete Chinese translation loaded from current directory.")
-            # Test if translation is working
-            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-        # Try to load from Resources directory (for packaged app)
-        elif translator.load("../Resources/xexunrtt_complete.qm"):
-            QCoreApplication.installTranslator(translator)
-            translation_loaded = True
-            print("Complete Chinese translation loaded from Resources directory.")
-            # Test if translation is working
-            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-        # If current directory loading fails, try loading from resource files
-        elif translator.load(":/xexunrtt_complete.qm"):
-            QCoreApplication.installTranslator(translator)
-            translation_loaded = True
-            print("Complete Chinese translation loaded from resources.")
-            # Test if translation is working
-            test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-            print(f"Translation test: 'JLink Debug Log' → '{test_text}'")
-        else:
-            print("Failed to load complete Chinese translation file, using English default.")
+        # 尝试按优先级加载翻译文件
+        qm_paths = [
+            get_resource_path("xexunrtt_complete.qm"),  # PyInstaller或当前目录
+            "xexunrtt_complete.qm",  # 当前目录（备用）
+            "../Resources/xexunrtt_complete.qm",  # Resources目录（macOS）
+            ":/xexunrtt_complete.qm"  # Qt资源（备用）
+        ]
+        
+        for qm_path in qm_paths:
+            if translator.load(qm_path):
+                QCoreApplication.installTranslator(translator)
+                translation_loaded = True
+                print(f"✅ 中文翻译加载成功: {qm_path}")
+                # Test if translation is working
+                test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+                print(f"翻译测试: 'JLink Debug Log' → '{test_text}'")
+                break
+        
+        if not translation_loaded:
+            print("❌ 无法加载中文翻译文件，使用英文界面")
     else:
         print("Using English interface (default).")
 
@@ -6397,23 +6546,23 @@ if __name__ == "__main__":
     qt_translator = QTranslator()
     qt_translation_loaded = False
     
-    # Try to load from current directory (development environment)
-    if qt_translator.load("qt_zh_CN.qm"):
-        QCoreApplication.installTranslator(qt_translator)
-        qt_translation_loaded = True
-        print("Qt translation loaded from current directory.")
-    # Try to load from Resources directory (for packaged app)
-    elif qt_translator.load("../Resources/qt_zh_CN.qm"):
-        QCoreApplication.installTranslator(qt_translator)
-        qt_translation_loaded = True
-        print("Qt translation loaded from Resources directory.")
-    # If current directory loading fails, try loading from resource files
-    elif qt_translator.load(QLocale.system(), ":/qt_zh_CN.qm"):
-        QCoreApplication.installTranslator(qt_translator)
-        qt_translation_loaded = True
-        print("Qt translation loaded from resources.")
-    else:
-        print("Failed to load Qt translation file.")
+    # 尝试按优先级加载Qt翻译文件
+    qt_qm_paths = [
+        get_resource_path("qt_zh_CN.qm"),  # PyInstaller或当前目录
+        "qt_zh_CN.qm",  # 当前目录（备用）
+        "../Resources/qt_zh_CN.qm",  # Resources目录（macOS）
+        ":/qt_zh_CN.qm"  # Qt资源（备用）
+    ]
+    
+    for qt_qm_path in qt_qm_paths:
+        if qt_translator.load(qt_qm_path):
+            QCoreApplication.installTranslator(qt_translator)
+            qt_translation_loaded = True
+            print(f"✅ Qt翻译加载成功: {qt_qm_path}")
+            break
+    
+    if not qt_translation_loaded:
+        print("⚠️ 无法加载Qt翻译文件")
     
     # Create main window
     main_window = RTTMainWindow()

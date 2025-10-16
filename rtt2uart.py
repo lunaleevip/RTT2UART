@@ -887,6 +887,16 @@ class rtt_to_serial():
             logger.error(f'Failed to cleanup log folder: {e}', exc_info=True)
 
     def rtt_thread_exec(self):
+        # 🔧 新连接修复：初始化buffer写入偏移量，避免旧数据写入新日志
+        # 如果buffers中已有数据（保留的旧数据），从当前位置开始写入，而不是从头开始
+        if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
+            all_chunks = self.main.buffers[0]
+            current_buffer_length = sum(len(part) for part in all_chunks)
+            self._last_buffer_size = current_buffer_length
+            logger.info(f"💾 初始化日志写入偏移: {current_buffer_length} 字节（跳过旧数据）")
+        else:
+            self._last_buffer_size = 0
+        
         # 打开日志文件，如果不存在将自动创建
         # 文本日志使用可配置编码
         try:
