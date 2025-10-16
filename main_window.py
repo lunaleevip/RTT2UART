@@ -2756,7 +2756,12 @@ class RTTMainWindow(QMainWindow):
         
         # 检查是否超时
         current_time = time.time()
-        if self.last_data_time > 0 and (current_time - self.last_data_time) > timeout:
+        time_since_last_data = current_time - self.last_data_time if self.last_data_time > 0 else 0
+        
+        # 调试日志
+        logger.debug(f"[AUTO-RECONNECT] Timeout check: last_data_time={self.last_data_time:.2f}, current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
+        
+        if self.last_data_time > 0 and time_since_last_data > timeout:
             logger.warning(f"No data received for {timeout} seconds, auto reconnecting...")
             if hasattr(self, 'append_jlink_log'):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
@@ -2815,7 +2820,11 @@ class RTTMainWindow(QMainWindow):
     
     def _update_data_timestamp(self):
         """更新数据时间戳（在收到数据时调用）"""
-        self.last_data_time = time.time()
+        current_time = time.time()
+        # 只在第一次或超过5秒没更新时记录日志（避免日志刷屏）
+        if self.last_data_time == 0 or (current_time - self.last_data_time) > 5:
+            logger.debug(f"[AUTO-RECONNECT] Data timestamp updated: {self.last_data_time:.2f} -> {current_time:.2f}")
+        self.last_data_time = current_time
 
     def on_clear_clicked(self):
         """F4清空当前TAB - 完整的清空逻辑"""
@@ -6192,6 +6201,10 @@ class ConnectionDialog(QDialog):
 
     @Slot()
     def handleBufferUpdate(self):
+        # 更新数据时间戳（用于自动重连监控）
+        if self.main_window and hasattr(self.main_window, '_update_data_timestamp'):
+            self.main_window._update_data_timestamp()
+        
         # 📈 记录刷新事件
         if hasattr(self.worker, 'refresh_count'):
             self.worker.refresh_count += 1
