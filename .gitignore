@@ -82,3 +82,6 @@ debug_*.py
 screenshot_*.png
 commit_msg.txt
 cmd.txt
+
+# 自动生成的版本信息文件（构建时动态生成）
+version_info_v*.txt
