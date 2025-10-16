@@ -498,6 +498,10 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>自动重连启动失败: %s</translation>
     </message>
     <message>
+        <source>File write cache cleared, channel TABs keep old data, filter TABs cleared</source>
+        <translation>Worker文件写入缓存已清理，保留通道TAB旧数据，筛选TAB已清空</translation>
+    </message>
+    <message>
         <location filename="main_window.py" line="1236" />
         <source>via SFR access</source>
         <translation>通过SFR访问</translation>
@@ -1000,11 +1004,6 @@ Suggested actions:
         <location filename="main_window.py" line="4975" />
         <source>   3. Then retry connection</source>
         <translation>   3. 然后重试连接</translation>
-    </message>
-    <message>
-        <location filename="main_window.py" line="5055" />
-        <source>File write cache cleared, channel TABs keep old data, filter TABs cleared, new files will generate clean logs</source>
-        <translation type="unfinished" />
     </message>
     <message>
         <location filename="main_window.py" line="5173" />

@@ -5282,13 +5282,14 @@ class ConnectionDialog(QDialog):
                     if hasattr(worker, 'colored_buffer_capacities'):
                         worker.colored_buffer_capacities[i] = worker.initial_capacity
             
-            print("🎉 Worker文件写入缓存已清理，保留通道TAB旧数据，筛选TAB已清空")
-            
             # 注意：保留通道TAB(0-16)的buffers和colored_buffers用于UI显示
             # 清空筛选TAB(17+)以确保重复检测正常工作
             
+            log_msg = QCoreApplication.translate("main_window", "File write cache cleared, channel TABs keep old data, filter TABs cleared")
+            print(f"🎉 {log_msg}")
+            
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "File write cache cleared, channel TABs keep old data, filter TABs cleared, new files will generate clean logs"))
+                self.main_window.append_jlink_log(log_msg)
                 
         except Exception as e:
             print(f"[ERROR] Error clearing Worker cache: {e}")
