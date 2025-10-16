@@ -101,6 +101,13 @@ htmlcov/
 
 # Sublime Text
 *.sublime-project
-*.sublime-workspacescreenshot_dpi_test.png
+*.sublime-workspace
+
+# Git提交临时文件（防止中文乱码问题）
+.git-commit-msg.tmp
+commit_msg.txt
+
+# 其他临时文件
+screenshot_dpi_test.png
 jlink_debug.log
 dist_fast/
