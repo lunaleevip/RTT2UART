@@ -55,12 +55,12 @@ VSVersionInfo(
           u'040904B0',
           [
             StringStruct(u'CompanyName', u'{VERSION_NAME} Development Team'),
-            StringStruct(u'FileDescription', u'RTT to UART Debug Tool v{VERSION}'),
+            StringStruct(u'FileDescription', u'{VERSION_NAME} v{VERSION}'),
             StringStruct(u'FileVersion', u'{version_str}'),
             StringStruct(u'InternalName', u'{VERSION_NAME}'),
             StringStruct(u'LegalCopyright', u'Copyright © 2024-2025 {VERSION_NAME} Team'),
             StringStruct(u'OriginalFilename', u'{VERSION_NAME}.exe'),
-            StringStruct(u'ProductName', u'{VERSION_NAME} v{VERSION} - RTT2UART Debug Tool'),
+            StringStruct(u'ProductName', u'{VERSION_NAME} v{VERSION}'),
             StringStruct(u'ProductVersion', u'{version_str}'),
             StringStruct(u'Comments', u'Build time: {BUILD_TIME}')
           ]
