@@ -1,4 +1,4 @@
-# Python 相关
+# Python编译文件
 __pycache__/
 *.py[cod]
 *$py.class
@@ -16,98 +16,69 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# PyInstaller 构建输出
-dist/
-dist_*/
-build/
-*.spec
-
-# macOS 构建输出
-XexunRTT_macOS_Package/XexunRTT.app/
-dist_macos/
-*.dmg
-*.app
-
-# 环境变量文件
-.env
-.venv
+# 虚拟环境
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
+env_backup/
 
-# IDE 相关
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# 系统文件
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# 可执行文件
+*.exe
+*.dll
+*.dylib
 
-# 日志文件
+# 打包文件
+*.zip
+*.tar.gz
+*.rar
+dist_v2_1/
+build_fast/
+XexunRTT_v2.1.0_*/
+XexunRTT_macOS_Package/
+
+# 日志和临时文件
 *.log
-logs/
+*.raw
+rtt_log.raw
 
-# 临时文件
-*.tmp
-*.temp
-*.bak
-*.backup
+# macOS
+.DS_Store
+*.dmg
 
-# 配置文件的本地修改
+# 配置文件
 config.ini
 
-# Windows 缩略图缓存文件
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# 临时和测试文件
+test_*.py
+debug_*.py
+*_backup.py
+*_refactored.py
 
-# 文件夹配置文件
-.directory
-
-# 备份文件
-*~
-
-# 测试输出
-.coverage
-htmlcov/
-.tox/
-.pytest_cache/
-
-# 打包工具生成的文件
-*.tar.gz
-*.zip
-*.rar
-*.7z
-
-# Visual Studio Code
-.vscode/
-
-# PyCharm
-.idea/
-
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
-
-# Git提交临时文件（防止中文乱码问题）
-.git-commit-msg.tmp
-commit_msg.txt
+# 操作生成的MD文件（保留重要文档）
+# 注意：重要文档如README.md, LICENSE等会被保留
+*修复总结.md
+*功能说明.md
+*实现总结.md
+*更新日志.md
+*问题解决方案.md
+*使用说明.md
+*指南.md
+*总结.md
+*分析报告.md
 
 # 其他临时文件
-screenshot_dpi_test.png
-jlink_debug.log
-dist_fast/
+*.qm
+screenshot_*.png
+commit_msg.txt
+cmd.txt

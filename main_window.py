@@ -836,6 +836,25 @@ class EditableTabBar(QTabBar):
         super().__init__(parent)
         self.main_window = None  # 将在主窗口中设置
     
+    def tabSizeHint(self, index):
+        """重写标签大小提示，让当前标签优先完整显示"""
+        # 获取原始大小提示
+        size = super().tabSizeHint(index)
+        
+        # 如果是当前标签，保持完整宽度
+        if index == self.currentIndex():
+            return size
+        
+        # 非当前标签，缩小到最小宽度（显示省略号）
+        # 设置最小宽度为字体宽度的3倍（足够显示1-2个字符+省略号）
+        from PySide6.QtGui import QFontMetrics
+        fm = QFontMetrics(self.font())
+        min_width = fm.averageCharWidth() * 4  # 4个字符宽度
+        
+        # 返回最小宽度和原始宽度的较小值
+        size.setWidth(min(size.width(), max(min_width, 40)))
+        return size
+    
     def mouseDoubleClickEvent(self, event):
         index = self.tabAt(event.pos())
         if index >= 17:
@@ -1127,6 +1146,16 @@ class RTTMainWindow(QMainWindow):
                 # 🎯 极小窗口优化：设置TAB控件支持极小尺寸
                 self.ui.tem_switch.setUsesScrollButtons(True)  # 当标签过多时使用滚动按钮
                 self.ui.tem_switch.setElideMode(Qt.ElideRight)  # 标签文本过长时省略显示
+                
+                # 🔧 标签宽度自适应：当前标签优先完整显示
+                tab_bar = self.ui.tem_switch.tabBar()
+                if tab_bar:
+                    # 设置标签不扩展填充整个空间
+                    tab_bar.setExpanding(False)
+                    # 设置允许滚动，让当前标签始终可见
+                    tab_bar.setUsesScrollButtons(True)
+                    # 设置自动调整当前标签到可见区域
+                    tab_bar.setAutoHide(False)
                 
                 # 设置GridLayout的行拉伸因子，让第0行（TAB控件行）占据主要垂直空间
                 grid_layout = self.ui.gridLayout
@@ -2532,6 +2561,15 @@ class RTTMainWindow(QMainWindow):
         # 更新当前标签页索引（用于串口转发）
         if self.connection_dialog and self.connection_dialog.rtt2uart:
             self.connection_dialog.rtt2uart.set_current_tab_index(index)
+        
+        # 🔧 刷新标签布局，让当前标签优先显示完整
+        if hasattr(self.ui, 'tem_switch'):
+            tab_bar = self.ui.tem_switch.tabBar()
+            if tab_bar:
+                # 强制重新计算所有标签的大小
+                tab_bar.update()
+                # 确保当前标签在可见区域（使用Qt内置方法）
+                self.ui.tem_switch.setCurrentIndex(index)
         
         # 每次切换页面时都确保工具提示设置正确
         self._ensure_correct_tooltips()
