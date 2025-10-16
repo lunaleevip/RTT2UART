@@ -582,6 +582,55 @@ class ConfigManager:
         except Exception as e:
             print(f"清空命令历史失败: {e}")
     
+    # ===========================================
+    # 查找历史相关方法
+    # ===========================================
+    
+    def get_search_history(self) -> List[str]:
+        """获取查找历史记录"""
+        try:
+            history_str = self.config.get('Find', 'search_history', fallback='[]')
+            return json.loads(history_str)
+        except:
+            return []
+    
+    def add_search_to_history(self, search_text: str):
+        """添加查找内容到历史记录"""
+        if not search_text.strip():
+            return
+        
+        try:
+            # 读取现有历史
+            existing_history = self.get_search_history()
+            
+            # 避免重复添加相同内容
+            if search_text in existing_history:
+                existing_history.remove(search_text)
+            
+            # 将新内容添加到最前面
+            existing_history.insert(0, search_text)
+            
+            # 限制历史记录数量（保留最近10条）
+            existing_history = existing_history[:10]
+            
+            # 保存到配置
+            if not self.config.has_section('Find'):
+                self.config.add_section('Find')
+            self.config.set('Find', 'search_history', json.dumps(existing_history, ensure_ascii=False))
+            
+        except Exception as e:
+            print(f"保存查找历史失败: {e}")
+    
+    def clear_search_history(self):
+        """清空查找历史"""
+        try:
+            if not self.config.has_section('Find'):
+                self.config.add_section('Find')
+            self.config.set('Find', 'search_history', '[]')
+            print("查找历史已清空")
+        except Exception as e:
+            print(f"清空查找历史失败: {e}")
+    
     def get_max_log_size(self) -> int:
         """获取最大日志行数"""
         return self._safe_getint('Logging', 'max_log_size', 10000)

@@ -3129,16 +3129,16 @@ class RTTMainWindow(QMainWindow):
             pass
 
     def show_find_dialog(self):
-        """显示查找对话框"""
+        """Show find dialog"""
         try:
-            # 获取当前活动的TAB
+            # Get current active TAB
             current_index = self.ui.tem_switch.currentIndex()
             current_page_widget = self.ui.tem_switch.widget(current_index)
             
             if not current_page_widget:
                 return
                 
-            # 查找文本编辑器
+            # Find text editor
             from PySide6.QtWidgets import QPlainTextEdit
             text_edit = current_page_widget.findChild(QPlainTextEdit)
             if not text_edit:
@@ -3147,23 +3147,38 @@ class RTTMainWindow(QMainWindow):
             if not text_edit:
                 return
                 
-            # 创建并显示查找对话框
+            # Get selected text (if single line)
+            cursor = text_edit.textCursor()
+            selected_text = cursor.selectedText()
+            initial_text = ""
+            
+            # Only use selected text if it's a single line (no line breaks)
+            if selected_text and '\n' not in selected_text and '\r' not in selected_text:
+                # QTextCursor uses U+2029 (paragraph separator) for line breaks
+                if '\u2029' not in selected_text:
+                    initial_text = selected_text.strip()
+                
+            # Create and show find dialog
             if not hasattr(self, 'find_dialog') or not self.find_dialog:
                 self.find_dialog = FindDialog(self, text_edit)
             else:
                 self.find_dialog.set_text_edit(text_edit)
+            
+            # Set initial search text if available
+            if initial_text:
+                self.find_dialog.set_search_text(initial_text)
                 
             self.find_dialog.show()
             self.find_dialog.raise_()
             self.find_dialog.activateWindow()
             
         except Exception as e:
-            logger.error(f"显示查找对话框失败: {e}")
+            logger.error(f"Failed to show find dialog: {e}")
 
 
                                     
 class FindDialog(QDialog):
-    """查找对话框"""
+    """Find Dialog"""
     
     def __init__(self, parent=None, text_edit=None):
         super().__init__(parent)
@@ -3171,57 +3186,67 @@ class FindDialog(QDialog):
         self.last_search_text = ""
         self.last_position = 0
         self.highlights = []
+        self.find_all_window = None
         
-        self.setWindowTitle("查找")
+        self.setWindowTitle(QCoreApplication.translate("FindDialog", "Find"))
         self.setModal(False)
-        self.resize(400, 120)
+        self.resize(450, 140)
         
-        # 设置窗口标志以避免在任务栏Aero Peek中显示
+        # Set window flags to avoid Aero Peek display in taskbar
         current_flags = self.windowFlags()
         new_flags = current_flags | Qt.Tool
-        # 确保保留关闭按钮和系统菜单
+        # Ensure close button and system menu are preserved
         new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
         self.setWindowFlags(new_flags)
         
-        # 创建界面
+        # Create UI
         self.setup_ui()
         
-        # 连接信号
+        # Connect signals
         self.setup_connections()
         
+        # Load search history
+        self.load_search_history()
+        
     def setup_ui(self):
-        """设置界面"""
-        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QCheckBox, QLabel
+        """Setup UI"""
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QComboBox, QPushButton, QCheckBox, QLabel
         
         layout = QVBoxLayout(self)
         
-        # 查找输入框
+        # Search input combo box
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("查找内容:"))
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("输入要查找的文本...")
+        search_layout.addWidget(QLabel(QCoreApplication.translate("FindDialog", "Find:")))
+        self.search_input = QComboBox()
+        self.search_input.setEditable(True)
+        self.search_input.setMaxCount(10)  # Maximum 10 items in history
+        self.search_input.lineEdit().setPlaceholderText(QCoreApplication.translate("FindDialog", "Enter text to find..."))
         search_layout.addWidget(self.search_input)
         layout.addLayout(search_layout)
         
-        # 选项
+        # Options
         options_layout = QHBoxLayout()
-        self.case_sensitive = QCheckBox("区分大小写")
-        self.whole_word = QCheckBox("全字匹配")
+        self.case_sensitive = QCheckBox(QCoreApplication.translate("FindDialog", "Case Sensitive"))
+        self.whole_word = QCheckBox(QCoreApplication.translate("FindDialog", "Whole Words"))
+        self.regex_mode = QCheckBox(QCoreApplication.translate("FindDialog", "Regular Expression"))
         options_layout.addWidget(self.case_sensitive)
         options_layout.addWidget(self.whole_word)
+        options_layout.addWidget(self.regex_mode)
         options_layout.addStretch()
         layout.addLayout(options_layout)
         
-        # 按钮
+        # Buttons
         button_layout = QHBoxLayout()
-        self.find_next_btn = QPushButton("查找下一个")
-        self.find_prev_btn = QPushButton("查找上一个")
-        self.highlight_all_btn = QPushButton("高亮全部")
-        self.clear_highlight_btn = QPushButton("清除高亮")
-        self.close_btn = QPushButton("关闭")
+        self.find_next_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find Next"))
+        self.find_prev_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find Previous"))
+        self.find_all_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find All"))
+        self.highlight_all_btn = QPushButton(QCoreApplication.translate("FindDialog", "Highlight All"))
+        self.clear_highlight_btn = QPushButton(QCoreApplication.translate("FindDialog", "Clear Highlight"))
+        self.close_btn = QPushButton(QCoreApplication.translate("FindDialog", "Close"))
         
         button_layout.addWidget(self.find_next_btn)
         button_layout.addWidget(self.find_prev_btn)
+        button_layout.addWidget(self.find_all_btn)
         button_layout.addWidget(self.highlight_all_btn)
         button_layout.addWidget(self.clear_highlight_btn)
         button_layout.addStretch()
@@ -3229,43 +3254,84 @@ class FindDialog(QDialog):
         layout.addLayout(button_layout)
         
     def setup_connections(self):
-        """设置信号连接"""
-        self.search_input.textChanged.connect(self.on_search_text_changed)
-        self.search_input.returnPressed.connect(self.find_next)
+        """Setup signal connections"""
+        self.search_input.lineEdit().textChanged.connect(self.on_search_text_changed)
+        self.search_input.lineEdit().returnPressed.connect(self.find_next)
         self.find_next_btn.clicked.connect(self.find_next)
         self.find_prev_btn.clicked.connect(self.find_previous)
+        self.find_all_btn.clicked.connect(self.find_all)
         self.highlight_all_btn.clicked.connect(self.highlight_all)
         self.clear_highlight_btn.clicked.connect(self.clear_highlights)
         self.close_btn.clicked.connect(self.close)
+    
+    def load_search_history(self):
+        """Load search history from config"""
+        try:
+            from config_manager import config_manager
+            history = config_manager.get_search_history()
+            self.search_input.clear()
+            self.search_input.addItems(history)
+            self.search_input.setCurrentText("")
+        except Exception as e:
+            print(f"Failed to load search history: {e}")
+    
+    def save_search_to_history(self, search_text: str):
+        """Save search text to history"""
+        if not search_text.strip():
+            return
+        try:
+            from config_manager import config_manager
+            config_manager.add_search_to_history(search_text)
+            config_manager.save_config()
+            # Reload history in combo box
+            self.load_search_history()
+            self.search_input.setCurrentText(search_text)
+        except Exception as e:
+            print(f"Failed to save search history: {e}")
         
     def set_text_edit(self, text_edit):
-        """设置要搜索的文本编辑器"""
+        """Set text editor to search"""
         self.text_edit = text_edit
         self.clear_highlights()
+    
+    def set_search_text(self, text):
+        """Set initial search text"""
+        if text:
+            self.search_input.setCurrentText(text)
+            # Select all text for easy replacement
+            self.search_input.lineEdit().selectAll()
         
     def on_search_text_changed(self):
-        """搜索文本改变时的处理"""
-        if self.search_input.text() != self.last_search_text:
+        """Handle search text changed"""
+        if self.search_input.currentText() != self.last_search_text:
             self.last_position = 0
             self.clear_highlights()
             
     def find_next(self):
-        """查找下一个"""
+        """Find next occurrence"""
+        search_text = self.search_input.currentText()
+        if search_text:
+            self.save_search_to_history(search_text)
         self.find_text(forward=True)
         
     def find_previous(self):
-        """查找上一个"""
+        """Find previous occurrence"""
+        search_text = self.search_input.currentText()
+        if search_text:
+            self.save_search_to_history(search_text)
         self.find_text(forward=False)
         
     def find_text(self, forward=True):
-        """查找文本"""
-        if not self.text_edit or not self.search_input.text():
+        """Find text with optional regex support"""
+        if not self.text_edit or not self.search_input.currentText():
             return False
             
-        search_text = self.search_input.text()
+        search_text = self.search_input.currentText()
         
-        # 获取搜索选项
+        # Get search options
         from PySide6.QtGui import QTextDocument
+        from PySide6.QtCore import QRegularExpression
+        
         flags = QTextDocument.FindFlag(0)
         if not forward:
             flags |= QTextDocument.FindBackward
@@ -3274,10 +3340,10 @@ class FindDialog(QDialog):
         if self.whole_word.isChecked():
             flags |= QTextDocument.FindWholeWords
             
-        # 获取当前光标位置
+        # Get current cursor position
         cursor = self.text_edit.textCursor()
         
-        # 如果是新的搜索文本，从头开始
+        # If new search text, start from beginning/end
         if search_text != self.last_search_text:
             if forward:
                 cursor.movePosition(cursor.MoveOperation.Start)
@@ -3285,21 +3351,38 @@ class FindDialog(QDialog):
                 cursor.movePosition(cursor.MoveOperation.End)
             self.last_search_text = search_text
             
-        # 执行搜索
-        found_cursor = self.text_edit.document().find(search_text, cursor, flags)
+        # Execute search (regex or plain text)
+        if self.regex_mode.isChecked():
+            # Regex search
+            pattern_options = QRegularExpression.PatternOption.NoPatternOption
+            if not self.case_sensitive.isChecked():
+                pattern_options = QRegularExpression.PatternOption.CaseInsensitiveOption
+            regex = QRegularExpression(search_text, pattern_options)
+            found_cursor = self.text_edit.document().find(regex, cursor, flags)
+        else:
+            # Plain text search
+            found_cursor = self.text_edit.document().find(search_text, cursor, flags)
         
         if not found_cursor.isNull():
-            # 找到了，选中并滚动到该位置
+            # Found, select and scroll to position
             self.text_edit.setTextCursor(found_cursor)
             self.text_edit.ensureCursorVisible()
             return True
         else:
-            # 没找到，从另一端开始搜索
+            # Not found, search from the other end
             if forward:
                 cursor.movePosition(cursor.MoveOperation.Start)
             else:
                 cursor.movePosition(cursor.MoveOperation.End)
-            found_cursor = self.text_edit.document().find(search_text, cursor, flags)
+            
+            if self.regex_mode.isChecked():
+                pattern_options = QRegularExpression.PatternOption.NoPatternOption
+                if not self.case_sensitive.isChecked():
+                    pattern_options = QRegularExpression.PatternOption.CaseInsensitiveOption
+                regex = QRegularExpression(search_text, pattern_options)
+                found_cursor = self.text_edit.document().find(regex, cursor, flags)
+            else:
+                found_cursor = self.text_edit.document().find(search_text, cursor, flags)
             
             if not found_cursor.isNull():
                 self.text_edit.setTextCursor(found_cursor)
@@ -3308,45 +3391,126 @@ class FindDialog(QDialog):
                 
         return False
         
+    def find_all(self):
+        """Find all occurrences and show results window"""
+        if not self.text_edit or not self.search_input.currentText():
+            return
+        
+        search_text = self.search_input.currentText()
+        self.save_search_to_history(search_text)
+        
+        # Find all matches
+        matches = []
+        from PySide6.QtGui import QTextDocument
+        from PySide6.QtCore import QRegularExpression
+        
+        flags = QTextDocument.FindFlag(0)
+        if self.case_sensitive.isChecked():
+            flags |= QTextDocument.FindCaseSensitively
+        if self.whole_word.isChecked():
+            flags |= QTextDocument.FindWholeWords
+        
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        
+        line_num = 1
+        current_position = 0
+        
+        while True:
+            if self.regex_mode.isChecked():
+                # Regex search
+                pattern_options = QRegularExpression.PatternOption.NoPatternOption
+                if not self.case_sensitive.isChecked():
+                    pattern_options = QRegularExpression.PatternOption.CaseInsensitiveOption
+                regex = QRegularExpression(search_text, pattern_options)
+                cursor = self.text_edit.document().find(regex, cursor, flags)
+            else:
+                # Plain text search
+                cursor = self.text_edit.document().find(search_text, cursor, flags)
+            
+            if cursor.isNull():
+                break
+            
+            # Get line number and context
+            block = cursor.block()
+            line_number = block.blockNumber() + 1
+            line_text = block.text()
+            match_position = cursor.selectionStart()
+            
+            matches.append({
+                'line': line_number,
+                'text': line_text,
+                'position': match_position,
+                'cursor': cursor
+            })
+        
+        # Show results window
+        if matches:
+            if not self.find_all_window or not self.find_all_window.isVisible():
+                self.find_all_window = FindAllResultsWindow(self, self.text_edit, matches, search_text)
+                self.find_all_window.show()
+            else:
+                self.find_all_window.update_results(matches, search_text)
+                self.find_all_window.raise_()
+                self.find_all_window.activateWindow()
+        else:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self, 
+                QCoreApplication.translate("FindDialog", "Find All"),
+                QCoreApplication.translate("FindDialog", "No matches found."))
+        
     def highlight_all(self):
-        """高亮所有匹配的文本"""
-        if not self.text_edit or not self.search_input.text():
+        """Highlight all matching text"""
+        if not self.text_edit or not self.search_input.currentText():
             return
             
-        search_text = self.search_input.text()
+        search_text = self.search_input.currentText()
+        self.save_search_to_history(search_text)
         self.clear_highlights()
         
-        # 获取搜索选项
+        # Get search options
         from PySide6.QtGui import QTextDocument, QTextCharFormat, QColor
+        from PySide6.QtCore import QRegularExpression
+        
         flags = QTextDocument.FindFlag(0)
         if self.case_sensitive.isChecked():
             flags |= QTextDocument.FindCaseSensitively
         if self.whole_word.isChecked():
             flags |= QTextDocument.FindWholeWords
             
-        # 创建高亮格式 - 黄色背景 + 黑色文字增强对比度
+        # Create highlight format - bright yellow background + black text for better contrast
         highlight_format = QTextCharFormat()
-        highlight_format.setBackground(QColor(255, 255, 0, 160))  # 明亮黄色背景
-        highlight_format.setForeground(QColor(0, 0, 0))          # 黑色文字
+        highlight_format.setBackground(QColor(255, 255, 0, 160))  # Bright yellow background
+        highlight_format.setForeground(QColor(0, 0, 0))           # Black text
         
-        # 查找所有匹配项
+        # Find all matches
         cursor = self.text_edit.textCursor()
         cursor.movePosition(cursor.MoveOperation.Start)
         
         extra_selections = []
         while True:
-            cursor = self.text_edit.document().find(search_text, cursor, flags)
+            if self.regex_mode.isChecked():
+                # Regex search
+                pattern_options = QRegularExpression.PatternOption.NoPatternOption
+                if not self.case_sensitive.isChecked():
+                    pattern_options = QRegularExpression.PatternOption.CaseInsensitiveOption
+                regex = QRegularExpression(search_text, pattern_options)
+                cursor = self.text_edit.document().find(regex, cursor, flags)
+            else:
+                # Plain text search
+                cursor = self.text_edit.document().find(search_text, cursor, flags)
+            
             if cursor.isNull():
                 break
                 
-            # 创建选择区域
+            # Create selection area
             from PySide6.QtWidgets import QTextEdit
             selection = QTextEdit.ExtraSelection()
             selection.cursor = cursor
             selection.format = highlight_format
             extra_selections.append(selection)
             
-        # 应用高亮
+        # Apply highlights
         self.text_edit.setExtraSelections(extra_selections)
         self.highlights = extra_selections
         
@@ -3357,15 +3521,153 @@ class FindDialog(QDialog):
         self.highlights = []
         
     def showEvent(self, event):
-        """对话框显示时的处理"""
+        """Handle dialog show event"""
         super().showEvent(event)
         self.search_input.setFocus()
-        self.search_input.selectAll()
+        # Text is already selected if set_search_text was called
+        # Otherwise select all existing text
+        if not self.search_input.lineEdit().selectedText():
+            self.search_input.lineEdit().selectAll()
         
     def closeEvent(self, event):
-        """对话框关闭时的处理"""
+        """Handle dialog close event"""
         self.clear_highlights()
         super().closeEvent(event)
+
+
+class FindAllResultsWindow(QDialog):
+    """Find All Results Window - displays all search results in a list"""
+    
+    def __init__(self, parent=None, text_edit=None, matches=None, search_text=""):
+        super().__init__(parent)
+        self.text_edit = text_edit
+        self.matches = matches or []
+        self.search_text = search_text
+        
+        self.setWindowTitle(QCoreApplication.translate("FindAllResultsWindow", "Find All Results"))
+        self.setModal(False)
+        self.resize(700, 500)
+        
+        # Set window flags to stay on top but allow resizing and dragging
+        current_flags = self.windowFlags()
+        new_flags = current_flags | Qt.Tool
+        # Ensure close button and system menu are preserved
+        new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
+        self.setWindowFlags(new_flags)
+        
+        # Create UI
+        self.setup_ui()
+        
+        # Populate results
+        self.populate_results()
+    
+    def setup_ui(self):
+        """Setup UI"""
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton, QAbstractItemView
+        
+        layout = QVBoxLayout(self)
+        
+        # Results info label
+        self.info_label = QLabel()
+        layout.addWidget(self.info_label)
+        
+        # Results list
+        self.results_list = QListWidget()
+        # Enable extended selection (Ctrl+Click for multiple, Shift+Click for range)
+        self.results_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.results_list.itemDoubleClicked.connect(self.on_result_double_clicked)
+        layout.addWidget(self.results_list)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        self.copy_btn = QPushButton(QCoreApplication.translate("FindAllResultsWindow", "Copy Selected"))
+        self.copy_all_btn = QPushButton(QCoreApplication.translate("FindAllResultsWindow", "Copy All"))
+        self.close_btn = QPushButton(QCoreApplication.translate("FindAllResultsWindow", "Close"))
+        
+        self.copy_btn.clicked.connect(self.copy_selected)
+        self.copy_all_btn.clicked.connect(self.copy_all)
+        self.close_btn.clicked.connect(self.close)
+        
+        button_layout.addWidget(self.copy_btn)
+        button_layout.addWidget(self.copy_all_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(self.close_btn)
+        layout.addLayout(button_layout)
+    
+    def populate_results(self):
+        """Populate results list"""
+        self.results_list.clear()
+        
+        # Update info label
+        count = len(self.matches)
+        self.info_label.setText(
+            QCoreApplication.translate("FindAllResultsWindow", "Found {0} match(es) for '{1}'").format(count, self.search_text)
+        )
+        
+        # Add results to list
+        for match in self.matches:
+            line_num = match['line']
+            line_text = match['text'].strip()
+            # Limit line text length for display
+            if len(line_text) > 2048:
+                line_text = line_text[:2048] + "..."
+            
+            item_text = f"Line {line_num}: {line_text}"
+            self.results_list.addItem(item_text)
+    
+    def on_result_double_clicked(self, item):
+        """Handle result item double-click - jump to position in text"""
+        row = self.results_list.row(item)
+        if 0 <= row < len(self.matches):
+            match = self.matches[row]
+            
+            # Create cursor at match position
+            cursor = self.text_edit.textCursor()
+            cursor.setPosition(match['position'])
+            
+            # Select the matched text
+            block = cursor.block()
+            block_start = block.position()
+            match_start_in_block = match['position'] - block_start
+            
+            # Try to select the search text length
+            cursor.setPosition(match['position'])
+            cursor.movePosition(cursor.MoveOperation.Right, cursor.MoveMode.KeepAnchor, len(self.search_text))
+            
+            # Set cursor and ensure visible
+            self.text_edit.setTextCursor(cursor)
+            self.text_edit.ensureCursorVisible()
+            self.text_edit.setFocus()
+    
+    def copy_selected(self):
+        """Copy selected results to clipboard"""
+        selected_items = self.results_list.selectedItems()
+        if selected_items:
+            # Collect all selected item texts
+            selected_texts = [item.text() for item in selected_items]
+            
+            from PySide6.QtGui import QClipboard
+            from PySide6.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText("\n".join(selected_texts))
+    
+    def copy_all(self):
+        """Copy all results to clipboard"""
+        all_text = []
+        for i in range(self.results_list.count()):
+            all_text.append(self.results_list.item(i).text())
+        
+        if all_text:
+            from PySide6.QtGui import QClipboard
+            from PySide6.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText("\n".join(all_text))
+    
+    def update_results(self, matches, search_text):
+        """Update results with new search"""
+        self.matches = matches
+        self.search_text = search_text
+        self.populate_results()
 
 
 class ConnectionDialog(QDialog):
@@ -4677,17 +4979,17 @@ class ConnectionDialog(QDialog):
                         worker.buffers[i].clear()
                     else:
                         worker.buffers[i] = []
-                    worker.buffer_lengths[i] = 0
-                    
-                    if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
-                        if hasattr(worker.colored_buffers[i], 'clear'):
-                            worker.colored_buffers[i].clear()
-                        else:
-                            worker.colored_buffers[i] = []
-                        worker.colored_buffer_lengths[i] = 0
-                    
-                    if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
-                        worker.display_lengths[i] = 0
+                worker.buffer_lengths[i] = 0
+                
+                if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
+                    if hasattr(worker.colored_buffers[i], 'clear'):
+                        worker.colored_buffers[i].clear()
+                    else:
+                        worker.colored_buffers[i] = []
+                    worker.colored_buffer_lengths[i] = 0
+                
+                if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
+                    worker.display_lengths[i] = 0
             
             # 3. 重置性能计数器
             if hasattr(worker, 'update_counter'):
