@@ -324,13 +324,19 @@ class DeviceTableModel(QtCore.QAbstractTableModel):
 
 
 class DeviceSelectDialog(QDialog):
-    def __init__(self):
-        super(DeviceSelectDialog, self).__init__()
+    def __init__(self, parent=None):
+        super(DeviceSelectDialog, self).__init__(parent)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         self.setWindowModality(Qt.ApplicationModal)
+        
+        # 应用父窗口的主题样式
+        if parent and hasattr(parent, 'styleSheet'):
+            current_stylesheet = parent.styleSheet()
+            if current_stylesheet:
+                self.setStyleSheet(current_stylesheet)
         
         # 设置窗口标志以避免在任务栏Aero Peek中显示
         current_flags = self.windowFlags()
@@ -398,24 +404,48 @@ class DeviceSelectDialog(QDialog):
         self.ui.buttonBox.rejected.connect(self.reject)
             
     def get_jlink_devices_list_file(self):
-        """获取JLink设备数据库文件路径，支持开发环境和打包后的资源访问"""
+        """获取JLink设备数据库文件路径
         
-        # 开发环境：优先从当前目录读取
+        优先级：
+        1. JLink安装目录（从pylink库获取）
+        2. 本地项目目录
+        3. 打包后的资源目录
+        """
+        
+        # 1. 优先从JLink安装目录读取（通过pylink库）
+        try:
+            import pylink
+            # 尝试通过pylink获取JLink安装路径
+            jlink_lib_path = pylink.library.Library().dll_path()
+            if jlink_lib_path:
+                jlink_dir = os.path.dirname(jlink_lib_path)
+                jlink_xml = os.path.join(jlink_dir, 'JLinkDevicesBuildIn.xml')
+                if os.path.exists(jlink_xml):
+                    logger.info(f"Using JLink device database from installation: {jlink_xml}")
+                    return jlink_xml
+        except Exception as e:
+            logger.debug(f"Could not locate JLink installation directory: {e}")
+        
+        # 2. 开发环境：从当前目录读取
         if os.path.exists('JLinkDevicesBuildIn.xml'):
-            return os.path.abspath('JLinkDevicesBuildIn.xml')
+            local_path = os.path.abspath('JLinkDevicesBuildIn.xml')
+            logger.info(f"Using local device database: {local_path}")
+            return local_path
         
-        # 打包后环境：从资源目录读取
+        # 3. 打包后环境：从资源目录读取
         try:
             # PyInstaller会将资源文件解压到sys._MEIPASS目录
             if hasattr(sys, '_MEIPASS'):
                 resource_path = os.path.join(sys._MEIPASS, 'JLinkDevicesBuildIn.xml')
                 if os.path.exists(resource_path):
+                    logger.info(f"Using packaged device database: {resource_path}")
                     return resource_path
             
             # 尝试从当前可执行文件目录读取
             exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             exe_resource_path = os.path.join(exe_dir, 'JLinkDevicesBuildIn.xml')
             if os.path.exists(exe_resource_path):
+                logger.info(f"Using device database from exe directory: {exe_resource_path}")
                 return exe_resource_path
                 
         except Exception as e:
@@ -531,6 +561,10 @@ class DeviceSelectDialog(QDialog):
     def set_filter(self, text):
         self.proxy_model.setFilterKeyColumn(1) #只对 Device 列进行筛选
         self.proxy_model.setFilterFixedString(text) #设置筛选的文本
+        
+        # 筛选后将滚动条滚动到顶部
+        if hasattr(self.ui, 'tableView'):
+            self.ui.tableView.scrollToTop()
 
     # 在设备选择对话框类中添加一个方法来处理确定按钮的操作
     def accept(self):
@@ -1534,12 +1568,29 @@ class RTTMainWindow(QMainWindow):
     
     def _show_about(self):
         """显示关于对话框"""
-        QMessageBox.about(self, 
-                         QCoreApplication.translate("main_window", "About XexunRTT"),
-                         QCoreApplication.translate("main_window", 
-                                                   "XexunRTT v2.2\n\n"
-                                                   "RTT Debug Tool\n\n"
-                                                   "Based on PySide6"))
+        try:
+            from version import VERSION, VERSION_NAME, BUILD_TIME
+            
+            about_text = QCoreApplication.translate(
+                "main_window",
+                "%s v%s\n\nRTT Debug Tool\n\nBased on PySide6\n\nBuilt: %s"
+            ) % (VERSION_NAME, VERSION, BUILD_TIME)
+            
+            QMessageBox.about(
+                self,
+                QCoreApplication.translate("main_window", "About %s") % VERSION_NAME,
+                about_text
+            )
+        except ImportError:
+            # 如果version.py不存在，使用默认信息
+            QMessageBox.about(
+                self,
+                QCoreApplication.translate("main_window", "About XexunRTT"),
+                QCoreApplication.translate(
+                    "main_window",
+                    "XexunRTT v2.2\n\nRTT Debug Tool\n\nBased on PySide6"
+                )
+            )
 
     def _build_encoding_submenu(self):
         """构建编码设置子菜单"""
@@ -1645,6 +1696,11 @@ class RTTMainWindow(QMainWindow):
     def show_connection_dialog(self):
         """显示连接配置对话框"""
         # 连接对话框已在初始化时创建，直接显示即可
+        
+        # 在显示前确保串口转发选择框内容是最新的
+        # （TAB在主窗口初始化后才会准备好，所以这里需要更新）
+        if hasattr(self.connection_dialog, '_update_serial_forward_combo'):
+            self.connection_dialog._update_serial_forward_combo()
         
         # 显示对话框
         self.connection_dialog.show()
@@ -2518,7 +2574,8 @@ class RTTMainWindow(QMainWindow):
             # 重置命令历史导航状态
             self._reset_command_history_navigation()
                 
-            sent_msg = QCoreApplication.translate("main_window", u"Sent:") + "\t" + cmd_text[:len(cmd_text) - 1]
+            # 使用格式化字符串确保翻译能被正确提取
+            sent_msg = QCoreApplication.translate("main_window", "Sent:\t%s") % cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
             
             #self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
@@ -3705,7 +3762,7 @@ class ConnectionDialog(QDialog):
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
-        self.setWindowTitle(QCoreApplication.translate("main_window", "RTT2UART Connection Configuration"))
+        self.setWindowTitle(QCoreApplication.translate("main_window", "Connection Configuration"))
         self.setWindowModality(Qt.ApplicationModal)
         
         # 设置窗口标志以避免在任务栏Aero Peek中显示
@@ -4133,6 +4190,16 @@ class ConnectionDialog(QDialog):
         """更新串口转发选择框的内容"""
         if not hasattr(self.ui, 'comboBox_SerialForward'):
             return
+        
+        # 检查主窗口的TAB是否已经初始化完成
+        # 如果TAB还没准备好，添加一个占位项，稍后会被更新
+        tab_ready = False
+        if (self.main_window and hasattr(self.main_window, 'ui') and 
+            hasattr(self.main_window.ui, 'tem_switch')):
+            tab_count = self.main_window.ui.tem_switch.count()
+            tab_ready = (tab_count >= MAX_TAB_SIZE)
+            if not tab_ready:
+                print(f"[DEBUG] TAB not ready yet, count={tab_count}, expected={MAX_TAB_SIZE}")
             
         # 临时断开信号连接，避免在更新过程中触发不必要的事件
         # 使用blockSignals更安全的方式
@@ -4149,20 +4216,27 @@ class ConnectionDialog(QDialog):
             # LOG模式：显示所有TAB页面
             self.ui.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "Current Tab"), 'current_tab')
             
-            if self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
+            # 只有当TAB准备好时才添加TAB列表
+            if tab_ready and self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
                 for i in range(MAX_TAB_SIZE):
                     tab_text = self.main_window.ui.tem_switch.tabText(i)
+
+                    # 根据索引构建显示文本
                     if i == 0:
-                        display_text = f"{tab_text} ({QCoreApplication.translate('dialog', 'All Data')})"
+                        # ALL页面（索引0）
+                        display_text = QCoreApplication.translate('dialog', '%s (%s)') % (tab_text, QCoreApplication.translate('dialog', 'All Data'))
                     elif i < 17:
-                        display_text = f"{QCoreApplication.translate('dialog', 'Channel')} {tab_text}"
+                        # RTT通道（索引1-16），显示"通道 0"到"通道 15"
+                        # tab_text应该是"0"到"15"
+                        display_text = QCoreApplication.translate('dialog', 'Channel %s') % tab_text
                     else:
-                        # 对于筛选标签页，显示实际的筛选文本
-                        if tab_text == QCoreApplication.translate("main_window", "filter"):
-                            display_text = f"{QCoreApplication.translate('dialog', 'Filter')} {i-16}: ({QCoreApplication.translate('dialog', 'Not Set')})"
+                        # 筛选标签页（索引17+）
+                        filter_translated = QCoreApplication.translate("main_window", "filter")
+                        if tab_text == "filter" or tab_text == filter_translated:
+                            display_text = QCoreApplication.translate('dialog', 'Filter %s: (%s)') % (i-16, QCoreApplication.translate('dialog', 'Not Set'))
                         else:
-                            display_text = f"{QCoreApplication.translate('dialog', 'Filter')} {i-16}: {tab_text}"
-                    
+                            display_text = QCoreApplication.translate('dialog', 'Filter %s: %s') % (i-16, tab_text)
+
                     self.ui.comboBox_SerialForward.addItem(display_text, i)
         
         elif hasattr(self.ui, 'radioButton_DATA') and self.ui.radioButton_DATA.isChecked():
@@ -4567,7 +4641,8 @@ class ConnectionDialog(QDialog):
             return False
 
     def target_device_selete(self):
-        device_ui = DeviceSelectDialog()
+        # 传入主窗口作为parent，以便应用相同的主题样式
+        device_ui = DeviceSelectDialog(self.main_window)
         result = device_ui.exec()
         
         # 📋 修复：只有用户确认选择（不是取消）且选择了有效设备时才更新

@@ -155,7 +155,7 @@ class Ui_dialog(object):
     # setupUi
 
     def retranslateUi(self, dialog):
-        dialog.setWindowTitle(QCoreApplication.translate("dialog", u"RTT2UART Control Panel", None))
+        dialog.setWindowTitle(QCoreApplication.translate("dialog", u"Connection Configuration", None))
         self.pushButton_Start.setText(QCoreApplication.translate("dialog", u"Start", None))
         self.groupBox.setTitle(QCoreApplication.translate("dialog", u"Target Interface And Speed", None))
         self.comboBox_Speed.setCurrentText("")
