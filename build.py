@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 统一构建脚本 - 从version.py读取版本号并自动生成版本信息文件
+支持平台: Windows, macOS, Linux
 """
 
 import os
 import sys
 import subprocess
+import platform
 from pathlib import Path
 
 # 导入版本信息
@@ -27,9 +29,20 @@ def parse_version(version_str):
     parts = parts[:4]
     return tuple(int(p) for p in parts)
 
+# 获取平台信息
+PLATFORM = platform.system()  # 'Windows', 'Darwin' (macOS), 'Linux'
+IS_WINDOWS = PLATFORM == 'Windows'
+IS_MACOS = PLATFORM == 'Darwin'
+IS_LINUX = PLATFORM == 'Linux'
+
 # 生成版本信息文件
 def generate_version_info():
-    """生成Windows版本信息文件"""
+    """生成Windows版本信息文件（仅限Windows平台）"""
+    # 非Windows平台不需要生成版本信息文件
+    if not IS_WINDOWS:
+        print(f"[SKIP] 当前平台 {PLATFORM} 不需要生成版本信息文件")
+        return None
+    
     version_tuple = parse_version(VERSION)
     version_str = '.'.join(str(v) for v in version_tuple)
     
@@ -81,7 +94,12 @@ VSVersionInfo(
 
 # 更新spec文件中的version参数
 def update_spec_file(spec_file, version_info_file):
-    """更新spec文件中的version参数"""
+    """更新spec文件中的version参数（仅限Windows）"""
+    # 如果没有版本信息文件（非Windows平台），跳过
+    if version_info_file is None:
+        print(f"[SKIP] 非Windows平台，无需更新spec文件的version参数")
+        return
+    
     with open(spec_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
@@ -98,25 +116,43 @@ def update_spec_file(spec_file, version_info_file):
     
     print(f"[OK] 更新spec文件: {spec_file}")
 
+def get_spec_file():
+    """根据平台获取对应的spec文件"""
+    if IS_MACOS:
+        return 'XexunRTT_cross_macOS.spec'
+    else:
+        # Windows和Linux使用同一个spec文件
+        return 'XexunRTT_onefile_v2_2.spec'
+
+def get_output_extension():
+    """根据平台获取输出文件扩展名"""
+    if IS_WINDOWS:
+        return '.exe'
+    elif IS_MACOS:
+        return '.app'
+    else:
+        return ''  # Linux没有扩展名
+
 def main():
     """主构建流程"""
     print(f"{'='*60}")
     print(f"  {VERSION_NAME} 构建脚本")
     print(f"  版本: v{VERSION}")
+    print(f"  平台: {PLATFORM}")
     print(f"  构建时间: {BUILD_TIME}")
     print(f"{'='*60}\n")
     
-    # 1. 生成版本信息文件
+    # 1. 生成版本信息文件（仅Windows）
     print("[1/3] 生成版本信息文件...")
     version_info_file = generate_version_info()
     
     # 2. 更新spec文件
     print("\n[2/3] 更新构建配置...")
-    spec_file = 'XexunRTT_onefile_v2_2.spec'
+    spec_file = get_spec_file()
     if os.path.exists(spec_file):
         update_spec_file(spec_file, version_info_file)
     else:
-        print(f"警告: {spec_file} 不存在")
+        print(f"警告: {spec_file} 不存在，将使用默认配置")
     
     # 3. 运行PyInstaller
     print("\n[3/3] 开始编译...")
@@ -125,14 +161,37 @@ def main():
     
     result = subprocess.run(cmd)
     
+    # 4. 显示结果
+    output_ext = get_output_extension()
+    output_file = f"dist/{VERSION_NAME}_v{VERSION}{output_ext}"
+    
     if result.returncode == 0:
         print(f"\n{'='*60}")
         print(f"  [SUCCESS] 构建成功！")
-        print(f"  输出文件: dist/{VERSION_NAME}_v{VERSION}.exe")
+        print(f"  平台: {PLATFORM}")
+        print(f"  输出文件: {output_file}")
+        
+        # 检查文件是否真的存在
+        if IS_WINDOWS:
+            exe_path = f"dist/{VERSION_NAME}_v{VERSION}.exe"
+            if os.path.exists(exe_path):
+                size = os.path.getsize(exe_path)
+                print(f"  文件大小: {size:,} 字节 ({size/1024/1024:.2f} MB)")
+        elif IS_MACOS:
+            app_path = f"dist/{VERSION_NAME}_v{VERSION}.app"
+            if os.path.exists(app_path):
+                print(f"  应用包: {app_path}")
+        else:  # Linux
+            bin_path = f"dist/{VERSION_NAME}_v{VERSION}"
+            if os.path.exists(bin_path):
+                size = os.path.getsize(bin_path)
+                print(f"  文件大小: {size:,} 字节 ({size/1024/1024:.2f} MB)")
+        
         print(f"{'='*60}")
     else:
         print(f"\n{'='*60}")
         print(f"  [ERROR] 构建失败！")
+        print(f"  平台: {PLATFORM}")
         print(f"  错误代码: {result.returncode}")
         print(f"{'='*60}")
         sys.exit(result.returncode)
