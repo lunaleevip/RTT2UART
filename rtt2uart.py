@@ -33,12 +33,12 @@ def _get_autoreset_patterns():
     """从 config.ini 的 [Autoreset] 读取 reset_msg(JSON数组)，无配置则使用默认。"""
     try:
         cfg = config_manager.config
-        raw = cfg.get('Autoreset', 'reset_msg', fallback='["JLink连接打开后失败"]')
+        raw = cfg.get('Autoreset', 'reset_msg', fallback='["JLink connection failed after open"]')  #不能修改此处，这是JLINK返回的
         arr = json.loads(raw)
         return [s for s in arr if isinstance(s, str) and s.strip()]
     except Exception as e:
         logger.warning(QCoreApplication.translate("rtt2uart", "读取自动重置配置失败: %s") % str(e))
-        return [QCoreApplication.translate("rtt2uart", "JLink连接打开后失败")]
+        return [QCoreApplication.translate("rtt2uart", "JLink connection failed after open")]
 
 
 class AnsiProcessor:
@@ -76,20 +76,20 @@ class AnsiProcessor:
             '\x1B[40m': 'bg:#000000',     # 黑色背景
             '\x1B[41m': 'bg:#800000',     # 红色背景
             '\x1B[42m': 'bg:#008000',     # 绿色背景
-            '\x1B[43m': 'bg:#FFFF00',     # 🎨 明亮黄色背景 - 统一高亮颜色
+            '\x1B[43m': 'bg:#FFFF00',     # 明亮黄色背景 - 统一高亮颜色
             '\x1B[44m': 'bg:#000080',     # 蓝色背景
             '\x1B[45m': 'bg:#800080',     # 洋红背景
             '\x1B[46m': 'bg:#008080',     # 青色背景
             '\x1B[47m': 'bg:#C0C0C0',     # 白色背景
             
-            # 🎨 复合颜色代码 - 背景色+前景色组合（增强对比度）
+            # 复合颜色代码 - 背景色+前景色组合（增强对比度）
             '\x1B[43;30m': 'bg:#FFFF00;color:#000000',  # 黄色背景 + 黑色文字
             
             # 背景色 (24;XXm 和 4;XXm) - 保持兼容性
             '\x1B[24;40m': 'bg:#000000',  # 黑色背景
             '\x1B[24;41m': 'bg:#800000',  # 红色背景
             '\x1B[24;42m': 'bg:#008000',  # 绿色背景
-            '\x1B[24;43m': 'bg:#FFFF00',  # 🎨 明亮黄色背景 - 统一高亮颜色
+            '\x1B[24;43m': 'bg:#FFFF00',  # 明亮黄色背景 - 统一高亮颜色
             '\x1B[24;44m': 'bg:#000080',  # 蓝色背景
             '\x1B[24;45m': 'bg:#800080',  # 洋红背景
             '\x1B[24;46m': 'bg:#008080',  # 青色背景
@@ -98,7 +98,7 @@ class AnsiProcessor:
             '\x1B[4;40m': 'bg:#000000',   # 亮黑色背景
             '\x1B[4;41m': 'bg:#FF0000',   # 亮红色背景
             '\x1B[4;42m': 'bg:#00FF00',   # 亮绿色背景
-            '\x1B[4;43m': 'bg:#FFFF00',   # 🎨 明亮黄色背景 - 统一高亮颜色
+            '\x1B[4;43m': 'bg:#FFFF00',   # 明亮黄色背景 - 统一高亮颜色
             '\x1B[4;44m': 'bg:#0000FF',   # 亮蓝色背景
             '\x1B[4;45m': 'bg:#FF00FF',   # 亮洋红背景
             '\x1B[4;46m': 'bg:#00FFFF',   # 亮青色背景
@@ -161,7 +161,7 @@ class AnsiProcessor:
                         # 清屏命令，可以在这里处理
                         pass
                     elif ';' in color_value:
-                        # 🎨 处理复合颜色代码（如：bg:#FFFF00;color:#000000）
+                        # 处理复合颜色代码（如：bg:#FFFF00;color:#000000）
                         parts = color_value.split(';')
                         for part in parts:
                             if part.startswith('bg:'):
@@ -236,7 +236,7 @@ class rtt_to_serial():
         
         # 记录连接信息到日志
         if self.jlink_log_callback:
-            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "🔗 设备连接信息: %s") % self.device_info)
+            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "Device connection info: %s") % self.device_info)
         
         # 串口转发设置
         self.serial_forward_tab = -1  # -1表示禁用转发
@@ -308,15 +308,15 @@ class rtt_to_serial():
             self.jlink_log_callback(message)
     
     def _auto_reset_jlink_connection(self):
-        """🔄 自动重置JLink连接"""
+        """自动重置JLink连接"""
         try:
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "🔄 Starting auto reset JLink connection..."))
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting auto reset JLink connection..."))
             
             # 1. 关闭RTT
             try:
                 if hasattr(self.jlink, 'rtt_stop'):
                     self.jlink.rtt_stop()
-                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT stopped"))
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT stopped"))
             except Exception as e:
                 logger.warning(f"Failed to stop RTT during reset: {e}")
             
@@ -324,7 +324,7 @@ class rtt_to_serial():
             try:
                 if hasattr(self.jlink, 'close'):
                     self.jlink.close()
-                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink connection closed"))
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection closed"))
             except Exception as e:
                 logger.warning(f"Failed to close JLink during reset: {e}")
             
@@ -335,9 +335,9 @@ class rtt_to_serial():
             # 4. 重新创建JLink对象
             try:
                 self.jlink = pylink.JLink()
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink object recreated"))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink object recreated"))
             except Exception as e:
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ Failed to recreate JLink object: %s") % str(e))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to recreate JLink object: %s") % str(e))
                 return False
             
             # 5. 重新连接
@@ -347,51 +347,51 @@ class rtt_to_serial():
                     self.jlink.open(self._connect_para)
                 else:
                     self.jlink.open()
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink reopened successfully"))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink reopened successfully"))
                 
                 # 重新设置速率
                 self.jlink.set_speed(self._speed)
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink speed reset: %s kHz") % str(self._speed))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink speed reset: %s kHz") % str(self._speed))
                 
                 # 重新设置接口
                 self.jlink.set_tif(self._interface)
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ JLink interface reset: %s") % str(self._interface))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink interface reset: %s") % str(self._interface))
                 
                 # 重新连接目标
                 self.jlink.connect(self.device)
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ Target device reconnected: %s") % str(self.device))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device reconnected: %s") % str(self.device))
                 
                 # 重新启动RTT
                 self.jlink.rtt_start()
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "✅ RTT restarted successfully"))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT restarted successfully"))
                 
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "🎉 JLink connection reset completed!"))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset completed!"))
                 return True
                 
             except Exception as e:
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ JLink reconnection failed: %s") % str(e))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink reconnection failed: %s") % str(e))
                 return False
                 
         except Exception as e:
-            self._log_to_gui(QCoreApplication.translate("rtt2uart", "❌ JLink connection reset process error: %s") % str(e))
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset process error: %s") % str(e))
             logger.error(f"Error in _auto_reset_jlink_connection: {e}")
             return False
     
     def _auto_stop_on_connection_lost(self):
         """连接丢失时自动停止RTT功能 - 增强异常保护，防止程序退出"""
         try:
-            self._log_to_gui("🔄 JLink连接丢失，正在安全停止RTT功能...")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost, safely stopping RTT..."))
             
             # 设置线程停止标志
             self.thread_switch = False
             
-            # 🛡️ 安全清理RTT连接状态
+            # 安全清理RTT连接状态
             try:
                 if hasattr(self, 'jlink') and self.jlink:
                     try:
                         if self.jlink.connected():
                             self.jlink.close()
-                        self._log_to_gui("📴 JLink连接已安全断开")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection safely disconnected"))
                     except Exception:
                         pass  # 忽略断开时的错误
             except Exception:
@@ -407,20 +407,20 @@ class rtt_to_serial():
                         "_handle_connection_lost", 
                         Qt.QueuedConnection
                     )
-                    self._log_to_gui("📢 已通知主窗口处理连接丢失")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Main window notified of connection loss"))
                 except Exception as e:
                     logger.warning(f"Failed to notify main window of connection loss: {e}")
-                    self._log_to_gui(f"⚠️ 通知主窗口失败: {e}")
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to notify main window: %s") % str(e))
             
-            self._log_to_gui("✅ RTT功能已安全停止，程序继续运行")
-            self._log_to_gui("💡 您可以随时点击Start按钮重新连接")
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT function safely stopped, program continues"))
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "You can click Start button anytime to reconnect"))
             
         except Exception as e:
-            # 🛡️ 强化异常保护 - 绝对不能让这个方法导致程序崩溃
+            # 强化异常保护 - 绝对不能让这个方法导致程序崩溃
             try:
                 logger.error(f"Error in _auto_stop_on_connection_lost: {e}")
-                self._log_to_gui(f"❌ 停止RTT时出错: {e}")
-                self._log_to_gui("🔧 程序将继续运行，请手动重置连接")
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Error stopping RTT: %s") % str(e))
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Program will continue, please reset connection manually"))
                 
                 # 确保线程停止标志被设置
                 self.thread_switch = False
@@ -435,7 +435,7 @@ class rtt_to_serial():
         self.serial_forward_tab = tab_index
         self.serial_forward_mode = mode
         
-        # 📋 动态管理串口状态
+        # 动态管理串口状态
         if tab_index == -1:
             # 禁用转发，关闭串口
             if hasattr(self, 'serial') and self.serial and self.serial.isOpen():
@@ -559,7 +559,7 @@ class rtt_to_serial():
         logger.debug(QCoreApplication.translate("rtt2uart", "启动RTT2UART"))
         # 记录设备连接信息
         if self.jlink_log_callback:
-            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "🔗 连接设备: %s") % self.device_info)
+            self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "Connecting device: %s") % self.device_info)
         try:
             if self._connect_inf != 'EXISTING':
                 # 检查并确保 JLink 连接状态
@@ -676,7 +676,7 @@ class rtt_to_serial():
                     self.jlink.rtt_start()
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
                     
-                    # 🔧 修复首次启动问题：RTT启动后需要清理缓冲区并等待稳定
+                    # 修复首次启动问题：RTT启动后需要清理缓冲区并等待稳定
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Initializing RTT buffers..."))
                     self._initialize_rtt_buffers()
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT buffers initialized"))
@@ -693,7 +693,7 @@ class rtt_to_serial():
             logger.error(f'Start RTT failed: {e}', exc_info=True)
             raise
 
-        # 📋 修复：只有启用串口转发时才打开串口
+        # 修复：只有启用串口转发时才打开串口
         if self.serial_forward_tab != -1:  # -1表示禁用转发
             try:
                 if self.serial.isOpen() == False:
@@ -887,13 +887,13 @@ class rtt_to_serial():
             logger.error(f'Failed to cleanup log folder: {e}', exc_info=True)
 
     def rtt_thread_exec(self):
-        # 🔧 新连接修复：初始化buffer写入偏移量，避免旧数据写入新日志
+        # 新连接修复：初始化buffer写入偏移量，避免旧数据写入新日志
         # 如果buffers中已有数据（保留的旧数据），从当前位置开始写入，而不是从头开始
         if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
             all_chunks = self.main.buffers[0]
             current_buffer_length = sum(len(part) for part in all_chunks)
             self._last_buffer_size = current_buffer_length
-            logger.info(f"💾 初始化日志写入偏移: {current_buffer_length} 字节（跳过旧数据）")
+            logger.info(f"初始化日志写入偏移: {current_buffer_length} 字节（跳过旧数据）")
         else:
             self._last_buffer_size = 0
         
@@ -928,7 +928,7 @@ class rtt_to_serial():
                                 if current_time - last_connection_warning_time > connection_warning_interval:
                                     logger.warning('JLink connection lost in RTT thread')
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT thread"))
-                                    self._log_to_gui("🚨 检测到JLink连接丢失，自动停止RTT功能")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost detected, auto stopping RTT"))
                                     last_connection_warning_time = current_time
                                 
                                 # 连接丢失时自动停止RTT功能
@@ -943,7 +943,7 @@ class rtt_to_serial():
                             
                             # 检查是否是连接丢失错误
                             if "connection has been lost" in str(e).lower():
-                                self._log_to_gui("🚨 JLink连接已丢失，自动停止RTT功能")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost, auto stopping RTT"))
                                 self._auto_stop_on_connection_lost()
                                 break  # 退出循环
                             
@@ -974,7 +974,7 @@ class rtt_to_serial():
                             
                             # 检查是否是连接丢失错误，如果是则自动停止
                             if "connection has been lost" in str(e).lower():
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "🚨 RTT读取检测到JLink连接丢失，自动停止RTT功能"))
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT read detected JLink connection lost, auto stopping RTT"))
                                 self._auto_stop_on_connection_lost()
                                 return  # 退出整个线程函数
                             
@@ -983,7 +983,7 @@ class rtt_to_serial():
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
 
-                    # 📋 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
+                    # 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
                     if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
                         try:
                             # 兼容分块缓冲结构：self.main.buffers[0] 为 List[str]
@@ -1131,7 +1131,7 @@ class rtt_to_serial():
         if total_bytes == 0:
             return b''
         
-        # 🔧 修复：只在极端情况下过滤，保持RAW数据完整性
+        # 修复：只在极端情况下过滤，保持RAW数据完整性
         # 统计空字节比例
         null_count = data_bytes.count(0)
         null_percentage = (null_count / total_bytes) * 100
@@ -1158,7 +1158,7 @@ class rtt_to_serial():
         with open(self.rtt_data_filename, 'ab') as data_file:
             import time
             
-            # 🔧 RTT2UART线程启动时等待RTT完全就绪
+            # RTT2UART线程启动时等待RTT完全就绪
             startup_wait_time = 1.0  # 等待1秒确保RTT完全启动
             logger.debug(QCoreApplication.translate("rtt2uart", "RTT2UART线程等待RTT就绪..."))
             time.sleep(startup_wait_time)
@@ -1183,7 +1183,7 @@ class rtt_to_serial():
                                 if current_time - last_connection_warning_time > connection_warning_interval:
                                     logger.warning('JLink connection lost in RTT2UART thread')
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost in RTT2UART thread"))
-                                    self._log_to_gui("🚨 检测到JLink连接丢失，自动停止RTT功能")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost detected, auto stopping RTT"))
                                     last_connection_warning_time = current_time
                                 
                                 # 连接丢失时自动停止RTT功能
@@ -1198,7 +1198,7 @@ class rtt_to_serial():
                             
                             # 检查是否是连接丢失错误
                             if "connection has been lost" in str(e).lower():
-                                self._log_to_gui("🚨 JLink连接已丢失，自动停止RTT功能")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection lost, auto stopping RTT"))
                                 self._auto_stop_on_connection_lost()
                                 break  # 退出循环
                             
@@ -1240,7 +1240,7 @@ class rtt_to_serial():
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')
                         
-                        # 🔄 检查是否是需要自动重置的错误
+                        # 检查是否是需要自动重置的错误
                         error_str = str(e).lower()
                         if ("connection has been lost" in error_str or 
                             "could not connect" in error_str or
@@ -1248,14 +1248,14 @@ class rtt_to_serial():
                             "connection failed" in error_str or
                             "device not found" in error_str):
                             
-                            self._log_to_gui("🚨 检测到JLink连接错误，尝试自动重置连接...")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection error detected, trying auto reset..."))
                             
-                            # 🔄 尝试自动重置JLink连接
+                            # 尝试自动重置JLink连接
                             if self._auto_reset_jlink_connection():
-                                self._log_to_gui("✅ JLink连接重置成功，继续RTT数据读取")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset succeeded, continuing RTT data read"))
                                 continue  # 重置成功，继续循环
                             else:
-                                self._log_to_gui("❌ JLink连接重置失败，停止RTT功能")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset failed, stopping RTT"))
                                 self._auto_stop_on_connection_lost()
                                 break  # 重置失败，退出循环
                         
@@ -1264,20 +1264,20 @@ class rtt_to_serial():
                 except pylink.errors.JLinkException as e:
                     logger.error(f"JLink error in RTT2UART thread: {e}")
                     
-                    # 🔄 检查是否是需要自动重置的严重错误
+                    # 检查是否是需要自动重置的严重错误
                     error_str = str(e).lower()
                     if ("connection has been lost" in error_str or 
                         "could not connect" in error_str or
                         "no connection" in error_str or
                         "connection failed" in error_str):
                         
-                        self._log_to_gui("🚨 检测到严重JLink连接错误，尝试自动重置...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Severe JLink connection error detected, trying auto reset..."))
                         
                         if self._auto_reset_jlink_connection():
-                            self._log_to_gui("✅ JLink连接重置成功")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset succeeded"))
                             continue  # 重置成功，继续
                         else:
-                            self._log_to_gui("❌ JLink连接重置失败，停止RTT功能")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset failed, stopping RTT"))
                             self._auto_stop_on_connection_lost()
                             break
                     

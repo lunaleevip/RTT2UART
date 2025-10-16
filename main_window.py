@@ -1,9 +1,63 @@
-from pickle import NONE
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+XexunRTT Main Window Module
+RTT2UART主窗口模块
+"""
+
+# 标准库导入
 import sys
 import os
 import io
+import re
+import time
+import pickle
+import logging
+import subprocess
+import threading
+import shutil
+import ctypes.util as ctypes_util
+import xml.etree.ElementTree as ET
+from contextlib import redirect_stdout
 
-# 🔧 修复Python控制台编码问题 - 确保UTF-8输出正常显示
+# 第三方库导入
+import serial
+import serial.tools.list_ports
+import pylink
+import psutil
+import qdarkstyle
+
+# PySide6导入
+from PySide6.QtCore import (
+    Qt, QObject, QTimer, QThread, Signal, QCoreApplication,
+    QTranslator, QLocale, QRegularExpression, QSettings, QSize, QPoint,
+    QRect, Slot, QSortFilterProxyModel, QAbstractItemModel, QModelIndex
+)
+from PySide6 import QtCore
+from PySide6.QtGui import (
+    QFont, QIcon, QAction, QTextCharFormat, QColor, QTextCursor,
+    QSyntaxHighlighter, QPalette, QKeySequence, QActionGroup, QTextOption
+)
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
+    QHBoxLayout, QTextEdit, QPushButton, QLabel, QLineEdit,
+    QComboBox, QCheckBox, QMessageBox, QFileDialog, QTabWidget,
+    QSplitter, QFrame, QMenu, QHeaderView, QAbstractItemView,
+    QSizePolicy, QButtonGroup, QListWidget, QListWidgetItem, QTabBar
+)
+from PySide6.QtNetwork import QLocalSocket, QLocalServer
+
+# 项目模块导入
+from ui_rtt2uart_updated import Ui_dialog
+from ui_sel_device import Ui_Dialog
+from ui_xexunrtt import Ui_xexun_rtt
+from rtt2uart import ansi_processor, rtt_to_serial
+from config_manager import config_manager
+#from performance_test import show_performance_test
+import resources_rc
+
+
+# 修复Python控制台编码问题 - 确保UTF-8输出正常显示
 def fix_console_encoding():
     """修复控制台编码，防止中文乱码"""
     try:
@@ -35,35 +89,7 @@ def fix_console_encoding():
 
 # 立即修复编码问题
 fix_console_encoding()
-from PySide6.QtCore import *
-from PySide6.QtGui import *
-from PySide6.QtWidgets import *
-from PySide6.QtGui import QTextCharFormat, QColor, QTextCursor
-from PySide6.QtCore import *
-from PySide6 import QtGui
-from PySide6 import QtCore
-from PySide6.QtCore import QObject
-from PySide6.QtGui import QFont, QIcon, QAction
-from PySide6.QtNetwork import QLocalSocket, QLocalServer
-import qdarkstyle
-from ui_rtt2uart_updated import Ui_dialog
-from ui_sel_device import Ui_Dialog
-from ui_xexunrtt import Ui_xexun_rtt
-from rtt2uart import ansi_processor
-import resources_rc
-from contextlib import redirect_stdout
-import serial.tools.list_ports
-import serial
-import ctypes.util as ctypes_util
-import xml.etree.ElementTree as ET
-import pylink
-import re
-from rtt2uart import rtt_to_serial
-import logging
-import time
-import pickle
-import os
-from config_manager import config_manager
+
 
 # DPI检测和调整功能
 def get_system_dpi():
@@ -85,7 +111,7 @@ def get_system_dpi():
                 # 计算缩放比例
                 scale_factor = device_pixel_ratio
                 
-                logger.info(f"🖥️ macOS DPI Info:")
+                logger.info(f"macOS DPI Info:")
                 logger.info(f"   Physical DPI: {physical_dpi:.1f}")
                 logger.info(f"   Logical DPI: {logical_dpi:.1f}")
                 logger.info(f"   Device Pixel Ratio: {device_pixel_ratio:.1f}")
@@ -104,14 +130,14 @@ def get_system_dpi():
                 logical_dpi = screen.logicalDotsPerInch()
                 scale_factor = logical_dpi / 96.0  # 96是标准DPI
                 
-                logger.info(f"🖥️ System DPI Info:")
+                logger.info(f"System DPI Info:")
                 logger.info(f"   Physical DPI: {physical_dpi:.1f}")
                 logger.info(f"   Logical DPI: {logical_dpi:.1f}")
                 logger.info(f"   Scale Factor: {scale_factor:.1f}")
                 
                 return scale_factor
     except Exception as e:
-        logger.warning(f"⚠️ Failed to get DPI: {e}")
+        logger.warning(f"Failed to get DPI: {e}")
         return 1.0
     
     return 1.0
@@ -122,12 +148,12 @@ def get_dpi_scale_factor(manual_dpi=None):
         try:
             dpi_value = float(manual_dpi)
             if 0.1 <= dpi_value <= 5.0:  # 限制范围在0.1到5.0之间
-                logger.info(f"🎯 Using manual DPI setting: {dpi_value:.2f}")
+                logger.info(f"Using manual DPI setting: {dpi_value:.2f}")
                 return dpi_value
             else:
-                logger.warning(f"⚠️ DPI value out of range (0.1-5.0): {dpi_value}, using auto detection")
+                logger.warning(f"DPI value out of range (0.1-5.0): {dpi_value}, using auto detection")
         except ValueError:
-            logger.warning(f"⚠️ Invalid DPI value: {manual_dpi}, using auto detection")
+            logger.warning(f"Invalid DPI value: {manual_dpi}, using auto detection")
     
     # 自动检测系统DPI
     return get_system_dpi()
@@ -173,12 +199,7 @@ def get_adaptive_window_size(base_width, base_height, dpi_scale):
     else:
         # DPI非常大，大幅缩小窗口
         return int(base_width * 0.7), int(base_height * 0.7)
-import subprocess
-import threading
-import shutil
-import re
-import psutil
-from performance_test import show_performance_test
+
 
 class JLinkLogHandler(logging.Handler):
     """自定义JLink日志处理器，将日志输出到GUI"""
@@ -813,7 +834,7 @@ class EditableTabBar(QTabBar):
                     self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
                     self.main_window.connection_dialog.config.save_config()
                     
-                    print(f"💾 TAB {index} 正则表达式状态已保存: {regex_enabled}")
+                    print(f"[SAVE] TAB {index} regex state saved: {regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
     def __init__(self):
@@ -830,7 +851,7 @@ class RTTMainWindow(QMainWindow):
         uuid_part = str(uuid.uuid4())[:4]  # UUID前4位
         self.window_id = f"{uuid_part}{timestamp[-4:]}{thread_id}"
         
-        logger.info(f"🪟 Window initialized with ID: {self.window_id}")
+        logger.info(f"Window initialized with ID: {self.window_id}")
         
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
@@ -838,7 +859,7 @@ class RTTMainWindow(QMainWindow):
         # 获取DPI缩放比例（支持手动设置或自动检测）
         manual_dpi = config_manager.get_dpi_scale()
         self.dpi_scale = get_dpi_scale_factor(manual_dpi)
-        logger.info(f"🎯 Current DPI scale: {self.dpi_scale:.2f}")
+        logger.info(f"Current DPI scale: {self.dpi_scale:.2f}")
         
         # 设置主窗口属性
         self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
@@ -848,13 +869,13 @@ class RTTMainWindow(QMainWindow):
         base_width, base_height = 1200, 800
         adaptive_width, adaptive_height = get_adaptive_window_size(base_width, base_height, self.dpi_scale)
         self.resize(adaptive_width, adaptive_height)
-        logger.info(f"📏 Window size adjusted to: {adaptive_width}x{adaptive_height}")
+        logger.info(f"Window size adjusted to: {adaptive_width}x{adaptive_height}")
         
         # 设置最小窗口尺寸 - 允许极小窗口以便多设备同时使用
         min_width = 200  # 极小宽度，只显示核心信息
         min_height = 150  # 极小高度
         self.setMinimumSize(min_width, min_height)
-        logger.info(f"📏 Minimum window size set to: {min_width}x{min_height}")
+        logger.info(f"Minimum window size set to: {min_width}x{min_height}")
         
         # 紧凑模式状态
         self.compact_mode = False
@@ -1304,9 +1325,9 @@ class RTTMainWindow(QMainWindow):
                 # 开发环境，启动新的Python进程
                 subprocess.Popen([sys.executable, "main_window.py"])
                 
-            print("✅ 新窗口已启动")
+            print("[OK] New window started")
         except Exception as e:
-            print(f"❌ 启动新窗口失败: {e}")
+            print(f"[ERROR] Failed to start new window: {e}")
             # 显示错误消息
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
@@ -1340,8 +1361,9 @@ class RTTMainWindow(QMainWindow):
             
             # 设置窗口标题显示紧凑模式
             original_title = self.windowTitle()
-            if " - 紧凑模式" not in original_title:
-                self.setWindowTitle(original_title + " - 紧凑模式")
+            compact_mode_text = QCoreApplication.translate("main_window", " - Compact Mode")
+            if compact_mode_text not in original_title:
+                self.setWindowTitle(original_title + QCoreApplication.translate("main_window", " - Compact Mode"))
             
             # 设置窗口始终置顶（紧凑模式特性）
             try:
@@ -1401,8 +1423,10 @@ class RTTMainWindow(QMainWindow):
             
             # 恢复原始窗口标题
             current_title = self.windowTitle()
-            if " - 紧凑模式" in current_title:
-                self.setWindowTitle(current_title.replace(" - 紧凑模式", ""))
+            compact_mode_check = QCoreApplication.translate("main_window", " - Compact Mode")
+            if compact_mode_check in current_title:
+                compact_mode_text = QCoreApplication.translate("main_window", " - Compact Mode")
+                self.setWindowTitle(current_title.replace(compact_mode_text, ""))
         
         # 更新菜单项状态
         if hasattr(self, 'compact_mode_action'):
@@ -1581,26 +1605,26 @@ class RTTMainWindow(QMainWindow):
         except Exception:
             pass
     
-    def show_performance_test(self):
-        """显示性能测试窗口"""
-        try:
-            self.perf_test_widget = show_performance_test(self)
-            self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Performance test tool started"))
-            self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Note: Please ensure device is connected and RTT debugging is started"))
-        except Exception as e:
-            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start performance test: {}").format(str(e)))
+    # def show_performance_test(self):
+    #     """显示性能测试窗口"""
+    #     try:
+    #         self.perf_test_widget = show_performance_test(self)
+    #         self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Performance test tool started"))
+    #         self.perf_test_widget.log_message(QCoreApplication.translate("main_window", "Note: Please ensure device is connected and RTT debugging is started"))
+    #     except Exception as e:
+    #         QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start performance test: {}").format(str(e)))
     
-    def toggle_turbo_mode(self):
-        """切换Turbo模式（隐藏UI，功能保留）"""
-        # 注释掉UI相关代码，但保留核心功能
-        # enabled = self.turbo_mode_action.isChecked()
+    # def toggle_turbo_mode(self):
+    #     """切换Turbo模式（隐藏UI，功能保留）"""
+    #     # 注释掉UI相关代码，但保留核心功能
+    #     # enabled = self.turbo_mode_action.isChecked()
         
-        # 由于UI已隐藏，这里可以通过其他方式控制，暂时保持启用状态
-        enabled = True
+    #     # 由于UI已隐藏，这里可以通过其他方式控制，暂时保持启用状态
+    #     enabled = True
         
-        # 应用到ConnectionDialog的worker
-        if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
-            self.connection_dialog.worker.set_turbo_mode(enabled)
+    #     # 应用到ConnectionDialog的worker
+    #     if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
+    #         self.connection_dialog.worker.set_turbo_mode(enabled)
             
         # 注释掉状态消息和状态栏更新（UI已隐藏）
         # # 显示状态消息
@@ -1666,9 +1690,9 @@ class RTTMainWindow(QMainWindow):
         # 更新连接状态显示，包含设备信息
         if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
             device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
         else:
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
+                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
         
         # 应用保存的设置
         self._apply_saved_settings()
@@ -1717,7 +1741,7 @@ class RTTMainWindow(QMainWindow):
             
         try:
             settings = self.connection_dialog.settings
-            print(f"🔄 恢复滚动条锁定设置: 水平={settings['lock_h']}, 垂直={settings['lock_v']}")
+            print(f"[RESTORE] Scrollbar lock settings: H={settings['lock_h']}, V={settings['lock_v']}")
             self.ui.LockH_checkBox.setChecked(settings['lock_h'])
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
@@ -1736,7 +1760,7 @@ class RTTMainWindow(QMainWindow):
             # 同步更新settings以保持兼容性（不重复添加到UI）
             settings['cmd'] = unique_commands
             
-            logger.debug(f"📋 命令历史已同步到settings: {len(unique_commands)} 条")
+            logger.debug(f"Command history synced to settings: {len(unique_commands)} items")
             
             # 从配置管理器加载筛选器设置
             for i in range(17, MAX_TAB_SIZE):
@@ -1972,7 +1996,7 @@ class RTTMainWindow(QMainWindow):
             return ""
             
         except Exception as e:
-            logger.error(f"❌ 获取TAB 1内容失败: {e}")
+            logger.error(f"Failed to get TAB 1 content: {e}")
             return ""
     
     def _display_tab1_content_to_jlink_log(self, command):
@@ -1982,7 +2006,7 @@ class RTTMainWindow(QMainWindow):
             QTimer.singleShot(1000, lambda: self._delayed_display_tab1_content(command))
             
         except Exception as e:
-            logger.error(f"❌ 显示TAB 1内容到JLink日志失败: {e}")
+            logger.error(f"Failed to display TAB 1 content to JLink log: {e}")
     
     def _delayed_display_tab1_content(self, command):
         """延迟显示TAB 1内容（等待响应数据）"""
@@ -2009,13 +2033,13 @@ class RTTMainWindow(QMainWindow):
                 recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
                 
                 # 添加到JLink日志
-                self.append_jlink_log(f"📤 {QCoreApplication.translate('main_window', 'Command sent')}: {command}")
-                self.append_jlink_log(f"📥 {QCoreApplication.translate('main_window', 'RTT Channel 1 Response')}:")
+                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Command sent')}: {command}")
+                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'RTT Channel 1 Response')}:")
                 
                 # 如果内容被截取，显示省略提示
                 if len(lines) > max_lines:
                     skipped_lines = len(lines) - max_lines
-                    self.append_jlink_log(f"   ... (省略前 {skipped_lines} 行) ...")
+                    self.append_jlink_log(f"   ... ({QCoreApplication.translate('main_window', 'Skipped first')} {skipped_lines} {QCoreApplication.translate('main_window', 'lines')}) ...")
                 
                 # 统计显示的有效行数
                 valid_line_count = 0
@@ -2033,19 +2057,19 @@ class RTTMainWindow(QMainWindow):
                 
                 # 显示统计信息
                 if len(lines) > max_lines:
-                    self.append_jlink_log(f"   📊 显示最近 {valid_line_count} 行 / 总共 {len(lines)} 行")
+                    self.append_jlink_log(f"   {QCoreApplication.translate('main_window', 'Showing recent')} {valid_line_count} {QCoreApplication.translate('main_window', 'lines')} / {QCoreApplication.translate('main_window', 'Total')} {len(lines)} {QCoreApplication.translate('main_window', 'lines')}")
                 else:
-                    self.append_jlink_log(f"   📊 共 {valid_line_count} 行")
+                    self.append_jlink_log(f"   {QCoreApplication.translate('main_window', 'Total')} {valid_line_count} {QCoreApplication.translate('main_window', 'lines')}")
                 
                 self.append_jlink_log("─" * 50)  # 分隔线
             else:
                 # 如果没有内容，显示提示信息
-                self.append_jlink_log(f"📤 {QCoreApplication.translate('main_window', 'Command sent')}: {command}")
-                self.append_jlink_log(f"📥 {QCoreApplication.translate('main_window', 'RTT Channel 1: No response data')}")
+                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Command sent')}: {command}")
+                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'RTT Channel 1: No response data')}")
                 self.append_jlink_log("─" * 50)  # 分隔线
                 
         except Exception as e:
-            logger.error(f"❌ 延迟显示TAB 1内容失败: {e}")
+            logger.error(f"Failed to delayed display TAB 1 content: {e}")
 
     def eventFilter(self, obj, event):
         """事件过滤器：处理ComboBox的键盘事件"""
@@ -2100,10 +2124,10 @@ class RTTMainWindow(QMainWindow):
             if line_edit:
                 line_edit.selectAll()
             
-            logger.debug(f"📋 导航到历史命令 [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
+            logger.debug(f"Navigate to history command [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
             
         except Exception as e:
-            logger.error(f"❌ 向上导航命令历史失败: {e}")
+            logger.error(f"Failed to navigate up command history: {e}")
     
     def _navigate_command_history_down(self):
         """向下导航命令历史"""
@@ -2119,11 +2143,11 @@ class RTTMainWindow(QMainWindow):
                 # 回到当前输入
                 self.command_history_index = -1
                 self.ui.cmd_buffer.setCurrentText(self.current_input_text)
-                logger.debug(f"📋 返回当前输入: {self.current_input_text}")
+                logger.debug(f"Return to current input: {self.current_input_text}")
             else:
                 # 设置ComboBox显示历史命令
                 self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
-                logger.debug(f"📋 导航到历史命令 [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
+                logger.debug(f"Navigate to history command [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
             
             # 选中文本，便于继续输入时替换
             line_edit = self.ui.cmd_buffer.lineEdit()
@@ -2131,7 +2155,7 @@ class RTTMainWindow(QMainWindow):
                 line_edit.selectAll()
             
         except Exception as e:
-            logger.error(f"❌ 向下导航命令历史失败: {e}")
+            logger.error(f"Failed to navigate down command history: {e}")
     
     def _reset_command_history_navigation(self):
         """重置命令历史导航状态"""
@@ -2186,7 +2210,7 @@ class RTTMainWindow(QMainWindow):
     def _handle_connection_lost(self):
         """处理JLink连接丢失事件 - 不退出程序，保持界面可用"""
         try:
-            self.append_jlink_log("⚠️ JLink连接已丢失")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "WARNING: JLink connection lost"))
             
             # 更新连接状态显示
             if self.connection_dialog:
@@ -2200,19 +2224,19 @@ class RTTMainWindow(QMainWindow):
                 # 🔄 立即更新状态栏显示
                 self.update_status_bar()
                 
-                self.append_jlink_log("🔄 连接状态已重置，您可以：")
-                self.append_jlink_log("   1. 检查硬件连接")
-                self.append_jlink_log("   2. 点击Start按钮重新连接")
-                self.append_jlink_log("   3. 查看日志了解详细信息")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Connection state reset, you can:"))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "   1. Check hardware connection"))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "   2. Click Start button to reconnect"))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "   3. Check logs for details"))
                 
                 # 🎯 显示用户友好的重连提示
                 try:
                     from PySide6.QtWidgets import QMessageBox
                     msg = QMessageBox(self)
                     msg.setIcon(QMessageBox.Warning)
-                    msg.setWindowTitle("JLink连接丢失")
-                    msg.setText("JLink连接已丢失")
-                    msg.setInformativeText("程序将继续运行，您可以随时重新连接。\n\n建议操作：\n1. 检查硬件连接\n2. 点击Start按钮重新连接")
+                    msg.setWindowTitle(QCoreApplication.translate("main_window", "JLink Connection Lost"))
+                    msg.setText(QCoreApplication.translate("main_window", "JLink connection has been lost"))
+                    msg.setInformativeText(QCoreApplication.translate("main_window", "Program will continue running, you can reconnect anytime.\n\nSuggested actions:\n1. Check hardware connection\n2. Click Start button to reconnect"))
                     msg.setStandardButtons(QMessageBox.Ok)
                     msg.setDefaultButton(QMessageBox.Ok)
                     
@@ -2223,12 +2247,12 @@ class RTTMainWindow(QMainWindow):
                     logger.warning(f"Failed to show reconnection dialog: {msg_e}")
             
         except Exception as e:
-            self.append_jlink_log(f"❌ 处理连接丢失时出错: {e}")
+            self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error handling connection loss')}: {e}")
             logger.error(f"Error in _handle_connection_lost: {e}")
             
             # 🛡️ 确保即使处理连接丢失时出错，程序也不会退出
             try:
-                self.append_jlink_log("🔧 尝试恢复正常状态...")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Attempting to recover normal state..."))
                 if self.connection_dialog:
                     self.connection_dialog.start_state = False
                     self.update_status_bar()
@@ -2487,7 +2511,7 @@ class RTTMainWindow(QMainWindow):
             try:
                 self.ui.cmd_buffer.clearEditText()
                 self.ui.cmd_buffer.setCurrentText("")  # 确保输入框完全清空
-                logger.debug(f"✅ Command sent successfully, input cleared: {current_text}")
+                logger.debug(f"Command sent successfully, input cleared: {current_text}")
             except Exception as e:
                 logger.error(f"Failed to clear input box: {e}")
             
@@ -2515,8 +2539,8 @@ class RTTMainWindow(QMainWindow):
             self.ui.cmd_buffer.setCurrentText("")  # 确保输入框完全清空
         else:
             # 发送失败的处理
-            logger.warning(f"⚠️ Command send failed: expected {len(out_bytes)} bytes, actually sent {bytes_written} bytes")
-            self.ui.sent.setText(QCoreApplication.translate("main_window", "❌ Send Failed"))
+            logger.warning(f"Command send failed: expected {len(out_bytes)} bytes, actually sent {bytes_written} bytes")
+            self.ui.sent.setText(QCoreApplication.translate("main_window", "Send Failed"))
 
     def on_dis_connect_clicked(self):
         """断开连接，不显示连接对话框"""
@@ -2540,7 +2564,7 @@ class RTTMainWindow(QMainWindow):
         """F4清空当前TAB - 完整的清空逻辑"""
         try:
             current_index = self.ui.tem_switch.currentIndex()
-            logger.debug(f"🧹 Clearing TAB {current_index}")
+            logger.debug(f"Clearing TAB {current_index}")
             
             # 1. 清空UI显示
             current_page_widget = self.ui.tem_switch.widget(current_index)
@@ -2549,12 +2573,12 @@ class RTTMainWindow(QMainWindow):
                 text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
                 if text_edit:
                     text_edit.clear()
-                    logger.debug(f"✅ Cleared TAB {current_index} UI display")
+                    logger.debug(f"Cleared TAB {current_index} UI display")
                 else:
-                    logger.warning(f"⚠️ TAB {current_index} text editor not found")
+                    logger.warning(f"TAB {current_index} text editor not found")
                     return
             else:
-                logger.warning(f"⚠️ TAB {current_index} is not a valid Widget")
+                logger.warning(f"TAB {current_index} is not a valid Widget")
                 return
             
             # 2. 清空数据缓冲区
@@ -2585,21 +2609,21 @@ class RTTMainWindow(QMainWindow):
                     if hasattr(worker, 'display_lengths') and current_index < len(worker.display_lengths):
                         worker.display_lengths[current_index] = 0
                         
-                    logger.debug(f"✅ Cleared TAB {current_index} data buffer")
+                    logger.debug(f"Cleared TAB {current_index} data buffer")
                     
                 except Exception as e:
-                    logger.error(f"❌ Failed to clear TAB {current_index} data buffer: {e}")
+                    logger.error(f"Failed to clear TAB {current_index} data buffer: {e}")
             else:
-                logger.warning("⚠️ Cannot access Worker, only cleared UI display")
+                logger.warning("Cannot access Worker, only cleared UI display")
                 
             # 3. 标记页面为干净状态
             if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
                 self.page_dirty_flags[current_index] = False
                 
-            logger.info(f"🧹 TAB {current_index} clear completed")
+            logger.info(f"TAB {current_index} clear completed")
             
         except Exception as e:
-            logger.error(f"❌ Failed to clear TAB: {e}")
+            logger.error(f"Failed to clear TAB: {e}")
             # 兜底：只清空UI
             try:
                 current_page_widget = self.ui.tem_switch.widget(self.ui.tem_switch.currentIndex())
@@ -2608,9 +2632,9 @@ class RTTMainWindow(QMainWindow):
                     text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
                     if text_edit:
                         text_edit.clear()
-                        logger.warning("⚠️ Fallback mode: only cleared UI display")
+                        logger.warning("Fallback mode: only cleared UI display")
             except Exception as fallback_e:
-                logger.error(f"❌ Fallback clear also failed: {fallback_e}")
+                logger.error(f"Fallback clear also failed: {fallback_e}")
 
     def on_openfolder_clicked(self):
         """打开日志文件夹 - 跨平台兼容版本"""
@@ -2638,10 +2662,10 @@ class RTTMainWindow(QMainWindow):
             else:  # Linux
                 subprocess.run(["xdg-open", target_dir])
                 
-            logger.info(f"📁 Opened folder: {target_dir}")
+            logger.info(f"Opened folder: {target_dir}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to open folder: {e}")
+            logger.error(f"Failed to open folder: {e}")
             # 显示错误消息
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open folder:\n{}").format(e))
 
@@ -2658,7 +2682,7 @@ class RTTMainWindow(QMainWindow):
             # Ensure config directory exists
             if not config_dir_path.exists():
                 config_dir_path.mkdir(parents=True, exist_ok=True)
-                logger.info(f"📁 Created config directory: {target_dir}")
+                logger.info(f"Created config directory: {target_dir}")
             
             # Cross-platform open folder
             if sys.platform == "darwin":  # macOS
@@ -2668,10 +2692,10 @@ class RTTMainWindow(QMainWindow):
             else:  # Linux
                 subprocess.run(["xdg-open", target_dir])
                 
-            logger.info(f"📁 Opened config folder: {target_dir}")
+            logger.info(f"Opened config folder: {target_dir}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to open config folder: {e}")
+            logger.error(f"Failed to open config folder: {e}")
             # Show error message
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open config folder:\n{}").format(e))
 
@@ -2698,14 +2722,14 @@ class RTTMainWindow(QMainWindow):
                     for cmd in unique_commands:
                         self.ui.cmd_buffer.addItem(cmd)
                     
-                    logger.debug(f"📋 从配置管理器加载了 {len(unique_commands)} 条唯一命令历史")
+                    logger.debug(f"Loaded {len(unique_commands)} unique command history from config manager")
                 else:
-                    logger.debug("📋 配置管理器中没有命令历史")
+                    logger.debug("No command history in config manager")
             else:
-                logger.debug("📋 连接对话框未初始化，跳过命令历史加载")
+                logger.debug("Connection dialog not initialized, skip loading command history")
                 
         except Exception as e:
-            logger.error(f"❌ 加载命令历史时发生错误: {e}")
+            logger.error(f"Error loading command history: {e}")
     
     def _update_command_history(self, command: str):
         """智能更新命令历史：防止重复插入，只调整顺序"""
@@ -2723,7 +2747,7 @@ class RTTMainWindow(QMainWindow):
             if existing_index >= 0:
                 # 如果命令已存在，移除旧位置的项目
                 self.ui.cmd_buffer.removeItem(existing_index)
-                logger.debug(f"📋 移除重复命令: {command}")
+                logger.debug(f"Remove duplicate command: {command}")
             
             # 将命令插入到最前面（索引0）
             self.ui.cmd_buffer.insertItem(0, command)
@@ -2744,10 +2768,10 @@ class RTTMainWindow(QMainWindow):
             while self.ui.cmd_buffer.count() > max_items:
                 self.ui.cmd_buffer.removeItem(self.ui.cmd_buffer.count() - 1)
             
-            logger.debug(f"📋 命令历史已更新: {command} (总数: {self.ui.cmd_buffer.count()})")
+            logger.debug(f"Command history updated: {command} (Total: {self.ui.cmd_buffer.count()})")
                     
         except Exception as e:
-            logger.error(f"❌ 更新命令历史失败: {e}")
+            logger.error(f"Failed to update command history: {e}")
     
     def _convert_cmd_file_to_utf8(self):
         """将cmd.txt文件转换为UTF-8编码"""
@@ -2763,10 +2787,10 @@ class RTTMainWindow(QMainWindow):
                 for cmd in commands:
                     file.write(cmd + '\n')
             
-            logger.info("✅ cmd.txt file converted to UTF-8 encoding")
+            logger.info("cmd.txt file converted to UTF-8 encoding")
             
         except Exception as e:
-            logger.error(f"❌ 转换cmd.txt编码失败: {e}")
+            logger.error(f"Failed to convert cmd.txt encoding: {e}")
 
     def _init_encoding_combo(self):
         """初始化编码选择框并与配置同步"""
@@ -2823,7 +2847,7 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
             self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
             self.connection_dialog.config.save_config()
-            print(f"💾 水平滚动条锁定状态已保存: {self.ui.LockH_checkBox.isChecked()}")
+            print(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
     
     def on_lock_v_changed(self):
         """垂直滚动条锁定状态改变时保存配置"""
@@ -2832,7 +2856,7 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
             self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
             self.connection_dialog.config.save_config()
-            print(f"💾 垂直滚动条锁定状态已保存: {self.ui.LockV_checkBox.isChecked()}")
+            print(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
     
     
     def _update_jlink_log_style(self):
@@ -2911,14 +2935,14 @@ class RTTMainWindow(QMainWindow):
         # 更新状态栏
         if hasattr(self, 'connection_status_label'):
             current_text = self.connection_status_label.text()
-            if "Connected" in current_text or "已连接" in current_text:
+            if "Connected" in current_text or QCoreApplication.translate("main_window", "Connected") in current_text:
                 # 尝试从当前文本中提取设备信息
                 match = re.search(r'(USB_\d+(_\w+)?)$', current_text)
                 device_info = match.group(1) if match else ""
                 if device_info:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
+                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
                 else:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接"))
+                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
             else:
                 self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
         
@@ -2951,7 +2975,7 @@ class RTTMainWindow(QMainWindow):
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             # 显示设备连接信息：USB_X_SN格式
             device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "已连接: %s") % device_info)
+            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
         else:
             self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
         
@@ -3872,7 +3896,7 @@ class ConnectionDialog(QDialog):
                     logger.info("ConnectionDialog closed, force refreshing all TAB buffers...")
                     self.worker.force_flush_all_buffers()
                 except Exception as ex:
-                    logger.error(f"ConnectionDialog强制刷新缓冲区时出错: {ex}")
+                    logger.error(f"Error force flushing ConnectionDialog buffers: {ex}")
             
             # 停止RTT连接
             if self.rtt2uart is not None and self.start_state == True:
@@ -4069,7 +4093,7 @@ class ConnectionDialog(QDialog):
                 self._save_main_window_settings()
             
         except Exception as e:
-            logger.warning(f"保存UI设置失败: {e}")
+            logger.warning(f"Failed to save UI settings: {e}")
     
     def _save_main_window_settings(self):
         """保存主窗口的UI设置"""
@@ -4103,7 +4127,7 @@ class ConnectionDialog(QDialog):
                 # 命令历史通过config_manager单独管理，这里不需要特别处理
                 
         except Exception as e:
-            logger.warning(f"保存主窗口设置失败: {e}")
+            logger.warning(f"Failed to save main window settings: {e}")
     
     def _update_serial_forward_combo(self):
         """更新串口转发选择框的内容"""
@@ -4312,9 +4336,9 @@ class ConnectionDialog(QDialog):
                             self.config.save_config()
                         else:
                             # 当ComboBox未选择设备时，回退到原有的JLINK内置选择框
-                            logger.info("ComboBox未选择设备，使用JLINK内置选择框")
+                            logger.info("ComboBox device not selected, using JLINK built-in selector")
                             if hasattr(self.main_window, 'append_jlink_log'):
-                                self.main_window.append_jlink_log("📋 未指定设备序列号，将使用JLINK内置设备选择框")
+                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "No device serial number specified, using JLINK built-in device selector"))
                             
                             if len(self.available_jlinks) > 1:
                                 if not self._select_jlink_device():
@@ -4346,7 +4370,7 @@ class ConnectionDialog(QDialog):
                 # 检查是否需要执行重置连接
                 if self.ui.checkBox_resettarget.isChecked():
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("🔄 检测到重置连接选项，开始执行连接重置...")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Reset connection option detected, starting connection reset..."))
                     self.perform_connection_reset()
                     # 重置完成后取消勾选
                     self.ui.checkBox_resettarget.setChecked(False)
@@ -4366,7 +4390,7 @@ class ConnectionDialog(QDialog):
                 # 🔍 调试信息：显示设备选择详情
                 combo_index = self.ui.comboBox_serialno.currentIndex()
                 combo_text = self.ui.comboBox_serialno.currentText()
-                print(f"🔍 设备选择调试信息:")
+                print(f"[DEBUG] Device selection info:")
                 print(f"   ComboBox索引: {combo_index}")
                 print(f"   ComboBox文本: {combo_text}")
                 print(f"   连接参数: {connect_para}")
@@ -4374,12 +4398,12 @@ class ConnectionDialog(QDialog):
                 print(f"   可用设备数量: {len(self.available_jlinks)}")
                 if self.available_jlinks:
                     for i, dev in enumerate(self.available_jlinks):
-                        marker = "👉" if i == device_index else "  "
+                        marker = "=>" if i == device_index else "  "
                         print(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
                 
                 # 🚨 重大BUG修复：清空Worker缓存，防止历史数据写入新文件夹
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("🧹 清理Worker缓存，确保新连接使用干净的数据...")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Cleaning Worker cache to ensure new connection uses clean data..."))
                 
                 self._clear_all_worker_caches()
                 
@@ -4397,7 +4421,7 @@ class ConnectionDialog(QDialog):
                     
                     # 🔍 调试信息：确认设备连接
                     device_info = f"USB_{device_index}_{connect_para}" if connect_para else f"USB_{device_index}"
-                    print(f"📱 设备连接确认: {device_info}")
+                    print(f"[DEVICE] Connection confirmed: {device_info}")
                     print(f"   目标设备: {self.target_device}")
                     print(f"   连接类型: {self.connect_type}")
 
@@ -4481,14 +4505,14 @@ class ConnectionDialog(QDialog):
                 if hasattr(self, 'worker') and hasattr(self.worker, 'force_flush_all_buffers'):
                     try:
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("正在保存所有TAB数据到文件...")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Saving all TAB data to files..."))
                         self.worker.force_flush_all_buffers()
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("✅ 所有TAB数据已保存")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "All TAB data saved"))
                     except Exception as ex:
                         logger.error(f"断开连接时强制刷新缓冲区出错: {ex}")
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log(f"⚠️ 数据保存出错: {ex}")
+                            self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Data save error')}: {ex}")
                 
                 self.rtt2uart.stop()
                 
@@ -4676,23 +4700,23 @@ class ConnectionDialog(QDialog):
             
         except Exception as e:
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log(f"⚠️ 检测JLink冲突时出错: {e}")
+                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error detecting JLink conflicts')}: {e}")
             return []
     
     def force_release_jlink_driver(self):
         """强制释放JLink驱动"""
         try:
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("🔧 执行强制JLink驱动释放...")
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Force releasing JLink driver..."))
             
             # 1. 检测冲突进程
             conflicts = self.detect_jlink_conflicts()
             if conflicts:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"🔍 检测到 {len(conflicts)} 个JLink相关进程:")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Detected %d JLink-related processes:') % len(conflicts)}")
                     for proc in conflicts:
                         self.main_window.append_jlink_log(f"   - {proc['name']} (PID: {proc['pid']})")
-                    self.main_window.append_jlink_log("💡 这些程序可能正在占用JLink驱动")
+                    self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'These programs may be occupying JLink driver'))
             
             # 2. 尝试通过Windows API强制释放驱动
             try:
@@ -4730,23 +4754,23 @@ class ConnectionDialog(QDialog):
                         if handle != INVALID_HANDLE_VALUE:
                             kernel32.CloseHandle(handle)
                             if hasattr(self.main_window, 'append_jlink_log'):
-                                self.main_window.append_jlink_log(f"✅ 成功访问设备: {device_path}")
+                                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Successfully accessed device')}: {device_path}")
                         else:
                             if hasattr(self.main_window, 'append_jlink_log'):
-                                self.main_window.append_jlink_log(f"⚠️ 无法访问设备: {device_path} (可能被占用)")
+                                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Cannot access device')}: {device_path} ({QCoreApplication.translate('main_window', 'may be occupied')})")
                                 
                     except Exception as e:
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log(f"⚠️ 检查设备 {device_path} 时出错: {e}")
+                            self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error checking device')} {device_path}: {e}")
                 
             except Exception as e:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"⚠️ Windows API驱动检查失败: {e}")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Windows API driver check failed')}: {e}")
             
             # 3. 尝试重新枚举USB设备
             try:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("🔄 重新枚举USB设备...")
+                    self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'Re-enumerating USB devices...'))
                 
                 # 通过重新扫描串口来触发USB设备重新枚举
                 import serial.tools.list_ports
@@ -4759,17 +4783,17 @@ class ConnectionDialog(QDialog):
                 ports_after = list(serial.tools.list_ports.comports())
                 
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"📊 USB设备重新枚举完成 (发现 {len(ports_after)} 个串口)")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'USB device re-enumeration complete (found %d serial ports)') % len(ports_after)}")
                 
             except Exception as e:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"⚠️ USB设备重新枚举失败: {e}")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'USB device re-enumeration failed')}: {e}")
             
             return True
             
         except Exception as e:
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log(f"❌ 强制释放JLink驱动失败: {e}")
+                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Force release JLink driver failed')}: {e}")
             return False
 
     def perform_connection_reset(self):
@@ -4777,33 +4801,33 @@ class ConnectionDialog(QDialog):
         try:
             # 显示重置信息
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("🔄 开始执行强化连接重置...")
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Starting enhanced connection reset..."))
             
             # 1. 停止当前连接（如果存在）
             if hasattr(self, 'rtt2uart') and self.rtt2uart is not None:
                 try:
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("📴 停止当前RTT连接...")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Stopping current RTT connection..."))
                     self.rtt2uart.stop()
                     self.rtt2uart = None
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("✅ RTT连接已停止")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "RTT connection stopped"))
                 except Exception as e:
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log(f"⚠️ 停止RTT连接时出错: {e}")
+                        self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error stopping RTT connection')}: {e}")
             
             # 2. 强制释放JLink驱动（解决驱动抢占问题）
             if hasattr(self, 'jlink') and self.jlink is not None:
                 try:
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("🔧 强制释放JLink驱动...")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Force releasing JLink driver..."))
                     
                     # 强制断开所有连接
                     try:
                         if self.jlink.connected():
                             self.jlink.close()
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("📴 JLink连接已断开")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink connection disconnected"))
                     except:
                         pass  # 忽略断开时的错误
                     
@@ -4811,7 +4835,7 @@ class ConnectionDialog(QDialog):
                     try:
                         del self.jlink
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("🗑️ JLink对象已删除")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink object deleted"))
                     except:
                         pass
                     
@@ -4821,13 +4845,13 @@ class ConnectionDialog(QDialog):
                     import time
                     time.sleep(1.0)  # 增加等待时间
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("⏳ 等待驱动释放...")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Waiting for driver release..."))
                     
                     # 强制垃圾回收
                     import gc
                     gc.collect()
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log("🧹 执行垃圾回收")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Performing garbage collection"))
                     
                     # 执行强制驱动释放
                     self.force_release_jlink_driver()
@@ -4835,62 +4859,62 @@ class ConnectionDialog(QDialog):
                     # 重新创建JLink对象
                     try:
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("🔄 重新创建JLink对象...")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Recreating JLink object..."))
                         
                         self.jlink = pylink.JLink()
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log("✅ JLink对象重新创建成功")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink object recreated successfully"))
                         
                         # 尝试打开连接验证
                         try:
                             self.jlink.open()
                             if hasattr(self.main_window, 'append_jlink_log'):
-                                self.main_window.append_jlink_log("✅ JLink驱动重置成功，可以正常连接")
+                                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "JLink driver reset successful, connection OK"))
                             # 立即关闭，等待后续正常连接流程
                             self.jlink.close()
                         except Exception as e:
                             if hasattr(self.main_window, 'append_jlink_log'):
-                                self.main_window.append_jlink_log(f"⚠️ JLink连接测试失败: {e}")
-                                self.main_window.append_jlink_log("💡 提示: 可能仍有其他程序占用JLink")
+                                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'JLink connection test failed')}: {e}")
+                                self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'Hint: Other programs may still be occupying JLink'))
                                 
                                 # 再次检测冲突并给出具体建议
                                 conflicts = self.detect_jlink_conflicts()
                                 if conflicts:
-                                    self.main_window.append_jlink_log("🔍 发现以下JLink相关程序正在运行:")
+                                    self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'Found following JLink-related programs running:'))
                                     for proc in conflicts:
                                         self.main_window.append_jlink_log(f"   - {proc['name']} (PID: {proc['pid']})")
-                                    self.main_window.append_jlink_log("💡 请关闭这些程序后重试连接")
+                                    self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'Please close these programs and retry'))
                                 else:
-                                    self.main_window.append_jlink_log("💡 建议重新插拔JLink设备后重试")
+                                    self.main_window.append_jlink_log(QCoreApplication.translate('main_window', 'Suggest re-plugging JLink device and retry'))
                         
                     except Exception as e2:
                         if hasattr(self.main_window, 'append_jlink_log'):
-                            self.main_window.append_jlink_log(f"❌ 重新创建JLink对象失败: {e2}")
+                            self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Failed to recreate JLink object')}: {e2}")
                         self.jlink = None
                         
                 except Exception as e:
                     if hasattr(self.main_window, 'append_jlink_log'):
-                        self.main_window.append_jlink_log(f"⚠️ 强制释放JLink驱动时出错: {e}")
+                        self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error force releasing JLink driver')}: {e}")
             
             # 3. 重置串口连接（清除串口状态）
             try:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("🔧 重置串口状态...")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Resetting serial port status..."))
                 
                 # 重新扫描串口
                 self.port_scan()
                 
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("✅ 串口状态已重置")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Serial port status reset"))
                     
             except Exception as e:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"⚠️ 重置串口状态时出错: {e}")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error resetting serial port status')}: {e}")
             
             # 4. 清理缓存和状态
             try:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("🧹 清理缓存和状态...")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Cleaning cache and status..."))
                 
                 # 重置连接状态
                 self.start_state = False
@@ -4916,30 +4940,30 @@ class ConnectionDialog(QDialog):
                             self.main_window.colored_buffers[i] = []
                 
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log("✅ 缓存和状态已清理")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Cache and status cleaned"))
                     
             except Exception as e:
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(f"⚠️ 清理缓存时出错: {e}")
+                    self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error cleaning cache')}: {e}")
             
             # 5. 强化的驱动重置完成
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("🎉 强化连接重置完成！")
-                self.main_window.append_jlink_log("💡 如果仍然无法连接，请:")
-                self.main_window.append_jlink_log("   1. 关闭所有JLink相关程序(J-Link Commander、J-Flash等)")
-                self.main_window.append_jlink_log("   2. 重新插拔JLink设备")
-                self.main_window.append_jlink_log("   3. 然后重试连接")
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Enhanced connection reset complete!"))
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "If still unable to connect, please:"))
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "   1. Close all JLink-related programs (J-Link Commander, J-Flash, etc.)"))
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "   2. Re-plug JLink device"))
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "   3. Then retry connection"))
             
         except Exception as e:
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log(f"❌ 连接重置失败: {e}")
+                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Connection reset failed')}: {e}")
             logger.error(f'Connection reset failed: {e}', exc_info=True)
 
 
     def _clear_main_window_ui(self):
         """清空主窗口的所有TAB显示内容 - 已禁用，保留旧数据显示"""
         # BUG2修复：新连接时保留窗口旧数据，只清除写入文件的缓冲区
-        print("🔄 保留窗口旧数据显示，仅清除文件写入缓冲区")
+        print("[INFO] Keep old window data display, only clear file write buffer")
         pass
 
     def _clear_all_worker_caches(self):
@@ -4955,7 +4979,7 @@ class ConnectionDialog(QDialog):
             if hasattr(worker, 'log_buffers'):
                 cleared_count = len(worker.log_buffers)
                 worker.log_buffers.clear()
-                print(f"🧹 已清空 {cleared_count} 个日志文件缓冲区")
+                print(f"[CLEAN] Cleared {cleared_count} log file buffers")
             
             
             # 2. BUG1修复：清空字节缓冲区和批量缓冲区，防止残余数据
@@ -4963,13 +4987,13 @@ class ConnectionDialog(QDialog):
                 # 字节缓冲区 - 强制清除，防止残余数据
                 if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
                     if len(worker.byte_buffer[i]) > 0:
-                        print(f"⚠️ 清除通道{i}字节缓冲区中的残余数据: {len(worker.byte_buffer[i])} 字节")
+                        print(f"[WARNING] Clear channel {i} byte buffer residual data: {len(worker.byte_buffer[i])} bytes")
                     worker.byte_buffer[i].clear()
                 
                 # 批量缓冲区
                 if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
                     if len(worker.batch_buffers[i]) > 0:
-                        print(f"⚠️ 清除通道{i}批量缓冲区中的残余数据: {len(worker.batch_buffers[i])} 项")
+                        print(f"[WARNING] Clear channel {i} batch buffer residual data: {len(worker.batch_buffers[i])} items")
                     worker.batch_buffers[i].clear()
                 
                 # BUG1修复：清空筛选TAB(17+)的buffers和colored_buffers，避免重复检测失效
@@ -5008,12 +5032,12 @@ class ConnectionDialog(QDialog):
             # 清空筛选TAB(17+)以确保重复检测正常工作
             
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log("✅ 文件写入缓存已清理，通道TAB保留旧数据，筛选TAB已清空，新文件将生成干净日志")
+                self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "File write cache cleared, channel TABs keep old data, filter TABs cleared, new files will generate clean logs"))
                 
         except Exception as e:
-            print(f"❌ 清理Worker缓存时出错: {e}")
+            print(f"[ERROR] Error clearing Worker cache: {e}")
             if hasattr(self.main_window, 'append_jlink_log'):
-                self.main_window.append_jlink_log(f"⚠️ 清理Worker缓存时出错: {e}")
+                self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error clearing Worker cache')}: {e}")
 
     def _get_current_device_index(self, connect_para):
         """获取当前连接参数对应的设备索引 - 直接使用ComboBox索引"""
@@ -5023,7 +5047,7 @@ class ConnectionDialog(QDialog):
             
             # 如果选择的是空项（索引0），跳过
             if current_combo_index <= 0:
-                print("⚠️ 选择了空项或无效索引，使用默认值0")
+                print("[WARNING] Empty item or invalid index selected, using default value 0")
                 return 0
             
             # ComboBox索引需要减1，因为索引0是空项
@@ -5033,26 +5057,26 @@ class ConnectionDialog(QDialog):
             if 0 <= actual_device_index < len(self.available_jlinks):
                 selected_device = self.available_jlinks[actual_device_index]
                 
-                print(f"🎯 ComboBox选择: 索引{current_combo_index} -> 设备索引{actual_device_index}")
-                print(f"   对应设备: {selected_device['serial']} ({selected_device['product_name']})")
-                print(f"   连接参数: {connect_para}")
+                print(f"[SELECT] ComboBox selection: Index {current_combo_index} -> Device index {actual_device_index}")
+                print(f"   Device: {selected_device['serial']} ({selected_device['product_name']})")
+                print(f"   Connect param: {connect_para}")
                 
                 # 验证序列号是否匹配
                 if selected_device['serial'] == connect_para:
-                    print(f"✅ 序列号匹配，使用设备索引: {actual_device_index} (USB_{actual_device_index})")
+                    print(f"[OK] Serial number matched, using device index: {actual_device_index} (USB_{actual_device_index})")
                     return actual_device_index
                 else:
-                    print(f"⚠️ 序列号不匹配: 期望{connect_para}, 实际{selected_device['serial']}")
-                    print(f"   仍然使用ComboBox选择的索引: {actual_device_index}")
+                    print(f"[WARNING] Serial number mismatch: Expected {connect_para}, Got {selected_device['serial']}")
+                    print(f"   Still using ComboBox selected index: {actual_device_index}")
                     return actual_device_index
             else:
-                print(f"⚠️ 设备索引无效: {actual_device_index}, 设备数量: {len(self.available_jlinks)}")
+                print(f"[WARNING] Invalid device index: {actual_device_index}, Device count: {len(self.available_jlinks)}")
                 
         except Exception as e:
-            print(f"❌ 设备索引获取失败: {e}")
+            print(f"[ERROR] Failed to get device index: {e}")
         
         # 如果出现问题，返回0作为默认值
-        print("⚠️ 使用默认索引: 0")
+        print("[WARNING] Using default index: 0")
         return 0
 
     def _detect_jlink_devices(self):
@@ -5126,7 +5150,7 @@ class ConnectionDialog(QDialog):
     def _create_jlink_selection_dialog(self):
         """创建JLINK设备选择对话框"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("选择 J-Link 设备")
+        dialog.setWindowTitle(QCoreApplication.translate("main_window", "Select J-Link Device"))
         dialog.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
         dialog.setModal(True)
         dialog.resize(500, 350)
@@ -5352,11 +5376,11 @@ class ConnectionDialog(QDialog):
                         # 不使用星标，直接显示索引和序列号
                         display_text = f"#{device_index} {serial}"
                         self.ui.comboBox_serialno.addItem(display_text, serial)
-                        print(f"🔍 添加设备到ComboBox: 索引{device_index} -> {display_text}")
+                        print(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
                     else:
-                        display_text = f"#{device_index} 自动检测"
+                        display_text = f"#{device_index} {QCoreApplication.translate('main_window', 'Auto Detect')}"
                         self.ui.comboBox_serialno.addItem(display_text, "")
-                        print(f"🔍 添加设备到ComboBox: 索引{device_index} -> {display_text}")
+                        print(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
                 
                 # 恢复之前的选择
                 if current_text:
@@ -5374,7 +5398,7 @@ class ConnectionDialog(QDialog):
                             except Exception:
                                 continue
                 
-                logger.info(f"Refreshed device list: {len(device_serials)} devices found")
+                logger.info(f"Refreshed device list: {len(self.available_jlinks)} devices found")
                 
             except Exception as e:
                 logger.error(f"Error adding devices to ComboBox: {e}")
@@ -6784,9 +6808,6 @@ def replace_special_characters(path, replacement='_'):
     return new_path
 
 
-from PySide6.QtCore import QRegularExpression, QRegularExpressionMatch
-from PySide6.QtGui import QTextCharFormat, QSyntaxHighlighter
-
 class PythonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -6833,7 +6854,7 @@ if __name__ == "__main__":
                 os.environ['QT_SCALE_FACTOR'] = str(dpi_value)
                 os.environ['QT_SCREEN_SCALE_FACTORS'] = str(dpi_value)
                 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
-                print(f"🔧 Setting Qt DPI environment variables: {dpi_value}")
+                print(f"[CONFIG] Setting Qt DPI environment variables: {dpi_value}")
         except ValueError:
             pass
     
@@ -6875,14 +6896,14 @@ if __name__ == "__main__":
             if translator.load(qm_path):
                 QCoreApplication.installTranslator(translator)
                 translation_loaded = True
-                print(f"✅ 中文翻译加载成功: {qm_path}")
+                print(f"[OK] Chinese translation loaded successfully: {qm_path}")
                 # Test if translation is working
                 test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
                 print(f"翻译测试: 'JLink Debug Log' → '{test_text}'")
                 break
         
         if not translation_loaded:
-            print("❌ 无法加载中文翻译文件，使用英文界面")
+            print("[WARNING] Cannot load Chinese translation file, using English interface")
     else:
         print("Using English interface (default).")
 
@@ -6902,11 +6923,11 @@ if __name__ == "__main__":
         if qt_translator.load(qt_qm_path):
             QCoreApplication.installTranslator(qt_translator)
             qt_translation_loaded = True
-            print(f"✅ Qt翻译加载成功: {qt_qm_path}")
+            print(f"[OK] Qt translation loaded successfully: {qt_qm_path}")
             break
     
     if not qt_translation_loaded:
-        print("⚠️ 无法加载Qt翻译文件")
+        print("[WARNING] Cannot load Qt translation file")
     
     # Create main window
     main_window = RTTMainWindow()
