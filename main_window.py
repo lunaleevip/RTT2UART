@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
 # 项目模块导入
-from ui_rtt2uart_updated import Ui_dialog
+from ui_rtt2uart_updated import Ui_ConnectionDialog
 from ui_sel_device import Ui_Dialog
 from ui_xexunrtt import Ui_xexun_rtt
 from rtt2uart import ansi_processor, rtt_to_serial
@@ -3939,7 +3939,7 @@ class ConnectionDialog(QDialog):
     
     def __init__(self, parent=None):
         super(ConnectionDialog, self).__init__(parent)
-        self.ui = Ui_dialog()
+        self.ui = Ui_ConnectionDialog()
         self.ui.setupUi(self)
 
         self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
