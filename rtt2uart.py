@@ -722,7 +722,12 @@ class rtt_to_serial():
         self.rtt2uart.start()
         
         
-    def stop(self):
+    def stop(self, keep_folder=False):
+        """停止RTT服务
+        
+        Args:
+            keep_folder: 如果为True，保留日志文件夹（用于自动重连）；如果为False，清理空文件夹
+        """
         logger.debug(QCoreApplication.translate("rtt2uart", "stop rtt2uart - Starting to stop RTT service"))
 
         # 设置停止标志
@@ -739,8 +744,9 @@ class rtt_to_serial():
         # 关闭串口
         self._safe_close_serial()
         
-        # 检查并删除空的日志文件夹
-        self._cleanup_empty_log_folder()
+        # 检查并删除空的日志文件夹（除非需要保留）
+        if not keep_folder:
+            self._cleanup_empty_log_folder()
         
         logger.debug(QCoreApplication.translate("rtt2uart", "RTT service stop completed"))
     

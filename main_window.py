@@ -2761,17 +2761,28 @@ class RTTMainWindow(QMainWindow):
             if hasattr(self, 'append_jlink_log'):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
             
+            # 重置时间戳，避免重复触发
+            self.last_data_time = time.time()
+            
             # 执行自动重连
             self._perform_auto_reconnect()
     
     def _perform_auto_reconnect(self):
         """执行自动重连（不重置文件夹）"""
         try:
-            # 先断开
-            if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
-                self.connection_dialog.start()  # 切换到断开状态
+            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
+                logger.warning("Cannot auto reconnect: connection_dialog or rtt2uart not available")
+                return
             
-            # 等待一下
+            # 使用rtt2uart的重启方法，不会重置日志文件夹
+            rtt_obj = self.connection_dialog.rtt2uart
+            
+            # 停止RTT连接
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
+            rtt_obj.stop(keep_folder=True)  # 保留日志文件夹
+            
+            # 等待停止完成后重新启动
             QTimer.singleShot(1000, self._auto_reconnect_start)
             
         except Exception as e:
@@ -2782,13 +2793,21 @@ class RTTMainWindow(QMainWindow):
     def _auto_reconnect_start(self):
         """自动重连 - 启动连接"""
         try:
-            # 重新连接
-            if self.connection_dialog:
-                self.connection_dialog.start()  # 切换到连接状态
-                self.last_data_time = time.time()  # 重置时间戳
-                logger.info("Auto reconnect completed")
-                if hasattr(self, 'append_jlink_log'):
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed"))
+            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
+                logger.warning("Cannot start auto reconnect: connection_dialog or rtt2uart not available")
+                return
+            
+            # 重新启动RTT连接
+            rtt_obj = self.connection_dialog.rtt2uart
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Restarting RTT connection..."))
+            
+            rtt_obj.start()
+            
+            logger.info("Auto reconnect completed")
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed"))
+                
         except Exception as e:
             logger.error(f"Auto reconnect start failed: {e}")
             if hasattr(self, 'append_jlink_log'):
