@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'xexunrtt.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.9.1
+## Created by: Qt User Interface Compiler version 6.9.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -16,8 +16,8 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
-    QLabel, QPushButton, QSizePolicy, QSpacerItem,
-    QSpinBox, QTabWidget, QWidget)
+    QLabel, QLineEdit, QPushButton, QSizePolicy,
+    QSpacerItem, QSpinBox, QTabWidget, QWidget)
 
 class Ui_xexun_rtt(object):
     def setupUi(self, xexun_rtt):
@@ -67,7 +67,7 @@ class Ui_xexun_rtt(object):
         self.fontsize_box.setMaximum(24)
         self.fontsize_box.setValue(9)
 
-        self.gridLayout.addWidget(self.fontsize_box, 2, 15, 1, 1)
+        self.gridLayout.addWidget(self.fontsize_box, 2, 12, 1, 1)
 
         self.clear = QPushButton(self.layoutWidget)
         self.clear.setObjectName(u"clear")
@@ -83,7 +83,7 @@ class Ui_xexun_rtt(object):
 
         self.horizontalSpacer_10 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
-        self.gridLayout.addItem(self.horizontalSpacer_10, 2, 9, 1, 2)
+        self.gridLayout.addItem(self.horizontalSpacer_10, 2, 13, 1, 1)
 
         self.horizontalSpacer = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -95,7 +95,7 @@ class Ui_xexun_rtt(object):
 
         self.verticalSpacer = QSpacerItem(20, 13, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
-        self.gridLayout.addItem(self.verticalSpacer, 3, 15, 1, 1)
+        self.gridLayout.addItem(self.verticalSpacer, 3, 12, 1, 1)
 
         self.horizontalSpacer_6 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -118,7 +118,27 @@ class Ui_xexun_rtt(object):
         self.light_checkbox.setObjectName(u"light_checkbox")
         self.light_checkbox.setFont(font)
 
-        self.gridLayout.addWidget(self.light_checkbox, 2, 12, 1, 1)
+        self.gridLayout.addWidget(self.light_checkbox, 2, 7, 1, 1)
+
+        self.auto_reconnect_checkbox = QCheckBox(self.layoutWidget)
+        self.auto_reconnect_checkbox.setObjectName(u"auto_reconnect_checkbox")
+        self.auto_reconnect_checkbox.setFont(font)
+
+        self.gridLayout.addWidget(self.auto_reconnect_checkbox, 2, 8, 1, 1)
+
+        self.reconnect_timeout_edit = QLineEdit(self.layoutWidget)
+        self.reconnect_timeout_edit.setObjectName(u"reconnect_timeout_edit")
+        self.reconnect_timeout_edit.setMaximumSize(QSize(35, 16777215))
+        self.reconnect_timeout_edit.setFont(font)
+        self.reconnect_timeout_edit.setAlignment(Qt.AlignCenter)
+
+        self.gridLayout.addWidget(self.reconnect_timeout_edit, 2, 9, 1, 1)
+
+        self.restart_app_button = QPushButton(self.layoutWidget)
+        self.restart_app_button.setObjectName(u"restart_app_button")
+        self.restart_app_button.setFont(font)
+
+        self.gridLayout.addWidget(self.restart_app_button, 2, 10, 1, 1)
 
         self.tem_switch = QTabWidget(self.layoutWidget)
         self.tem_switch.setObjectName(u"tem_switch")
@@ -140,7 +160,7 @@ class Ui_xexun_rtt(object):
         self.label.setMinimumSize(QSize(50, 20))
         self.label.setFont(font)
 
-        self.gridLayout.addWidget(self.label, 2, 14, 1, 1)
+        self.gridLayout.addWidget(self.label, 2, 11, 1, 1)
 
         self.horizontalSpacer_3 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -152,17 +172,17 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.re_connect, 2, 2, 1, 1)
 
-        self.LockH_checkBox = QCheckBox(self.layoutWidget)
-        self.LockH_checkBox.setObjectName(u"LockH_checkBox")
-        self.LockH_checkBox.setFont(font)
-
-        self.gridLayout.addWidget(self.LockH_checkBox, 2, 7, 1, 1)
-
         self.LockV_checkBox = QCheckBox(self.layoutWidget)
         self.LockV_checkBox.setObjectName(u"LockV_checkBox")
         self.LockV_checkBox.setFont(font)
 
-        self.gridLayout.addWidget(self.LockV_checkBox, 2, 6, 1, 1)
+        self.gridLayout.addWidget(self.LockV_checkBox, 2, 5, 1, 1)
+
+        self.LockH_checkBox = QCheckBox(self.layoutWidget)
+        self.LockH_checkBox.setObjectName(u"LockH_checkBox")
+        self.LockH_checkBox.setFont(font)
+
+        self.gridLayout.addWidget(self.LockH_checkBox, 2, 6, 1, 1)
 
         self.horizontalSpacer_9 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -210,6 +230,15 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.light_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Light Mode", None))
 #if QT_CONFIG(tooltip)
+        self.auto_reconnect_checkbox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F8", None))
+#endif // QT_CONFIG(tooltip)
+        self.auto_reconnect_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Auto Reconnect", None))
+        self.reconnect_timeout_edit.setText(QCoreApplication.translate("xexun_rtt", u"60", None))
+#if QT_CONFIG(tooltip)
+        self.restart_app_button.setToolTip(QCoreApplication.translate("xexun_rtt", u"F9", None))
+#endif // QT_CONFIG(tooltip)
+        self.restart_app_button.setText(QCoreApplication.translate("xexun_rtt", u"Restart APP", None))
+#if QT_CONFIG(tooltip)
         self.tem_switch.setToolTip(QCoreApplication.translate("xexun_rtt", u"double click filter to write filter text", None))
 #endif // QT_CONFIG(tooltip)
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab), QCoreApplication.translate("xexun_rtt", u"1", None))
@@ -220,13 +249,13 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.re_connect.setText(QCoreApplication.translate("xexun_rtt", u"Reconnect", None))
 #if QT_CONFIG(tooltip)
-        self.LockH_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
-#endif // QT_CONFIG(tooltip)
-        self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
-#if QT_CONFIG(tooltip)
         self.LockV_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
 #endif // QT_CONFIG(tooltip)
         self.LockV_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Vertical", None))
+#if QT_CONFIG(tooltip)
+        self.LockH_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
+#endif // QT_CONFIG(tooltip)
+        self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
         self.sent.setText("")
     # retranslateUi
 

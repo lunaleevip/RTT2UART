@@ -61,6 +61,8 @@ class ConfigManager:
             'serial_number': '',
             'ip_address': '',
             'auto_reconnect': 'true',
+            'auto_reconnect_on_no_data': 'false',  # 无数据自动重连开关
+            'auto_reconnect_timeout': '60',  # 无数据自动重连超时时间（秒）
             'preferred_jlink_serials': '[]',  # JSON格式的偏好JLINK序列号列表
             'last_jlink_serial': '',         # 上次使用的JLINK序列号
             'auto_select_jlink': 'false'     # 是否自动选择上次使用的JLINK
@@ -324,6 +326,22 @@ class ConfigManager:
     def set_auto_reconnect(self, enabled: bool):
         """设置自动重连"""
         self.config.set('Connection', 'auto_reconnect', str(enabled).lower())
+    
+    def get_auto_reconnect_on_no_data(self) -> bool:
+        """获取无数据自动重连设置"""
+        return self._safe_getboolean('Connection', 'auto_reconnect_on_no_data', False)
+    
+    def set_auto_reconnect_on_no_data(self, enabled: bool):
+        """设置无数据自动重连"""
+        self.config.set('Connection', 'auto_reconnect_on_no_data', str(enabled).lower())
+    
+    def get_auto_reconnect_timeout(self) -> int:
+        """获取自动重连超时时间（秒）"""
+        return self._safe_getint('Connection', 'auto_reconnect_timeout', 60)
+    
+    def set_auto_reconnect_timeout(self, timeout: int):
+        """设置自动重连超时时间（秒）"""
+        self.config.set('Connection', 'auto_reconnect_timeout', str(timeout))
     
     # ===========================================
     # 串口设置相关方法

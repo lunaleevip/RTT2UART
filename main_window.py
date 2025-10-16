@@ -952,6 +952,12 @@ class RTTMainWindow(QMainWindow):
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self.central_widget)
         
+        # 自动重连相关变量
+        self.manual_disconnect = False  # 是否为手动断开
+        self.last_data_time = 0  # 上次收到数据的时间戳
+        self.data_check_timer = QTimer(self)  # 数据检查定时器
+        self.data_check_timer.timeout.connect(self._check_data_timeout)
+        
         # 立即创建连接对话框以便加载配置
         self.connection_dialog = ConnectionDialog(self)
         # 连接成功信号
@@ -1207,6 +1213,29 @@ class RTTMainWindow(QMainWindow):
         # 连接滚动条锁定复选框的信号
         self.ui.LockH_checkBox.stateChanged.connect(self.on_lock_h_changed)
         self.ui.LockV_checkBox.stateChanged.connect(self.on_lock_v_changed)
+        
+        # 连接自动重连控件的信号
+        if hasattr(self.ui, 'auto_reconnect_checkbox'):
+            self.ui.auto_reconnect_checkbox.stateChanged.connect(self._on_auto_reconnect_changed)
+            # 从配置加载自动重连设置
+            auto_reconnect_enabled = self.connection_dialog.config.get_auto_reconnect_on_no_data()
+            self.ui.auto_reconnect_checkbox.setChecked(auto_reconnect_enabled)
+        
+        if hasattr(self.ui, 'reconnect_timeout_edit'):
+            self.ui.reconnect_timeout_edit.textChanged.connect(self._on_reconnect_timeout_changed)
+            # 从配置加载超时设置
+            timeout = self.connection_dialog.config.get_auto_reconnect_timeout()
+            self.ui.reconnect_timeout_edit.setText(str(timeout))
+        
+        # 连接重启APP按钮
+        if hasattr(self.ui, 'restart_app_button'):
+            self.ui.restart_app_button.clicked.connect(self.restart_app_execute)
+        
+        # 创建F8快捷键用于切换自动重连
+        self.action8 = QAction(self)
+        self.action8.setShortcut(QKeySequence("F8"))
+        self.action8.triggered.connect(self._toggle_auto_reconnect)
+        self.addAction(self.action8)
         
         self.set_style()
         
@@ -1771,6 +1800,13 @@ class RTTMainWindow(QMainWindow):
         self._set_rtt_controls_enabled(True)
         # 连接中禁止切换编码
         self._set_encoding_menu_enabled(False)
+        
+        # 启动自动重连监控（如果已启用）
+        self.manual_disconnect = False  # 清除手动断开标记
+        if hasattr(self.ui, 'auto_reconnect_checkbox') and self.ui.auto_reconnect_checkbox.isChecked():
+            self.last_data_time = time.time()
+            self.data_check_timer.start(5000)  # 每5秒检查一次
+            logger.info("Auto reconnect monitoring started")
         
         # 更新连接状态显示，包含设备信息
         if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
@@ -2577,6 +2613,9 @@ class RTTMainWindow(QMainWindow):
 
     @Slot()
     def handleBufferUpdate(self):
+        # 更新数据时间戳（用于自动重连监控）
+        self._update_data_timestamp()
+        
         # 获取当前选定的页面索引
         index = self.ui.tem_switch.currentIndex()
         # 刷新文本框
@@ -2639,12 +2678,19 @@ class RTTMainWindow(QMainWindow):
 
     def on_dis_connect_clicked(self):
         """断开连接，不显示连接对话框"""
+        # 标记为手动断开，禁用自动重连
+        self.manual_disconnect = True
+        self.data_check_timer.stop()
+        
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             self.connection_dialog.start()  # 这会切换到断开状态
         # 如果已经断开，则无操作（但快捷键仍然响应）
 
     def on_re_connect_clicked(self):
         """重新连接：先断开现有连接，然后显示连接对话框"""
+        # 重新连接时清除手动断开标记
+        self.manual_disconnect = False
+        
         # 如果当前有连接，先断开
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             self.connection_dialog.start()  # 这会切换到断开状态
@@ -2654,6 +2700,103 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.show()
             self.connection_dialog.raise_()
             self.connection_dialog.activateWindow()
+    
+    def _on_auto_reconnect_changed(self, state):
+        """自动重连复选框状态改变"""
+        enabled = (state == Qt.CheckState.Checked.value) if hasattr(Qt.CheckState, 'Checked') else (state == 2)
+        
+        # 保存到配置
+        if self.connection_dialog:
+            self.connection_dialog.config.set_auto_reconnect_on_no_data(enabled)
+            self.connection_dialog.config.save_config()
+        
+        # 如果启用且已连接，启动监控定时器
+        if enabled and self.connection_dialog and self.connection_dialog.start_state:
+            self.last_data_time = time.time()
+            self.data_check_timer.start(5000)  # 每5秒检查一次
+            logger.info("Auto reconnect on no data enabled")
+        else:
+            self.data_check_timer.stop()
+            logger.info("Auto reconnect on no data disabled")
+    
+    def _on_reconnect_timeout_changed(self, text):
+        """超时时间文本框改变"""
+        try:
+            timeout = int(text)
+            if timeout > 0:
+                # 保存到配置
+                if self.connection_dialog:
+                    self.connection_dialog.config.set_auto_reconnect_timeout(timeout)
+                    self.connection_dialog.config.save_config()
+        except ValueError:
+            pass  # 忽略无效输入
+    
+    def _toggle_auto_reconnect(self):
+        """F8快捷键切换自动重连"""
+        if hasattr(self.ui, 'auto_reconnect_checkbox'):
+            current_state = self.ui.auto_reconnect_checkbox.isChecked()
+            self.ui.auto_reconnect_checkbox.setChecked(not current_state)
+    
+    def _check_data_timeout(self):
+        """检查数据超时"""
+        # 如果手动断开，停止检查
+        if self.manual_disconnect:
+            self.data_check_timer.stop()
+            return
+        
+        # 如果未连接，停止检查
+        if not self.connection_dialog or not self.connection_dialog.start_state:
+            return
+        
+        # 获取超时设置
+        try:
+            timeout = int(self.ui.reconnect_timeout_edit.text())
+        except:
+            timeout = 60
+        
+        # 检查是否超时
+        current_time = time.time()
+        if self.last_data_time > 0 and (current_time - self.last_data_time) > timeout:
+            logger.warning(f"No data received for {timeout} seconds, auto reconnecting...")
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
+            
+            # 执行自动重连
+            self._perform_auto_reconnect()
+    
+    def _perform_auto_reconnect(self):
+        """执行自动重连（不重置文件夹）"""
+        try:
+            # 先断开
+            if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+                self.connection_dialog.start()  # 切换到断开状态
+            
+            # 等待一下
+            QTimer.singleShot(1000, self._auto_reconnect_start)
+            
+        except Exception as e:
+            logger.error(f"Auto reconnect failed: {e}")
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect failed: %s") % str(e))
+    
+    def _auto_reconnect_start(self):
+        """自动重连 - 启动连接"""
+        try:
+            # 重新连接
+            if self.connection_dialog:
+                self.connection_dialog.start()  # 切换到连接状态
+                self.last_data_time = time.time()  # 重置时间戳
+                logger.info("Auto reconnect completed")
+                if hasattr(self, 'append_jlink_log'):
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed"))
+        except Exception as e:
+            logger.error(f"Auto reconnect start failed: {e}")
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect start failed: %s") % str(e))
+    
+    def _update_data_timestamp(self):
+        """更新数据时间戳（在收到数据时调用）"""
+        self.last_data_time = time.time()
 
     def on_clear_clicked(self):
         """F4清空当前TAB - 完整的清空逻辑"""

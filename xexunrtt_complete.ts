@@ -260,7 +260,7 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     </message>
     <message>
         <source>Auto Reconnect</source>
-        <translation>自动重连</translation>
+        <translation>超时自动重连</translation>
     </message>
     <message>
         <source>Serial Forward Settings</source>
@@ -476,6 +476,26 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <location filename="main_window.py" line="2947" />
         <source>Restart APP F9(&amp;A)</source>
         <translation>重启APP F9(&amp;A)</translation>
+    </message>
+    <message>
+        <source>Restart APP</source>
+        <translation>重启APP</translation>
+    </message>
+    <message>
+        <source>No data timeout, automatically reconnecting...</source>
+        <translation>无数据超时，自动重连...</translation>
+    </message>
+    <message>
+        <source>Auto reconnect failed: %s</source>
+        <translation>自动重连失败: %s</translation>
+    </message>
+    <message>
+        <source>Auto reconnect completed</source>
+        <translation>自动重连完成</translation>
+    </message>
+    <message>
+        <source>Auto reconnect start failed: %s</source>
+        <translation>自动重连启动失败: %s</translation>
     </message>
     <message>
         <location filename="main_window.py" line="1236" />
