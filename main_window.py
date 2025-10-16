@@ -623,9 +623,13 @@ class ColumnSelectTextEdit(QTextEdit):
             self._copyColumnSelection()
             event.accept()
         else:
-            # 🔧 其他键盘操作时清除纵向选择高亮
-            if hasattr(self, '_column_selection_data'):
-                self._clearColumnSelection()
+            # 🔧 其他键盘操作（方向键等）时清除纵向选择高亮
+            # 因为文本编辑器是只读的，主要是方向键和PageUp/Down会改变视图
+            from PySide6.QtCore import Qt
+            if event.key() in [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down, 
+                              Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown]:
+                if hasattr(self, '_column_selection_data'):
+                    self._clearColumnSelection()
             super().keyPressEvent(event)
     
     def _saveColumnSelection(self):
@@ -726,15 +730,15 @@ class ColumnSelectTextEdit(QTextEdit):
         self.column_select_ranges = None
     
     def focusOutEvent(self, event):
-        """失去焦点时清除纵向选择高亮"""
-        self._clearColumnSelection()
+        """失去焦点事件"""
+        # 不再自动清除选择，保持选中状态
         super().focusOutEvent(event)
     
     def paintEvent(self, event):
         """重绘事件 - 保持纵向选择高亮"""
         super().paintEvent(event)
-        # 如果有保存的选择范围，重新应用高亮
-        if self.column_select_ranges and not self.column_select_mode:
+        # 如果有保存的选择范围，始终重新应用高亮（保持选中状态直到下次选择）
+        if self.column_select_ranges:
             self._applyColumnHighlight()
     
     def _updateColumnSelection(self, end_pos):
