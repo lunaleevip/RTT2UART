@@ -1572,92 +1572,129 @@ RTT调试工具
 <context>
     <name>xexun_rtt</name>
     <message>
+        <location filename="xexunrtt.ui" line="14" />
         <source>Form</source>
-        <translation type="vanished">窗体</translation>
+        <translation>窗体</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="62" />
         <source>can read from cmd.txt</source>
-        <translation type="vanished">可从cmd.txt读取</translation>
+        <translation>可从cmd.txt读取</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="77" />
         <source>F3</source>
-        <translation type="vanished">F3</translation>
+        <translation>F3</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="119" />
         <source>Clear</source>
-        <translation type="vanished">清除</translation>
+        <translation>清除</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="131" />
         <source>F1</source>
-        <translation type="vanished">F1</translation>
+        <translation>F1</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="80" />
         <source>Disconnect</source>
-        <translation type="vanished">断开连接</translation>
+        <translation>断开连接</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="134" />
         <source>Open Folder</source>
-        <translation type="vanished">打开文件夹</translation>
+        <translation>打开文件夹</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="235" />
         <source>Send</source>
-        <translation type="vanished">发送</translation>
+        <translation>发送</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="269" />
         <source>F7</source>
-        <translation type="vanished">F7</translation>
+        <translation>F7</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="272" />
         <source>Light Mode</source>
-        <translation type="vanished">浅色模式</translation>
+        <translation>浅色模式</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="284" />
+        <source>F8</source>
+        <translation>F8</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="287" />
         <source>Auto Reconnect</source>
-        <translation type="vanished">超时自动重连</translation>
+        <translation>超时自动重连</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="305" />
+        <source>60</source>
+        <translation>60</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="320" />
+        <source>F9</source>
+        <translation>F9</translation>
+    </message>
+    <message>
+        <location filename="xexunrtt.ui" line="323" />
         <source>Restart APP</source>
-        <translation type="vanished">重启APP</translation>
+        <translation>重启APP</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="341" />
         <source>double click filter to write filter text</source>
-        <translation type="vanished">双击筛选器以编写筛选文本</translation>
+        <translation>双击筛选器以编写筛选文本</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="348" />
         <source>1</source>
-        <translation type="vanished">1</translation>
+        <translation>1</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="353" />
         <source>2</source>
-        <translation type="vanished">2</translation>
+        <translation>2</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="378" />
         <source>Font Size</source>
-        <translation type="vanished">字体大小</translation>
+        <translation>字体大小</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="409" />
         <source>Reconnect</source>
-        <translation type="vanished">重新连接</translation>
+        <translation>重新连接</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="406" />
         <source>F2</source>
-        <translation type="vanished">F2</translation>
+        <translation>F2</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="436" />
         <source>F6</source>
-        <translation type="vanished">F6</translation>
+        <translation>F6</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="439" />
         <source>Lock Horizontal</source>
-        <translation type="vanished">锁定水平</translation>
+        <translation>锁定水平</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="421" />
         <source>F5</source>
-        <translation type="vanished">F5</translation>
+        <translation>F5</translation>
     </message>
     <message>
+        <location filename="xexunrtt.ui" line="424" />
         <source>Lock Vertical</source>
-        <translation type="vanished">锁定垂直</translation>
+        <translation>锁定垂直</translation>
     </message>
 </context>
 </TS>
