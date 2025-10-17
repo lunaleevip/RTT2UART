@@ -1168,6 +1168,7 @@ class RTTMainWindow(QMainWindow):
             layout = QVBoxLayout(page)  # 创建布局管理器
             layout.addWidget(text_edit)  # 将 QPlainTextEdit 添加到布局中
             self.highlighter[i] = PythonHighlighter(text_edit.document())
+            self.highlighter[i].main_window = self  # 🔑 设置main_window引用，用于获取字体设置
             
             if i == 0:
                 self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # Add page to tabWidget
@@ -7664,6 +7665,7 @@ class PythonHighlighter(QSyntaxHighlighter):
         self.keyword_format.setBackground(QColor(255, 255, 0))  # 明亮黄色背景
 
         self.pattern = None
+        self.main_window = None  # 用于获取当前字体设置
 
     def setKeywords(self, keywords):
         self.keywords = keywords
@@ -7678,7 +7680,31 @@ class PythonHighlighter(QSyntaxHighlighter):
             for match in self.pattern.finditer(text):
                 start_index = match.start()
                 match_length = match.end() - start_index
-                self.setFormat(start_index, match_length, self.keyword_format)
+                
+                # 🔑 关键修复：动态获取当前字体并应用到高亮格式
+                # 这样可以确保高亮文本使用正确的字体
+                format = QTextCharFormat(self.keyword_format)
+                
+                # 尝试获取当前使用的字体
+                if self.main_window and hasattr(self.main_window, 'ui'):
+                    try:
+                        if hasattr(self.main_window.ui, 'font_combo'):
+                            font_name = self.main_window.ui.font_combo.currentText()
+                        else:
+                            font_name = "Consolas"
+                        font_size = self.main_window.ui.fontsize_box.value()
+                        
+                        font = QFont(font_name, font_size)
+                        font.setFixedPitch(True)
+                        font.setStyleHint(QFont.TypeWriter)
+                        font.setStyleStrategy(QFont.PreferDefault | QFont.ForceIntegerMetrics)
+                        font.setKerning(False)
+                        format.setFont(font)
+                    except:
+                        # 如果获取失败，使用文档默认字体
+                        pass
+                
+                self.setFormat(start_index, match_length, format)
         
 
     
