@@ -3237,7 +3237,16 @@ class RTTMainWindow(QMainWindow):
                     font_size = self.ui.fontsize_box.value()
                     font = QFont(font_name, font_size)
                     font.setFixedPitch(True)
+                    font.setStyleHint(QFont.Monospace)  # 🔑 设置字体提示为等宽
+                    font.setKerning(False)  # 🔑 禁用字距调整
                     text_edit.setFont(font)
+                    
+                    # 🔑 设置文档选项，确保等宽渲染
+                    doc = text_edit.document()
+                    if doc:
+                        option = doc.defaultTextOption()
+                        option.setFlags(option.flags() | QTextOption.ShowTabsAndSpaces)
+                        doc.setDefaultTextOption(option)
         except Exception as e:
             logger.warning(f"Failed to update current tab font: {e}")
     
@@ -5981,15 +5990,24 @@ class ConnectionDialog(QDialog):
                 # 如果没有font_combo，从配置加载
                 if hasattr(self, 'config'):
                     font_name = self.config.get_fontfamily()
-            else:
+                else:
                     # 默认字体
                     font_name = "SF Mono" if sys.platform == "darwin" else "Consolas"
             
             font_size = self.main_window.ui.fontsize_box.value()
             font = QFont(font_name, font_size)
             font.setFixedPitch(True)
+            font.setStyleHint(QFont.Monospace)  # 🔑 关键：设置字体提示为等宽
+            font.setKerning(False)  # 🔑 关键：禁用字距调整，确保严格等宽
+            
             if text_edit:
                 text_edit.setFont(font)
+                # 🔑 关键：设置字体选项，确保等宽渲染
+                doc = text_edit.document()
+                if doc:
+                    option = doc.defaultTextOption()
+                    option.setFlags(option.flags() | QTextOption.ShowTabsAndSpaces)  # 显示制表符和空格
+                    doc.setDefaultTextOption(option)
                 # 记录滚动条位置
                 vscroll = text_edit.verticalScrollBar().value()
                 hscroll = text_edit.horizontalScrollBar().value()
