@@ -17,11 +17,38 @@ except ImportError:
     VERSION_NAME = "XexunRTT"
     print(f"Warning: Could not import version.py, using default version {VERSION}")
 
+# 收集 pywin32 DLL 文件（仅Windows）
+import sys
+pywin32_binaries = []
+if sys.platform == 'win32':
+    try:
+        import win32api
+        import os
+        # 获取 pywin32 DLL 路径
+        win32api_path = os.path.dirname(win32api.__file__)
+        pywin32_dll_path = os.path.join(os.path.dirname(win32api_path), 'pywin32_system32')
+        
+        # 添加必要的 DLL 文件 - 根据Python版本自动检测
+        if os.path.exists(pywin32_dll_path):
+            # 获取Python版本号（如 313 for Python 3.13）
+            py_ver = f"{sys.version_info.major}{sys.version_info.minor}"
+            dll_files = [f'pythoncom{py_ver}.dll', f'pywintypes{py_ver}.dll']
+            
+            for dll in dll_files:
+                dll_path = os.path.join(pywin32_dll_path, dll)
+                if os.path.exists(dll_path):
+                    pywin32_binaries.append((dll_path, '.'))
+                    print(f"Adding pywin32 DLL: {dll}")
+                else:
+                    print(f"Warning: pywin32 DLL not found: {dll_path}")
+    except Exception as e:
+        print(f"Warning: Could not locate pywin32 DLLs: {e}")
+
 # 分析配置
 a = Analysis(
     ['main_window.py'],
     pathex=[str(Path.cwd())],
-    binaries=[],
+    binaries=pywin32_binaries,
     datas=[
         ('xexunrtt_complete.qm', '.'),
         ('qt_zh_CN.qm', '.'),
