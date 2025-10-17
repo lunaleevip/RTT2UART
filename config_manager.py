@@ -40,6 +40,9 @@ class ConfigManager:
         self.config = configparser.ConfigParser()
         self.config.optionxform = str  # 保持键名大小写
         
+        # 🔑 用于脏数据检测的快照
+        self._last_saved_snapshot = None
+        
         # 设置默认值
         self._set_defaults()
         
@@ -105,10 +108,10 @@ class ConfigManager:
             'text_encoding': 'gbk'  # 默认GBK
         }
         
-        # 过滤器设置 (支持多个过滤器)
-        self.config['Filters'] = {}
-        for i in range(17, 33):  # 过滤器标签页 17-32
-            self.config['Filters'][f'filter_{i}'] = ''
+        # 过滤器设置 (支持多个过滤器) - 只设置section，不初始化具体值
+        # 🔑 修复：不要清空 Filters section，让 load_config() 加载已保存的值
+        if 'Filters' not in self.config:
+            self.config['Filters'] = {}
         
         # 日志设置
         self.config['Logging'] = {
@@ -144,6 +147,9 @@ class ConfigManager:
                 pass
         else:
             print(f"配置文件不存在，使用默认设置: {self.config_file}")
+        
+        # 🔑 加载后创建快照，用于脏数据检测
+        self._last_saved_snapshot = self._create_config_snapshot()
     
     def _safe_getint(self, section: str, option: str, fallback: int) -> int:
         """安全地获取整数配置值，如果转换失败则返回默认值并修复配置"""
@@ -172,12 +178,39 @@ class ConfigManager:
             self.config.set(section, option, str(fallback))
             return fallback
     
-    def save_config(self):
-        """保存配置到INI文件"""
+    def _create_config_snapshot(self) -> str:
+        """创建当前配置的快照（用于脏数据检测）"""
+        import io
+        snapshot = io.StringIO()
+        self.config.write(snapshot)
+        return snapshot.getvalue()
+    
+    def save_config(self, force: bool = False):
+        """
+        保存配置到INI文件
+        
+        Args:
+            force: 是否强制保存，忽略脏数据检测
+        
+        Returns:
+            True if saved, False if no changes or error
+        """
         try:
+            # 🔑 脏数据检测：只有在配置真正改变时才写入文件
+            if not force:
+                current_snapshot = self._create_config_snapshot()
+                if self._last_saved_snapshot is not None and current_snapshot == self._last_saved_snapshot:
+                    # 配置未改变，跳过保存
+                    return False
+            
+            # 配置已改变或强制保存，写入文件
             os.makedirs(self.config_dir, exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 self.config.write(f)
+            
+            # 更新快照
+            self._last_saved_snapshot = self._create_config_snapshot()
+            
             print(f"配置保存成功: {self.config_file}")
             return True
         except Exception as e:

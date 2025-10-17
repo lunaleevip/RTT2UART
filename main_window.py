@@ -934,6 +934,8 @@ class RTTMainWindow(QMainWindow):
         
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
+        self._filters_loaded = False  # 🔑 标记filter是否已加载到UI
+        self._ui_initialization_complete = False  # 🔑 标记UI初始化是否完成
         
         # 获取DPI缩放比例（支持手动设置或自动检测）
         manual_dpi = config_manager.get_dpi_scale()
@@ -1931,6 +1933,11 @@ class RTTMainWindow(QMainWindow):
                 elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
                     # 兼容旧格式
                     self.ui.tem_switch.setTabText(i, settings['filter'][i-17])
+            
+            # 🔑 标记：filter已经加载到UI，UI初始化完成，现在可以安全保存配置
+            self._filters_loaded = True
+            self._ui_initialization_complete = True
+            logger.info("✅ UI initialization completed, config saving is now safe")
                     
             # 应用样式
             self.set_style()
@@ -2762,8 +2769,8 @@ class RTTMainWindow(QMainWindow):
         """自动重连复选框状态改变"""
         enabled = (state == Qt.CheckState.Checked.value) if hasattr(Qt.CheckState, 'Checked') else (state == 2)
         
-        # 保存到配置
-        if self.connection_dialog:
+        # 保存到配置（🔑 只在UI初始化完成后保存）
+        if self.connection_dialog and self._ui_initialization_complete:
             self.connection_dialog.config.set_auto_reconnect_on_no_data(enabled)
             self.connection_dialog.config.save_config()
         
@@ -2781,8 +2788,8 @@ class RTTMainWindow(QMainWindow):
         try:
             timeout = int(text)
             if timeout > 0:
-                # 保存到配置
-                if self.connection_dialog:
+                # 保存到配置（🔑 只在UI初始化完成后保存）
+                if self.connection_dialog and self._ui_initialization_complete:
                     self.connection_dialog.config.set_auto_reconnect_timeout(timeout)
                     self.connection_dialog.config.save_config()
         except ValueError:
@@ -3439,9 +3446,10 @@ class RTTMainWindow(QMainWindow):
         """字体大小变更时的处理 - 全局生效"""
         if self.connection_dialog:
             self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
-            # 同步保存到INI配置
-            self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
-            self.connection_dialog.config.save_config()
+            # 同步保存到INI配置（🔑 只在UI初始化完成后保存）
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
+                self.connection_dialog.config.save_config()
             logger.info(f"[FONT] Font size changed to: {self.ui.fontsize_box.value()}pt - applying to all TABs")
         # 🔑 全局更新：遍历所有TAB并更新字体大小
         self._update_all_tabs_font()
@@ -3451,18 +3459,22 @@ class RTTMainWindow(QMainWindow):
         if self.connection_dialog:
             # 🔧 BUG修复：同时更新settings字典和配置文件
             self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
-            self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
-            self.connection_dialog.config.save_config()
-            print(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
+            # 只在UI初始化完成后保存
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
+                self.connection_dialog.config.save_config()
+                print(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
     
     def on_lock_v_changed(self):
         """垂直滚动条锁定状态改变时保存配置"""
         if self.connection_dialog:
             # 🔧 BUG修复：同时更新settings字典和配置文件
             self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
-            self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
-            self.connection_dialog.config.save_config()
-            print(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
+            # 只在UI初始化完成后保存
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
+                self.connection_dialog.config.save_config()
+                print(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
     
     
     def _update_jlink_log_style(self):
@@ -4717,10 +4729,18 @@ class ConnectionDialog(QDialog):
                 self.config.set_lock_vertical(self.main_window.ui.LockV_checkBox.isChecked())
             
             # 保存过滤器设置
-            if hasattr(self.main_window.ui, 'tem_switch'):
+            # 🔑 修复：必须保存所有filter的状态，包括空值和默认"filter"文本
+            # 否则配置文件中的旧filter值不会被清除
+            # 🚨 重要：只有在filter已经加载到UI后才能保存，否则会意外清空配置文件
+            if (hasattr(self.main_window, '_filters_loaded') and 
+                self.main_window._filters_loaded and 
+                hasattr(self.main_window.ui, 'tem_switch')):
                 for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
                     tab_text = self.main_window.ui.tem_switch.tabText(i)
-                    if tab_text != QCoreApplication.translate("main_window", "filter"):
+                    # 如果是默认的"filter"文本，保存为空字符串
+                    if tab_text == QCoreApplication.translate("main_window", "filter"):
+                        self.config.set_filter(i, "")
+                    else:
                         self.config.set_filter(i, tab_text)
             
             # 保存命令历史
