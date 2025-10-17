@@ -158,7 +158,7 @@
        </font>
       </property>
       <property name="toolTip">
-       <string comment="F4"/>
+       <string>F4</string>
       </property>
       <property name="text">
        <string>Clear</string>
