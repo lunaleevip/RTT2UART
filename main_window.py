@@ -3240,13 +3240,6 @@ class RTTMainWindow(QMainWindow):
                     font.setStyleHint(QFont.Monospace)  # 🔑 设置字体提示为等宽
                     font.setKerning(False)  # 🔑 禁用字距调整
                     text_edit.setFont(font)
-                    
-                    # 🔑 设置文档选项，确保等宽渲染
-                    doc = text_edit.document()
-                    if doc:
-                        option = doc.defaultTextOption()
-                        option.setFlags(option.flags() | QTextOption.ShowTabsAndSpaces)
-                        doc.setDefaultTextOption(option)
         except Exception as e:
             logger.warning(f"Failed to update current tab font: {e}")
     
@@ -6002,12 +5995,6 @@ class ConnectionDialog(QDialog):
             
             if text_edit:
                 text_edit.setFont(font)
-                # 🔑 关键：设置字体选项，确保等宽渲染
-                doc = text_edit.document()
-                if doc:
-                    option = doc.defaultTextOption()
-                    option.setFlags(option.flags() | QTextOption.ShowTabsAndSpaces)  # 显示制表符和空格
-                    doc.setDefaultTextOption(option)
                 # 记录滚动条位置
                 vscroll = text_edit.verticalScrollBar().value()
                 hscroll = text_edit.horizontalScrollBar().value()
