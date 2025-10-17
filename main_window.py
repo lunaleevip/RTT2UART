@@ -3215,14 +3215,20 @@ class RTTMainWindow(QMainWindow):
                 default_font = available_fonts[0] if available_fonts else "Consolas"
                 logger.info(f"[FONT] Using default font: {default_font}")
     
-    def on_font_changed(self, font_name):
+    def on_font_changed(self, display_text):
         """字体变更时的处理"""
-        if self.connection_dialog and font_name:
-            # 保存到配置
-            self.connection_dialog.config.set_fontfamily(font_name)
-            self.connection_dialog.config.save_config()
-            # 更新当前TAB的字体
-            self._update_current_tab_font()
+        if self.connection_dialog and display_text:
+            # 从ComboBox的userData获取实际字体名
+            current_index = self.ui.font_combo.currentIndex()
+            actual_font_name = self.ui.font_combo.itemData(current_index)
+            
+            if actual_font_name:
+                # 保存到配置
+                self.connection_dialog.config.set_fontfamily(actual_font_name)
+                self.connection_dialog.config.save_config()
+                logger.info(f"[FONT] Font changed to: {actual_font_name}")
+                # 更新当前TAB的字体
+                self._update_current_tab_font()
     
     def _update_current_tab_font(self):
         """更新当前TAB的字体"""
@@ -3233,7 +3239,15 @@ class RTTMainWindow(QMainWindow):
                 from PySide6.QtWidgets import QPlainTextEdit
                 text_edit = current_page.findChild(QPlainTextEdit) or current_page.findChild(QTextEdit)
                 if text_edit:
-                    font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
+                    # 从ComboBox的userData获取实际字体名
+                    if hasattr(self.ui, 'font_combo'):
+                        combo_index = self.ui.font_combo.currentIndex()
+                        font_name = self.ui.font_combo.itemData(combo_index)
+                        if not font_name:  # 如果userData为空，使用显示文本
+                            font_name = self.ui.font_combo.currentText()
+                    else:
+                        font_name = "Consolas"
+                    
                     font_size = self.ui.fontsize_box.value()
                     font = QFont(font_name, font_size)
                     font.setFixedPitch(True)
