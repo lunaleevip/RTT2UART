@@ -133,13 +133,43 @@ def get_output_extension():
     else:
         return ''  # Linux没有扩展名
 
+def update_build_time():
+    """自动更新 version.py 中的 BUILD_TIME"""
+    import datetime
+    import re
+    
+    version_file = Path('version.py')
+    if not version_file.exists():
+        print("⚠️  警告: version.py 文件不存在")
+        return
+    
+    # 生成当前时间
+    build_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 读取文件内容
+    content = version_file.read_text(encoding='utf-8')
+    
+    # 使用正则表达式替换 BUILD_TIME
+    pattern = r'BUILD_TIME = ".*?"'
+    replacement = f'BUILD_TIME = "{build_time}"'
+    new_content = re.sub(pattern, replacement, content)
+    
+    # 写回文件
+    version_file.write_text(new_content, encoding='utf-8')
+    print(f"✅ 已更新编译时间: {build_time}\n")
+    
+    return build_time
+
 def main():
     """主构建流程"""
+    # 🔑 自动更新编译时间
+    current_build_time = update_build_time()
+    
     print(f"{'='*60}")
     print(f"  {VERSION_NAME} 构建脚本")
     print(f"  版本: v{VERSION}")
     print(f"  平台: {PLATFORM}")
-    print(f"  构建时间: {BUILD_TIME}")
+    print(f"  构建时间: {current_build_time or BUILD_TIME}")
     print(f"{'='*60}\n")
     
     # 1. 生成版本信息文件（仅Windows）

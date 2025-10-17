@@ -2976,7 +2976,7 @@ class RTTMainWindow(QMainWindow):
             
             # 确定要打开的目录
             if self.connection_dialog and self.connection_dialog.rtt2uart:
-                target_dir = self.connection_dialog.rtt2uart.log_directory
+                target_dir = str(self.connection_dialog.rtt2uart.log_directory)  # 🔑 确保转换为字符串
             else:
                 # 在断开状态下打开默认的日志目录
                 desktop_path = pathlib.Path.home() / "Desktop/XexunRTT_Log"
@@ -3003,25 +3003,52 @@ class RTTMainWindow(QMainWindow):
                     
                     # 🔑 尝试找到由本程序打开的窗口
                     if self._my_explorer_window_id is not None:
+                        logger.debug(f"[F1] Looking for tracked window (HWND={self._my_explorer_window_id})")
+                        logger.debug(f"[F1] Found {len(windows)} explorer windows")
                         for window in windows:
                             try:
                                 # 通过HWND(窗口句柄)来识别窗口
-                                if hasattr(window, 'HWND') and window.HWND == self._my_explorer_window_id:
-                                    my_window = window
-                                    break
-                            except:
+                                if hasattr(window, 'HWND'):
+                                    current_hwnd = window.HWND
+                                    logger.debug(f"[F1] Checking window HWND={current_hwnd}")
+                                    if current_hwnd == self._my_explorer_window_id:
+                                        my_window = window
+                                        logger.debug(f"[F1] Found matching window!")
+                                        break
+                            except Exception as e:
+                                logger.debug(f"[F1] Error checking window: {e}")
                                 continue
+                        
+                        if not my_window:
+                            logger.warning(f"[F1] Tracked window (HWND={self._my_explorer_window_id}) not found in {len(windows)} windows, will open new one")
+                            self._my_explorer_window_id = None
                     
                     # 如果找到了我们的窗口，复用它
                     if my_window:
                         try:
                             my_window.Navigate(target_dir)
-                            # 激活窗口 - 使用Visible属性
+                            
+                            # 🔑 强制激活窗口到前台
                             try:
-                                my_window.Visible = True
-                            except:
-                                # 某些窗口不支持Visible属性，忽略
-                                pass
+                                import win32gui
+                                import win32con
+                                hwnd = self._my_explorer_window_id
+                                
+                                # 如果窗口最小化，先还原
+                                if win32gui.IsIconic(hwnd):
+                                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                                
+                                # 激活窗口到前台
+                                win32gui.SetForegroundWindow(hwnd)
+                                logger.debug(f"[F1] Activated window to foreground (HWND={hwnd})")
+                            except Exception as e:
+                                logger.warning(f"[F1] Failed to activate window: {e}")
+                                # 尝试使用COM属性作为备选
+                                try:
+                                    my_window.Visible = True
+                                except:
+                                    pass
+                            
                             navigated = True
                             logger.info(f"Reused tracked window (HWND={self._my_explorer_window_id}), navigated to: {target_dir}")
                             return
@@ -3040,16 +3067,31 @@ class RTTMainWindow(QMainWindow):
                         
                         # 尝试找到新打开的窗口
                         windows = shell.Windows()
+                        logger.debug(f"[F1] After opening, found {len(windows)} windows, looking for: {target_dir}")
+                        
+                        # 先记录所有窗口的最新HWND，选择最新的（通常是最后一个）
+                        latest_hwnd = None
+                        target_path_normalized = target_dir.replace('\\', '/').lower()
+                        
                         for window in windows:
                             try:
                                 current_folder = window.LocationURL
+                                current_hwnd = window.HWND if hasattr(window, 'HWND') else None
+                                logger.debug(f"[F1] Window HWND={current_hwnd}, LocationURL={current_folder}")
+                                
                                 # 检查是否是我们刚打开的文件夹
-                                if current_folder and target_dir.replace('\\', '/').lower() in current_folder.lower():
-                                    self._my_explorer_window_id = window.HWND
-                                    logger.info(f"Tracked new window (HWND={self._my_explorer_window_id})")
-                                    break
-                            except:
+                                if current_folder and target_path_normalized in current_folder.lower():
+                                    latest_hwnd = current_hwnd
+                                    logger.debug(f"[F1] Found matching window! HWND={latest_hwnd}")
+                            except Exception as e:
+                                logger.debug(f"[F1] Error checking window: {e}")
                                 continue
+                        
+                        if latest_hwnd:
+                            self._my_explorer_window_id = latest_hwnd
+                            logger.info(f"[F1] Tracked new window (HWND={self._my_explorer_window_id})")
+                        else:
+                            logger.warning(f"[F1] Failed to find newly opened window for: {target_dir}")
                         
                 except ImportError:
                     # 如果没有 win32com，回退到普通方式

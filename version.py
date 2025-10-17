@@ -1,16 +1,15 @@
 """
 版本信息配置文件
 """
-import datetime
 
 # 应用版本号
-VERSION = "2.3.1"
+VERSION = "2.3.2"
 
 # 版本名称
 VERSION_NAME = "XexunRTT"
 
-# 编译时期（自动生成）
-BUILD_TIME = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# 编译时期（由 build.py 自动更新，无需手动修改）
+BUILD_TIME = "2025-10-17 13:57:16"
 
 # 版本描述
 VERSION_DESC = f"{VERSION_NAME} v{VERSION}"
