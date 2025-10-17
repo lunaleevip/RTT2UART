@@ -591,10 +591,36 @@ class rtt_to_serial():
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection established"))
                         
                     except pylink.errors.JLinkException as e:
-                        error_msg = f"Failed to open JLink: {e}"
-                        self._log_to_gui(error_msg)
-                        logger.error(error_msg, exc_info=True)
-                        raise Exception(error_msg)
+                        error_msg = str(e)
+                        # 🔑 检测到"already open"错误时，先关闭再重试
+                        if "already open" in error_msg.lower():
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already open, closing and retrying..."))
+                            try:
+                                self.jlink.close()
+                                import time
+                                time.sleep(0.3)  # 等待关闭完成
+                                
+                                # 重试打开
+                                if self._connect_inf == 'USB':
+                                    if self._connect_para:
+                                        self.jlink.open(serial_no=self._connect_para)
+                                    else:
+                                        self.jlink.open()
+                                else:
+                                    self.jlink.open(ip_addr=self._connect_para)
+                                
+                                time.sleep(0.1)
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
+                            except Exception as retry_e:
+                                error_msg = f"Failed to reopen JLink: {retry_e}"
+                                self._log_to_gui(error_msg)
+                                logger.error(error_msg, exc_info=True)
+                                raise Exception(error_msg)
+                        else:
+                            error_msg = f"Failed to open JLink: {e}"
+                            self._log_to_gui(error_msg)
+                            logger.error(error_msg, exc_info=True)
+                            raise Exception(error_msg)
 
                 # 再次检查连接状态（按配置判定是否需要自动重置并重试一次）
                 try:
