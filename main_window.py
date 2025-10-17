@@ -4625,15 +4625,24 @@ class ConnectionDialog(QDialog):
         
         # 应用RTT Control Block设置
         rtt_mode = self.config.get_rtt_control_block_mode()
+        rtt_address = self.config.get_rtt_control_block_address()
+        
         if rtt_mode == 'address':
             self.ui.radioButton_Address.setChecked(True)
+            if rtt_address:
+                self.ui.lineEdit_RTTAddress.setText(rtt_address)
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "Example: 0x20000000"))
         elif rtt_mode == 'search_range':
             self.ui.radioButton_SearchRange.setChecked(True)
+            if rtt_address:
+                self.ui.lineEdit_RTTAddress.setText(rtt_address)
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
         else:  # 'auto' or default
             self.ui.radioButton_AutoDetection.setChecked(True)
-        
-        rtt_address = self.config.get_rtt_control_block_address()
-        self.ui.lineEdit_RTTAddress.setText(rtt_address)
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "JLink automatically detects the RTT control block"))
         
         # 初始化设备列表
         self._initialize_device_combo()
@@ -5339,10 +5348,32 @@ class ConnectionDialog(QDialog):
         """RTT Control Block模式变更处理"""
         if self.ui.radioButton_AutoDetection.isChecked():
             mode = 'auto'
+            # 自动检测模式下清空地址框
+            if not self.ui.lineEdit_RTTAddress.text():
+                self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                    QCoreApplication.translate("main_window", "JLink automatically detects the RTT control block"))
         elif self.ui.radioButton_Address.isChecked():
             mode = 'address'
+            # 如果地址框为空，填充示例地址
+            if not self.ui.lineEdit_RTTAddress.text():
+                saved_address = self.config.get_rtt_control_block_address()
+                if not saved_address:
+                    self.ui.lineEdit_RTTAddress.setText('0x20000000')
+                    self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                        QCoreApplication.translate("main_window", "Example: 0x20000000"))
+                else:
+                    self.ui.lineEdit_RTTAddress.setText(saved_address)
         elif self.ui.radioButton_SearchRange.isChecked():
             mode = 'search_range'
+            # 如果地址框为空，填充示例搜索范围
+            if not self.ui.lineEdit_RTTAddress.text():
+                saved_address = self.config.get_rtt_control_block_address()
+                if not saved_address:
+                    self.ui.lineEdit_RTTAddress.setText('0x10000000 0x1000, 0x20000000 0x1000')
+                    self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                        QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
+                else:
+                    self.ui.lineEdit_RTTAddress.setText(saved_address)
         else:
             mode = 'auto'
         

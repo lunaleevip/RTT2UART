@@ -185,7 +185,11 @@ class Ui_ConnectionDialog(object):
         self.radioButton_AutoDetection.setText(QCoreApplication.translate("ConnectionDialog", u"Auto Detection", None))
         self.radioButton_Address.setText(QCoreApplication.translate("ConnectionDialog", u"Address", None))
         self.radioButton_SearchRange.setText(QCoreApplication.translate("ConnectionDialog", u"Search Range", None))
-        self.lineEdit_RTTAddress.setPlaceholderText(QCoreApplication.translate("ConnectionDialog", u"Enter the address of the RTT control block", None))
+#if QT_CONFIG(tooltip)
+        self.lineEdit_RTTAddress.setToolTip(QCoreApplication.translate("ConnectionDialog", u"Address example: 0x20000000\n"
+"Search Range example: 0x10000000 0x1000, 0x20000000 0x1000", None))
+#endif // QT_CONFIG(tooltip)
+        self.lineEdit_RTTAddress.setPlaceholderText(QCoreApplication.translate("ConnectionDialog", u"Select a mode above, example will auto-fill", None))
         self.groupBox_3.setTitle(QCoreApplication.translate("ConnectionDialog", u"Connection to J-Link", None))
         self.radioButton_usb.setText(QCoreApplication.translate("ConnectionDialog", u"USB", None))
         self.radioButton_existing.setText(QCoreApplication.translate("ConnectionDialog", u"Existing Session", None))
