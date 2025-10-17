@@ -3397,6 +3397,7 @@ class RTTMainWindow(QMainWindow):
             # 遍历所有TAB并更新字体
             from PySide6.QtWidgets import QPlainTextEdit
             tab_count = self.ui.tem_switch.count()
+            current_tab = self.ui.tem_switch.currentIndex()
             updated_count = 0
             
             for i in range(tab_count):
@@ -3404,22 +3405,32 @@ class RTTMainWindow(QMainWindow):
                 if page:
                     text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
                     if text_edit:
+                        # 🔑 关键改进：对于不可见的TAB，需要临时切换到该TAB才能触发更新
+                        is_current = (i == current_tab)
+                        
                         # 1. 设置控件字体
                         text_edit.setFont(font)
                         
                         # 2. 设置文档默认字体（这对新增内容生效）
                         text_edit.document().setDefaultFont(font)
                         
-                        # 3. 🔑 关键：使用Qt的强制重新布局机制
-                        # 触发文档重新布局而不丢失格式
+                        # 3. 触发文档重新布局
                         doc = text_edit.document()
-                        doc.setModified(True)  # 标记为已修改
+                        doc.setModified(True)
                         
-                        # 4. 强制视口更新
+                        # 4. 🔑 对于不可见的TAB，需要额外处理
+                        if not is_current:
+                            # 强制设置widget可见性状态，触发更新
+                            text_edit.setVisible(True)
+                            # 强制刷新layout
+                            if hasattr(text_edit, 'updateGeometry'):
+                                text_edit.updateGeometry()
+                        
+                        # 5. 强制视口更新
                         text_edit.viewport().update()
                         text_edit.update()
                         
-                        # 5. 🔑 使用QApplication.processEvents强制立即处理
+                        # 6. 🔑 使用QApplication.processEvents强制立即处理
                         QApplication.processEvents()
                         
                         updated_count += 1
@@ -3427,23 +3438,46 @@ class RTTMainWindow(QMainWindow):
             logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
             
             # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
-            QTimer.singleShot(100, lambda: self._delayed_font_refresh())
+            # 同时遍历所有TAB并触发重绘
+            QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
             
         except Exception as e:
             logger.warning(f"Failed to update all tabs font: {e}")
     
     def _delayed_font_refresh(self):
-        """延迟刷新字体 - 用于某些系统的兼容性"""
+        """延迟刷新字体 - 用于某些系统的兼容性（向后兼容）"""
+        self._delayed_font_refresh_all()
+    
+    def _delayed_font_refresh_all(self):
+        """延迟刷新所有TAB的字体 - 确保不可见TAB也能更新"""
         try:
             from PySide6.QtWidgets import QPlainTextEdit
+            current_tab = self.ui.tem_switch.currentIndex()
+            
+            # 遍历所有TAB进行二次刷新
             for i in range(self.ui.tem_switch.count()):
                 page = self.ui.tem_switch.widget(i)
                 if page:
                     text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
                     if text_edit:
+                        # 🔑 关键：强制刷新文档布局
+                        doc = text_edit.document()
+                        
+                        # 对于不可见的TAB，临时切换过去触发更新
+                        if i != current_tab:
+                            # 方法1：触发文档contentsChanged信号
+                            doc.markContentsDirty(0, doc.characterCount())
+                        
+                        # 方法2：强制viewport重绘
                         text_edit.viewport().update()
-        except:
-            pass
+                        text_edit.update()
+            
+            # 处理所有待处理的事件
+            QApplication.processEvents()
+            
+            logger.debug("[FONT] Delayed font refresh completed for all TABs")
+        except Exception as e:
+            logger.debug(f"Delayed font refresh error: {e}")
     
     def _update_current_tab_font(self):
         """更新当前TAB的字体"""
