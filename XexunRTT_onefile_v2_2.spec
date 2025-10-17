@@ -60,6 +60,13 @@ a = Analysis(
         'dis',  # Python 反汇编模块，inspect依赖
         'inspect',  # 代码检查模块
         'opcode',  # dis模块依赖
+        # Windows COM 自动化（用于复用资源管理器窗口）
+        'win32com',
+        'win32com.client',
+        'pythoncom',
+        'pywintypes',
+        'win32api',
+        'win32con',
         'itertools',
         'typing',
         'base64',  # PySide6/shiboken6依赖

@@ -3036,15 +3036,15 @@ class RTTMainWindow(QMainWindow):
                     self._explorer_window_opened = True
                     logger.info(f"Opened new folder window: {target_dir}")
             
-            # macOS
+            # macOS - Finder 默认只打开一个窗口，自动复用
             elif sys.platform == "darwin":
                 subprocess.run(["open", target_dir])
-                logger.info(f"Opened folder (macOS): {target_dir}")
+                logger.info(f"Opened/navigated folder (macOS): {target_dir}")
             
-            # Linux
+            # Linux - 大多数文件管理器会复用窗口
             else:
                 subprocess.run(["xdg-open", target_dir])
-                logger.info(f"Opened folder (Linux): {target_dir}")
+                logger.info(f"Opened/navigated folder (Linux): {target_dir}")
             
         except Exception as e:
             logger.error(f"Failed to open folder: {e}")
