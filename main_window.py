@@ -3457,11 +3457,18 @@ class RTTMainWindow(QMainWindow):
                             if hasattr(text_edit, 'updateGeometry'):
                                 text_edit.updateGeometry()
                         
-                        # 6. 强制视口更新
+                        # 6. 🔑 强制立即重绘：多重刷新策略
+                        # 策略1: 更新视口
                         text_edit.viewport().update()
                         text_edit.update()
                         
-                        # 7. 🔑 使用QApplication.processEvents强制立即处理
+                        # 策略2: 强制完整重绘（不是增量更新）
+                        text_edit.viewport().repaint()
+                        
+                        # 策略3: 触发布局更新
+                        text_edit.updateGeometry()
+                        
+                        # 策略4: 处理所有待处理事件，确保立即刷新
                         QApplication.processEvents()
                         
                         updated_count += 1
@@ -3499,8 +3506,8 @@ class RTTMainWindow(QMainWindow):
                             # 方法1：触发文档contentsChanged信号
                             doc.markContentsDirty(0, doc.characterCount())
                         
-                        # 方法2：强制viewport重绘
-                        text_edit.viewport().update()
+                        # 方法2：强制viewport完整重绘
+                        text_edit.viewport().repaint()  # 使用repaint而不是update，立即重绘
                         text_edit.update()
             
             # 处理所有待处理的事件
