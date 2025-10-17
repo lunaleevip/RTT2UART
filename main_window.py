@@ -1876,8 +1876,8 @@ class RTTMainWindow(QMainWindow):
             # 发送命令相关控件
             if hasattr(self.ui, 'pushButton'):
                 self.ui.pushButton.setEnabled(enabled)
-            if hasattr(self.ui, 'cmd_buffer'):
-                self.ui.cmd_buffer.setEnabled(enabled)
+            # if hasattr(self.ui, 'cmd_buffer'):
+            #     self.ui.cmd_buffer.setEnabled(enabled)
             
             # # 清除按钮
             # if hasattr(self.ui, 'clear'):
@@ -2454,21 +2454,39 @@ class RTTMainWindow(QMainWindow):
                     except Exception as ex:
                         logger.error(f"Error force refreshing buffers: {ex}")
             
-            # 2. 停止所有RTT连接
-            if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
-                if self.connection_dialog.start_state == True:
-                    logger.info("Stopping RTT connection...")
+            # 2. 停止所有RTT连接并强制关闭JLink
+            if self.connection_dialog:
+                # 2.1 停止RTT连接
+                if self.connection_dialog.rtt2uart is not None:
+                    if self.connection_dialog.start_state == True:
+                        logger.info("Stopping RTT connection...")
+                        try:
+                            # 正确调用stop方法而不是start方法
+                            self.connection_dialog.rtt2uart.stop()
+                            self.connection_dialog.start_state = False
+                            
+                            # 🔄 更新状态栏显示
+                            self.update_status_bar()
+                            
+                            logger.info("RTT connection stopped")
+                        except Exception as ex:
+                            logger.error(f"Error stopping RTT connection: {ex}")
+                
+                # 2.2 🔑 强制关闭JLink连接（防止遗留进程）
+                if hasattr(self.connection_dialog, 'jlink') and self.connection_dialog.jlink:
                     try:
-                        # 正确调用stop方法而不是start方法
-                        self.connection_dialog.rtt2uart.stop()
-                        self.connection_dialog.start_state = False
-                        
-                        # 🔄 更新状态栏显示
-                        self.update_status_bar()
-                        
-                        logger.info("RTT connection stopped")
+                        logger.info("Force closing JLink connection...")
+                        # 尝试关闭JLink
+                        if self.connection_dialog.jlink.connected():
+                            self.connection_dialog.jlink.close()
+                            logger.info("JLink connection force closed")
                     except Exception as ex:
-                        logger.error(f"Error stopping RTT connection: {ex}")
+                        logger.warning(f"Error force closing JLink (may already closed): {ex}")
+                        # 即使失败也尝试再次关闭
+                        try:
+                            self.connection_dialog.jlink.close()
+                        except:
+                            pass
             
             # 3. 停止所有定时器
             self._stop_all_timers()
@@ -7342,6 +7360,27 @@ def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
 
 if __name__ == "__main__":
+    # 🔑 注册全局退出处理器，确保异常退出时也能清理JLink连接
+    import atexit
+    
+    def emergency_cleanup():
+        """紧急清理函数 - 在程序异常退出时强制关闭JLink"""
+        try:
+            import pylink
+            # 创建一个临时JLink对象尝试关闭可能遗留的连接
+            temp_jlink = pylink.JLink()
+            try:
+                if temp_jlink.connected():
+                    temp_jlink.close()
+                    print("[EMERGENCY] Force closed JLink connection on exit")
+            except:
+                pass
+        except:
+            pass
+    
+    # 注册退出处理器
+    atexit.register(emergency_cleanup)
+    
     # 获取DPI设置并应用环境变量
     manual_dpi = config_manager.get_dpi_scale()
     if manual_dpi != "auto":
