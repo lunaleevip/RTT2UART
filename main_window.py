@@ -6321,18 +6321,13 @@ class ConnectionDialog(QDialog):
                     # 设置背景色
                     format.setBackground(QColor(background))
                 
-                # 设置字体（保持等宽）
-                if sys.platform == "darwin":  # macOS
-                    font = QFont("SF Mono", text_edit.font().pointSize())
-                    if not font.exactMatch():
-                        font = QFont("Menlo", text_edit.font().pointSize())
-                    if not font.exactMatch():
-                        font = QFont("Monaco", text_edit.font().pointSize())
-                else:
-                    font = QFont("Consolas", text_edit.font().pointSize())
-                    if not font.exactMatch():
-                        font = QFont("Courier New", text_edit.font().pointSize())
+                # 🔑 关键修复：使用用户选择的字体，并设置正确的等宽渲染属性
+                # 获取当前文本框的字体（已经在switchPage中设置好）
+                current_font = text_edit.font()
+                font = QFont(current_font.family(), current_font.pointSize())
                 font.setFixedPitch(True)
+                font.setStyleHint(QFont.StyleHint.Monospace)  # 🔑 强制等宽渲染
+                font.setKerning(False)  # 🔑 禁用字距调整
                 format.setFont(font)
                 
                 # 插入格式化文本
