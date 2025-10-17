@@ -7287,7 +7287,8 @@ class PythonHighlighter(QSyntaxHighlighter):
         self.keywords = []
         self.keyword_format = QTextCharFormat()
         self.keyword_format.setForeground(QColor(0, 0, 0))      # 黑色文字增强对比度
-        self.keyword_format.setFontWeight(QFont.Bold)
+        # 移除加粗以保持等宽字体对齐
+        # self.keyword_format.setFontWeight(QFont.Bold)
         self.keyword_format.setBackground(QColor(255, 255, 0))  # 明亮黄色背景
 
         self.pattern = None
