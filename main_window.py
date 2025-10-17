@@ -2994,17 +2994,41 @@ class RTTMainWindow(QMainWindow):
             if self._opened_folder_path == target_dir:
                 logger.info(f"Folder already opened, attempting to activate: {target_dir}")
                 
-                # Windows: 使用 explorer 选中该文件夹来激活窗口
+                # Windows: 选中文件夹内的第一个文件来激活窗口
                 if sys.platform == "win32":
                     try:
-                        # 使用 /select 参数会激活现有的资源管理器窗口
-                        subprocess.run(["explorer", "/select,", target_dir], check=False)
-                        logger.info("Activated existing folder window")
+                        # 尝试找到文件夹内的第一个文件
+                        import pathlib
+                        folder_path = pathlib.Path(target_dir)
+                        first_file = None
+                        
+                        if folder_path.exists() and folder_path.is_dir():
+                            # 查找第一个文件或子文件夹
+                            for item in folder_path.iterdir():
+                                first_file = str(item)
+                                break
+                        
+                        if first_file:
+                            # 使用 /select, 选中第一个文件来激活窗口
+                            subprocess.run(["explorer", "/select,", first_file], check=False)
+                            logger.info(f"Activated folder window by selecting: {first_file}")
+                        else:
+                            # 如果文件夹为空，使用普通方式打开
+                            subprocess.run(["explorer", target_dir], check=False)
+                            logger.info("Activated empty folder window")
                         return
                     except Exception as e:
-                        logger.warning(f"Failed to activate window, will open new: {e}")
+                        logger.warning(f"Failed to activate window: {e}")
                 
                 # macOS/Linux: 重新打开（这些系统通常不会创建多个相同目录的窗口）
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", target_dir])
+                    logger.info("Activated folder window (macOS)")
+                    return
+                else:  # Linux
+                    subprocess.run(["xdg-open", target_dir])
+                    logger.info("Activated folder window (Linux)")
+                    return
             
             # 跨平台打开文件夹
             if sys.platform == "darwin":  # macOS
