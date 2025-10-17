@@ -3245,7 +3245,17 @@ class RTTMainWindow(QMainWindow):
                 if page:
                     text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
                     if text_edit:
+                        # 设置字体
                         text_edit.setFont(font)
+                        
+                        # 🔑 关键：强制刷新文本显示
+                        # 方法1：触发文档重新布局
+                        text_edit.document().setDefaultFont(font)
+                        
+                        # 方法2：强制重绘
+                        text_edit.update()
+                        text_edit.viewport().update()
+                        
                         updated_count += 1
             
             logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
