@@ -376,6 +376,22 @@ class ConfigManager:
         """设置自动重连超时时间（秒）"""
         self.config.set('Connection', 'auto_reconnect_timeout', str(timeout))
     
+    def get_rtt_control_block_mode(self) -> str:
+        """获取RTT Control Block模式: 'auto', 'address', 'search_range'"""
+        return self.config.get('Connection', 'rtt_control_block_mode', fallback='auto')
+    
+    def set_rtt_control_block_mode(self, mode: str):
+        """设置RTT Control Block模式"""
+        self.config.set('Connection', 'rtt_control_block_mode', mode)
+    
+    def get_rtt_control_block_address(self) -> str:
+        """获取RTT Control Block地址或搜索范围"""
+        return self.config.get('Connection', 'rtt_control_block_address', fallback='')
+    
+    def set_rtt_control_block_address(self, address: str):
+        """设置RTT Control Block地址或搜索范围"""
+        self.config.set('Connection', 'rtt_control_block_address', address)
+    
     # ===========================================
     # 串口设置相关方法
     # ===========================================

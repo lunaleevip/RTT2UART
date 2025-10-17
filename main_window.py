@@ -4457,6 +4457,12 @@ class ConnectionDialog(QDialog):
         self.ui.radioButton_usb.clicked.connect(self.usb_selete_slot)
         self.ui.radioButton_existing.clicked.connect(
             self.existing_session_selete_slot)
+        
+        # RTT Control Block 信号连接
+        self.ui.radioButton_AutoDetection.clicked.connect(self.rtt_control_block_mode_changed)
+        self.ui.radioButton_Address.clicked.connect(self.rtt_control_block_mode_changed)
+        self.ui.radioButton_SearchRange.clicked.connect(self.rtt_control_block_mode_changed)
+        self.ui.lineEdit_RTTAddress.textChanged.connect(self.rtt_control_block_address_changed)
 
         try:
             self.jlink = pylink.JLink()
@@ -4616,6 +4622,18 @@ class ConnectionDialog(QDialog):
         # 应用序列号设置
         self.ui.comboBox_serialno.setCurrentText(self.config.get_serial_number())
         self.ui.lineEdit_ip.setText(self.config.get_ip_address())
+        
+        # 应用RTT Control Block设置
+        rtt_mode = self.config.get_rtt_control_block_mode()
+        if rtt_mode == 'address':
+            self.ui.radioButton_Address.setChecked(True)
+        elif rtt_mode == 'search_range':
+            self.ui.radioButton_SearchRange.setChecked(True)
+        else:  # 'auto' or default
+            self.ui.radioButton_AutoDetection.setChecked(True)
+        
+        rtt_address = self.config.get_rtt_control_block_address()
+        self.ui.lineEdit_RTTAddress.setText(rtt_address)
         
         # 初始化设备列表
         self._initialize_device_combo()
@@ -5316,6 +5334,29 @@ class ConnectionDialog(QDialog):
         # 保存设置
         self.config.set_log_split(is_checked)
         self.config.save_config()
+    
+    def rtt_control_block_mode_changed(self):
+        """RTT Control Block模式变更处理"""
+        if self.ui.radioButton_AutoDetection.isChecked():
+            mode = 'auto'
+        elif self.ui.radioButton_Address.isChecked():
+            mode = 'address'
+        elif self.ui.radioButton_SearchRange.isChecked():
+            mode = 'search_range'
+        else:
+            mode = 'auto'
+        
+        # 保存设置
+        self.config.set_rtt_control_block_mode(mode)
+        self.config.save_config()
+        logger.info(f"RTT Control Block mode changed to: {mode}")
+    
+    def rtt_control_block_address_changed(self, text):
+        """RTT Control Block地址变更处理"""
+        # 保存设置
+        self.config.set_rtt_control_block_address(text)
+        self.config.save_config()
+        logger.debug(f"RTT Control Block address changed to: {text}")
         
         # 只保存设置，不立即执行重置操作
         # 重置操作将在点击"开始"按钮时执行
