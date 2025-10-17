@@ -613,12 +613,12 @@ class rtt_to_serial():
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
                             except Exception as retry_e:
                                 error_msg = f"Failed to reopen JLink: {retry_e}"
-                                self._log_to_gui(error_msg)
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to reopen JLink: %s") % str(retry_e))
                                 logger.error(error_msg, exc_info=True)
                                 raise Exception(error_msg)
                         else:
                             error_msg = f"Failed to open JLink: {e}"
-                            self._log_to_gui(error_msg)
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to open JLink: %s") % str(e))
                             logger.error(error_msg, exc_info=True)
                             raise Exception(error_msg)
 
@@ -654,13 +654,13 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Setting JLink speed: %s kHz") % self._speed)
                     if self.jlink.set_speed(self._speed) == False:
                         error_msg = "Set jlink speed failed"
-                        self._log_to_gui(error_msg)
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Set JLink speed failed"))
                         logger.error('Set speed failed', exc_info=True)
                         raise Exception(error_msg)
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink speed set successfully: %s kHz") % self._speed)
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Set jlink speed failed: {e}"
-                    self._log_to_gui(error_msg)
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Set JLink speed failed: %s") % str(e))
                     logger.error(f'Set speed failed with exception: {e}', exc_info=True)
                     raise Exception(error_msg)
 
@@ -670,13 +670,13 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Setting JLink interface: %s") % interface_name)
                     if self.jlink.set_tif(self._interface) == False:
                         error_msg = "Set jlink interface failed"
-                        self._log_to_gui(error_msg)
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Set JLink interface failed"))
                         logger.error('Set interface failed', exc_info=True)
                         raise Exception(error_msg)
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink interface set successfully: %s") % interface_name)
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Set jlink interface failed: {e}"
-                    self._log_to_gui(error_msg)
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Set JLink interface failed: %s") % str(e))
                     logger.error(f'Set interface failed with exception: {e}', exc_info=True)
                     raise Exception(error_msg)
 
@@ -709,7 +709,7 @@ class rtt_to_serial():
 
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Connect target failed: {e}"
-                    self._log_to_gui(error_msg)
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connect target failed: %s") % str(e))
                     logger.error(f'Connect target failed: {e}', exc_info=True)
                     raise Exception(error_msg)
         except pylink.errors.JLinkException as errors:
