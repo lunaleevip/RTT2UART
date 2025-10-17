@@ -3377,7 +3377,7 @@ class RTTMainWindow(QMainWindow):
             self._update_all_tabs_font()
     
     def _update_all_tabs_font(self):
-        """全局更新所有TAB的字体"""
+        """全局更新所有TAB的字体 - 增强兼容性版本"""
         try:
             # 获取字体设置
             if hasattr(self.ui, 'font_combo'):
@@ -3387,11 +3387,12 @@ class RTTMainWindow(QMainWindow):
             
             font_size = self.ui.fontsize_box.value()
             
-            # 创建字体对象
+            # 创建字体对象 - 使用更严格的等宽字体设置
             font = QFont(font_name, font_size)
             font.setFixedPitch(True)
-            font.setStyleHint(QFont.Monospace)  # 🔑 设置字体提示为等宽
-            font.setKerning(False)  # 🔑 禁用字距调整
+            font.setStyleHint(QFont.TypeWriter)  # 使用TypeWriter而不是Monospace，更严格
+            font.setStyleStrategy(QFont.PreferDefault | QFont.ForceIntegerMetrics)  # 强制整数度量
+            font.setKerning(False)  # 禁用字距调整
             
             # 遍历所有TAB并更新字体
             from PySide6.QtWidgets import QPlainTextEdit
@@ -3403,22 +3404,46 @@ class RTTMainWindow(QMainWindow):
                 if page:
                     text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
                     if text_edit:
-                        # 设置字体
+                        # 1. 设置控件字体
                         text_edit.setFont(font)
                         
-                        # 🔑 关键：强制刷新文本显示
-                        # 方法1：触发文档重新布局
+                        # 2. 设置文档默认字体（这对新增内容生效）
                         text_edit.document().setDefaultFont(font)
                         
-                        # 方法2：强制重绘
-                        text_edit.update()
+                        # 3. 🔑 关键：使用Qt的强制重新布局机制
+                        # 触发文档重新布局而不丢失格式
+                        doc = text_edit.document()
+                        doc.setModified(True)  # 标记为已修改
+                        
+                        # 4. 强制视口更新
                         text_edit.viewport().update()
+                        text_edit.update()
+                        
+                        # 5. 🔑 使用QApplication.processEvents强制立即处理
+                        QApplication.processEvents()
                         
                         updated_count += 1
             
             logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
+            
+            # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
+            QTimer.singleShot(100, lambda: self._delayed_font_refresh())
+            
         except Exception as e:
             logger.warning(f"Failed to update all tabs font: {e}")
+    
+    def _delayed_font_refresh(self):
+        """延迟刷新字体 - 用于某些系统的兼容性"""
+        try:
+            from PySide6.QtWidgets import QPlainTextEdit
+            for i in range(self.ui.tem_switch.count()):
+                page = self.ui.tem_switch.widget(i)
+                if page:
+                    text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.viewport().update()
+        except:
+            pass
     
     def _update_current_tab_font(self):
         """更新当前TAB的字体"""
