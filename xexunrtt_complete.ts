@@ -11,7 +11,7 @@
     <message>
         <location filename="rtt2uart_updated.ui" line="59"/>
         <source>Start</source>
-        <translation type="unfinished">开始</translation>
+        <translation>开始</translation>
     </message>
     <message>
         <location filename="rtt2uart_updated.ui" line="97"/>
@@ -1640,17 +1640,17 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="80"/>
         <source>Disconnect</source>
-        <translation type="unfinished"></translation>
+        <translation>断开</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="125"/>
         <source>Size:</source>
-        <translation type="unfinished"></translation>
+        <translation>大小：</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="164"/>
         <source>Clear</source>
-        <translation type="unfinished"></translation>
+        <translation>清空</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="176"/>
@@ -1660,7 +1660,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="179"/>
         <source>Open Folder</source>
-        <translation type="unfinished"></translation>
+        <translation>打开文件夹</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="264"/>
@@ -1675,7 +1675,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="301"/>
         <source>Light Mode</source>
-        <translation type="unfinished"></translation>
+        <translation>浅色模式</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="313"/>
@@ -1700,12 +1700,12 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="352"/>
         <source>Restart APP</source>
-        <translation type="unfinished"></translation>
+        <translation>重启应用</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="370"/>
         <source>double click filter to write filter text</source>
-        <translation type="unfinished">双击筛选器以编写筛选文本</translation>
+        <translation>双击筛选器以编写筛选文本</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="377"/>
@@ -1720,7 +1720,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="407"/>
         <source>Font:</source>
-        <translation type="unfinished"></translation>
+        <translation>字体：</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="435"/>
@@ -1730,7 +1730,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="438"/>
         <source>Reconnect</source>
-        <translation type="unfinished"></translation>
+        <translation>重连</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="450"/>
@@ -1740,7 +1740,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="453"/>
         <source>Lock Vertical</source>
-        <translation type="unfinished"></translation>
+        <translation>锁定垂直</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="465"/>
@@ -1750,7 +1750,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="468"/>
         <source>Lock Horizontal</source>
-        <translation type="unfinished"></translation>
+        <translation>锁定水平</translation>
     </message>
 </context>
 </TS>
