@@ -3016,7 +3016,12 @@ class RTTMainWindow(QMainWindow):
                     if my_window:
                         try:
                             my_window.Navigate(target_dir)
-                            my_window.Document.Application.Visible = True
+                            # 激活窗口 - 使用Visible属性
+                            try:
+                                my_window.Visible = True
+                            except:
+                                # 某些窗口不支持Visible属性，忽略
+                                pass
                             navigated = True
                             logger.info(f"Reused tracked window (HWND={self._my_explorer_window_id}), navigated to: {target_dir}")
                             return
