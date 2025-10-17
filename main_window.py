@@ -3418,6 +3418,11 @@ class RTTMainWindow(QMainWindow):
                         # 3. 🔑 关键修复：强制更新所有已存在文本的字体
                         # 因为已插入的文本有自己的QTextCharFormat，需要遍历并更新
                         doc = text_edit.document()
+                        
+                        # 🔑 新方法：保存当前HTML，修改字体后重新设置
+                        # 这会强制Qt认为内容改变了，从而触发完整重绘
+                        old_html = text_edit.toHtml()
+                        
                         cursor = QTextCursor(doc)
                         cursor.select(QTextCursor.Document)  # 选择整个文档
                         
@@ -3445,6 +3450,9 @@ class RTTMainWindow(QMainWindow):
                             block = block.next()
                         
                         cursor.endEditBlock()  # 结束批量编辑
+                        
+                        # 🔑 强制触发文档变更信号，让Qt知道内容已改变
+                        doc.contentsChange.emit(0, doc.characterCount(), doc.characterCount())
                         
                         # 4. 触发文档重新布局
                         doc.setModified(True)
