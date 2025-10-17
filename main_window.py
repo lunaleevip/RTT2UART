@@ -2969,7 +2969,7 @@ class RTTMainWindow(QMainWindow):
                 logger.error(f"Fallback clear also failed: {fallback_e}")
 
     def on_openfolder_clicked(self):
-        """打开日志文件夹 - 首次打开，再次跳转（避免打开多个窗口）"""
+        """打开日志文件夹 - 复用同一个窗口跳转到新文件夹"""
         try:
             import pathlib
             import subprocess
@@ -2986,61 +2986,65 @@ class RTTMainWindow(QMainWindow):
                     # 如果日志目录不存在，打开桌面
                     target_dir = str(pathlib.Path.home() / "Desktop")
             
-            # 🔑 记录已打开的文件夹路径
-            if not hasattr(self, '_opened_folder_path'):
-                self._opened_folder_path = None
-            
-            # 如果是相同的文件夹，尝试激活已有窗口而不是打开新窗口
-            if self._opened_folder_path == target_dir:
-                logger.info(f"Folder already opened, attempting to activate: {target_dir}")
+            # Windows: 尝试复用已有的资源管理器窗口
+            if sys.platform == "win32":
+                if not hasattr(self, '_explorer_window_opened'):
+                    self._explorer_window_opened = False
                 
-                # Windows: 选中文件夹内的第一个文件来激活窗口
-                if sys.platform == "win32":
+                if self._explorer_window_opened:
+                    # 已经打开过窗口，尝试用COM接口导航到新位置
                     try:
-                        # 尝试找到文件夹内的第一个文件
-                        import pathlib
-                        folder_path = pathlib.Path(target_dir)
-                        first_file = None
+                        import win32com.client
+                        shell = win32com.client.Dispatch("Shell.Application")
                         
-                        if folder_path.exists() and folder_path.is_dir():
-                            # 查找第一个文件或子文件夹
-                            for item in folder_path.iterdir():
-                                first_file = str(item)
-                                break
+                        # 遍历所有打开的资源管理器窗口
+                        windows = shell.Windows()
+                        navigated = False
                         
-                        if first_file:
-                            # 使用 /select, 选中第一个文件来激活窗口
-                            subprocess.run(["explorer", "/select,", first_file], check=False)
-                            logger.info(f"Activated folder window by selecting: {first_file}")
-                        else:
-                            # 如果文件夹为空，使用普通方式打开
-                            subprocess.run(["explorer", target_dir], check=False)
-                            logger.info("Activated empty folder window")
-                        return
+                        for window in windows:
+                            try:
+                                # 检查是否是资源管理器窗口
+                                if hasattr(window, 'Document') and window.Document:
+                                    # 导航到新文件夹
+                                    window.Navigate(target_dir)
+                                    # 激活窗口
+                                    window.Document.Application.Visible = True
+                                    navigated = True
+                                    logger.info(f"Reused existing window, navigated to: {target_dir}")
+                                    return
+                            except:
+                                continue
+                        
+                        if not navigated:
+                            # 如果没找到可用窗口（可能被关闭了），重新打开
+                            logger.info("No existing window found, opening new one")
+                            os.startfile(target_dir)
+                            self._explorer_window_opened = True
+                            
+                    except ImportError:
+                        # 如果没有 win32com，回退到普通方式
+                        logger.warning("win32com not available, using fallback method")
+                        os.startfile(target_dir)
+                        self._explorer_window_opened = True
                     except Exception as e:
-                        logger.warning(f"Failed to activate window: {e}")
-                
-                # macOS/Linux: 重新打开（这些系统通常不会创建多个相同目录的窗口）
-                elif sys.platform == "darwin":
-                    subprocess.run(["open", target_dir])
-                    logger.info("Activated folder window (macOS)")
-                    return
-                else:  # Linux
-                    subprocess.run(["xdg-open", target_dir])
-                    logger.info("Activated folder window (Linux)")
-                    return
+                        logger.warning(f"Failed to reuse window: {e}, opening new one")
+                        os.startfile(target_dir)
+                        self._explorer_window_opened = True
+                else:
+                    # 第一次打开
+                    os.startfile(target_dir)
+                    self._explorer_window_opened = True
+                    logger.info(f"Opened new folder window: {target_dir}")
             
-            # 跨平台打开文件夹
-            if sys.platform == "darwin":  # macOS
+            # macOS
+            elif sys.platform == "darwin":
                 subprocess.run(["open", target_dir])
-            elif sys.platform == "win32":  # Windows
-                os.startfile(target_dir)
-            else:  # Linux
-                subprocess.run(["xdg-open", target_dir])
+                logger.info(f"Opened folder (macOS): {target_dir}")
             
-            # 记录已打开的文件夹路径
-            self._opened_folder_path = target_dir
-            logger.info(f"Opened folder: {target_dir}")
+            # Linux
+            else:
+                subprocess.run(["xdg-open", target_dir])
+                logger.info(f"Opened folder (Linux): {target_dir}")
             
         except Exception as e:
             logger.error(f"Failed to open folder: {e}")
