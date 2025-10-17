@@ -4625,18 +4625,19 @@ class ConnectionDialog(QDialog):
         
         # 应用RTT Control Block设置
         rtt_mode = self.config.get_rtt_control_block_mode()
-        rtt_address = self.config.get_rtt_control_block_address()
         
         if rtt_mode == 'address':
             self.ui.radioButton_Address.setChecked(True)
+            rtt_address = self.config.get_rtt_address()
             if rtt_address:
                 self.ui.lineEdit_RTTAddress.setText(rtt_address)
             self.ui.lineEdit_RTTAddress.setPlaceholderText(
                 QCoreApplication.translate("main_window", "Example: 0x20000000"))
         elif rtt_mode == 'search_range':
             self.ui.radioButton_SearchRange.setChecked(True)
-            if rtt_address:
-                self.ui.lineEdit_RTTAddress.setText(rtt_address)
+            rtt_range = self.config.get_rtt_search_range()
+            if rtt_range:
+                self.ui.lineEdit_RTTAddress.setText(rtt_range)
             self.ui.lineEdit_RTTAddress.setPlaceholderText(
                 QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
         else:  # 'auto' or default
@@ -5081,8 +5082,29 @@ class ConnectionDialog(QDialog):
                 
                 self._clear_all_worker_caches()
                 
-                self.rtt2uart = rtt_to_serial(self.worker, self.jlink, self.connect_type, connect_para, self.target_device, self.get_selected_port_name(
-                ), self.ui.comboBox_baudrate.currentText(), device_interface, speed_list[self.ui.comboBox_Speed.currentIndex()], False, log_split_enabled, self.main_window.window_id, device_index)  # 重置后不再需要在rtt2uart中重置
+                # 获取RTT Control Block配置
+                rtt_cb_mode = self.config.get_rtt_control_block_mode()
+                rtt_address = self.config.get_rtt_address() if rtt_cb_mode == 'address' else ''
+                rtt_search_range = self.config.get_rtt_search_range() if rtt_cb_mode == 'search_range' else ''
+                
+                self.rtt2uart = rtt_to_serial(
+                    self.worker, 
+                    self.jlink, 
+                    self.connect_type, 
+                    connect_para, 
+                    self.target_device, 
+                    self.get_selected_port_name(), 
+                    self.ui.comboBox_baudrate.currentText(), 
+                    device_interface, 
+                    speed_list[self.ui.comboBox_Speed.currentIndex()], 
+                    False,  # reset
+                    log_split_enabled, 
+                    self.main_window.window_id, 
+                    device_index,
+                    rtt_cb_mode,  # RTT Control Block模式
+                    rtt_address,  # RTT地址
+                    rtt_search_range  # RTT搜索范围
+                )  # 重置后不再需要在rtt2uart中重置
 
                 # 🔧 在start()之前设置JLink日志回调，确保所有日志都能显示
                 if hasattr(self.main_window, 'append_jlink_log'):
@@ -5348,32 +5370,32 @@ class ConnectionDialog(QDialog):
         """RTT Control Block模式变更处理"""
         if self.ui.radioButton_AutoDetection.isChecked():
             mode = 'auto'
-            # 自动检测模式下清空地址框
-            if not self.ui.lineEdit_RTTAddress.text():
-                self.ui.lineEdit_RTTAddress.setPlaceholderText(
-                    QCoreApplication.translate("main_window", "JLink automatically detects the RTT control block"))
+            # 自动检测模式下清空文本框
+            self.ui.lineEdit_RTTAddress.clear()
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "JLink automatically detects the RTT control block"))
         elif self.ui.radioButton_Address.isChecked():
             mode = 'address'
-            # 如果地址框为空，填充示例地址
-            if not self.ui.lineEdit_RTTAddress.text():
-                saved_address = self.config.get_rtt_control_block_address()
-                if not saved_address:
-                    self.ui.lineEdit_RTTAddress.setText('0x20000000')
-                    self.ui.lineEdit_RTTAddress.setPlaceholderText(
-                        QCoreApplication.translate("main_window", "Example: 0x20000000"))
-                else:
-                    self.ui.lineEdit_RTTAddress.setText(saved_address)
+            # 读取地址模式的配置
+            saved_address = self.config.get_rtt_address()
+            if saved_address:
+                self.ui.lineEdit_RTTAddress.setText(saved_address)
+            else:
+                # 如果没有保存的地址，填充示例
+                self.ui.lineEdit_RTTAddress.setText('0x20000000')
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "Example: 0x20000000"))
         elif self.ui.radioButton_SearchRange.isChecked():
             mode = 'search_range'
-            # 如果地址框为空，填充示例搜索范围
-            if not self.ui.lineEdit_RTTAddress.text():
-                saved_address = self.config.get_rtt_control_block_address()
-                if not saved_address:
-                    self.ui.lineEdit_RTTAddress.setText('0x10000000 0x1000, 0x20000000 0x1000')
-                    self.ui.lineEdit_RTTAddress.setPlaceholderText(
-                        QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
-                else:
-                    self.ui.lineEdit_RTTAddress.setText(saved_address)
+            # 读取搜索范围模式的配置
+            saved_range = self.config.get_rtt_search_range()
+            if saved_range:
+                self.ui.lineEdit_RTTAddress.setText(saved_range)
+            else:
+                # 如果没有保存的范围，填充示例
+                self.ui.lineEdit_RTTAddress.setText('0x10000000 0x1000, 0x20000000 0x1000')
+            self.ui.lineEdit_RTTAddress.setPlaceholderText(
+                QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
         else:
             mode = 'auto'
         
@@ -5384,10 +5406,16 @@ class ConnectionDialog(QDialog):
     
     def rtt_control_block_address_changed(self, text):
         """RTT Control Block地址变更处理"""
-        # 保存设置
-        self.config.set_rtt_control_block_address(text)
+        # 根据当前模式保存到不同的配置项
+        if self.ui.radioButton_Address.isChecked():
+            self.config.set_rtt_address(text)
+            logger.debug(f"RTT Control Block address changed to: {text}")
+        elif self.ui.radioButton_SearchRange.isChecked():
+            self.config.set_rtt_search_range(text)
+            logger.debug(f"RTT Control Block search range changed to: {text}")
+        # Auto Detection模式不保存文本框内容
+        
         self.config.save_config()
-        logger.debug(f"RTT Control Block address changed to: {text}")
         
         # 只保存设置，不立即执行重置操作
         # 重置操作将在点击"开始"按钮时执行

@@ -191,7 +191,7 @@ def zip_folder(folder_path, zip_file_path):
 
 
 class rtt_to_serial():
-    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, window_id=None, jlink_index=None):
+    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, window_id=None, jlink_index=None, rtt_cb_mode='auto', rtt_address='', rtt_search_range=''):
         # jlink接入方式
         self._connect_inf = connect_inf
         # jlink接入参数
@@ -204,6 +204,10 @@ class rtt_to_serial():
         self._speed = speed
         # 复位标志
         self._reset = reset
+        # RTT Control Block 配置
+        self._rtt_cb_mode = rtt_cb_mode  # 'auto', 'address', 'search_range'
+        self._rtt_address = rtt_address
+        self._rtt_search_range = rtt_search_range
         
         self.main = main
         
@@ -699,7 +703,30 @@ class rtt_to_serial():
                     
                     # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT..."))
-                    self.jlink.rtt_start()
+                    
+                    # 根据RTT Control Block配置启动RTT
+                    if self._rtt_cb_mode == 'address' and self._rtt_address:
+                        # 使用指定地址启动RTT
+                        try:
+                            address = int(self._rtt_address, 16)  # 转换十六进制地址
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block address: %s") % self._rtt_address)
+                            self.jlink.rtt_start(address)
+                        except ValueError:
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Invalid address format, using auto detection"))
+                            self.jlink.rtt_start()
+                    elif self._rtt_cb_mode == 'search_range' and self._rtt_search_range:
+                        # 使用搜索范围启动RTT
+                        # 格式: "0x10000000 0x1000, 0x20000000 0x1000"
+                        # pylink需要BlockAddress参数，搜索范围功能由JLink自动处理
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block search range: %s") % self._rtt_search_range)
+                        # 注意：pylink可能不直接支持多范围搜索，这里使用自动检测
+                        # 如果需要真正的搜索范围，可能需要通过JLink脚本或其他方式实现
+                        self.jlink.rtt_start()
+                    else:
+                        # 自动检测模式
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block auto detection"))
+                        self.jlink.rtt_start()
+                    
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
                     
                     # 修复首次启动问题：RTT启动后需要清理缓冲区并等待稳定

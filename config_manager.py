@@ -384,13 +384,21 @@ class ConfigManager:
         """设置RTT Control Block模式"""
         self.config.set('Connection', 'rtt_control_block_mode', mode)
     
-    def get_rtt_control_block_address(self) -> str:
-        """获取RTT Control Block地址或搜索范围"""
-        return self.config.get('Connection', 'rtt_control_block_address', fallback='')
+    def get_rtt_address(self) -> str:
+        """获取RTT Control Block地址（Address模式）"""
+        return self.config.get('Connection', 'rtt_address', fallback='')
     
-    def set_rtt_control_block_address(self, address: str):
-        """设置RTT Control Block地址或搜索范围"""
-        self.config.set('Connection', 'rtt_control_block_address', address)
+    def set_rtt_address(self, address: str):
+        """设置RTT Control Block地址（Address模式）"""
+        self.config.set('Connection', 'rtt_address', address)
+    
+    def get_rtt_search_range(self) -> str:
+        """获取RTT Control Block搜索范围（Search Range模式）"""
+        return self.config.get('Connection', 'rtt_search_range', fallback='')
+    
+    def set_rtt_search_range(self, search_range: str):
+        """设置RTT Control Block搜索范围（Search Range模式）"""
+        self.config.set('Connection', 'rtt_search_range', search_range)
     
     # ===========================================
     # 串口设置相关方法
