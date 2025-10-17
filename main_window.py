@@ -2969,7 +2969,7 @@ class RTTMainWindow(QMainWindow):
                 logger.error(f"Fallback clear also failed: {fallback_e}")
 
     def on_openfolder_clicked(self):
-        """打开日志文件夹 - 跨平台兼容版本"""
+        """打开日志文件夹 - 首次打开，再次跳转（避免打开多个窗口）"""
         try:
             import pathlib
             import subprocess
@@ -2986,6 +2986,26 @@ class RTTMainWindow(QMainWindow):
                     # 如果日志目录不存在，打开桌面
                     target_dir = str(pathlib.Path.home() / "Desktop")
             
+            # 🔑 记录已打开的文件夹路径
+            if not hasattr(self, '_opened_folder_path'):
+                self._opened_folder_path = None
+            
+            # 如果是相同的文件夹，尝试激活已有窗口而不是打开新窗口
+            if self._opened_folder_path == target_dir:
+                logger.info(f"Folder already opened, attempting to activate: {target_dir}")
+                
+                # Windows: 使用 explorer 选中该文件夹来激活窗口
+                if sys.platform == "win32":
+                    try:
+                        # 使用 /select 参数会激活现有的资源管理器窗口
+                        subprocess.run(["explorer", "/select,", target_dir], check=False)
+                        logger.info("Activated existing folder window")
+                        return
+                    except Exception as e:
+                        logger.warning(f"Failed to activate window, will open new: {e}")
+                
+                # macOS/Linux: 重新打开（这些系统通常不会创建多个相同目录的窗口）
+            
             # 跨平台打开文件夹
             if sys.platform == "darwin":  # macOS
                 subprocess.run(["open", target_dir])
@@ -2993,7 +3013,9 @@ class RTTMainWindow(QMainWindow):
                 os.startfile(target_dir)
             else:  # Linux
                 subprocess.run(["xdg-open", target_dir])
-                
+            
+            # 记录已打开的文件夹路径
+            self._opened_folder_path = target_dir
             logger.info(f"Opened folder: {target_dir}")
             
         except Exception as e:
