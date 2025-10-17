@@ -428,13 +428,29 @@ class ConfigManager:
         self.config.set('UI', 'fontsize', str(size))
     
     def get_fontfamily(self) -> str:
-        """获取字体名称"""
+        """获取字体名称（优先使用支持CJK的等宽字体）"""
         import sys
-        # 根据平台返回默认字体
+        from PySide6.QtGui import QFontDatabase
+        
+        # 定义优先字体列表
         if sys.platform == "darwin":
-            default_font = "SF Mono"
+            preferred_fonts = ["Sarasa Mono SC", "SF Mono", "Menlo", "Monaco"]
         else:
-            default_font = "Consolas"
+            preferred_fonts = ["Sarasa Mono SC", "Sarasa Term SC", "等距更纱黑体 SC", 
+                             "Microsoft YaHei Mono", "Consolas", "Cascadia Mono"]
+        
+        # 检查系统中是否有优先字体
+        font_db = QFontDatabase()
+        system_fonts = set(font_db.families())
+        
+        for font in preferred_fonts:
+            if font in system_fonts:
+                default_font = font
+                break
+        else:
+            # 如果没有找到任何优先字体，使用最后的备选
+            default_font = "Consolas" if sys.platform != "darwin" else "Monaco"
+        
         return self._safe_get('UI', 'fontfamily', default_font)
     
     def set_fontfamily(self, font: str):

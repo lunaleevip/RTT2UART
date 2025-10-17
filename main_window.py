@@ -1675,7 +1675,7 @@ class RTTMainWindow(QMainWindow):
             # 如果version.py不存在，使用默认信息
             QMessageBox.about(
                 self,
-                QCoreApplication.translate("main_window", "About XexunRTT"),
+                         QCoreApplication.translate("main_window", "About XexunRTT"),
                 QCoreApplication.translate(
                     "main_window",
                     "XexunRTT v2.2\n\nRTT Debug Tool\n\nBased on PySide6"
@@ -3147,18 +3147,60 @@ class RTTMainWindow(QMainWindow):
         self._update_jlink_log_style()
     
     def _init_font_combo(self):
-        """初始化字体选择下拉框"""
+        """初始化字体选择下拉框，只包含真正支持CJK等宽的字体"""
         import sys
+        from PySide6.QtGui import QFontDatabase
         
-        # 根据平台添加合适的等宽字体
+        # 定义候选字体列表（按优先级排序）
         if sys.platform == "darwin":  # macOS
-            fonts = ["SF Mono", "Menlo", "Monaco", "Courier New"]
+            candidate_fonts = [
+                "SF Mono",
+                "Sarasa Mono SC",  # 更纱黑体等宽
+                "Menlo",
+                "Monaco",
+                "PingFang SC",
+                "Courier New"
+            ]
         else:  # Windows/Linux
-            fonts = ["Consolas", "Courier New", "Lucida Console", "DejaVu Sans Mono"]
+            candidate_fonts = [
+                "Sarasa Mono SC",           # 更纱黑体等宽（最佳）
+                "Sarasa Term SC",           # 更纱黑体终端
+                "等距更纱黑体 SC",          # 等距更纱黑体
+                "Microsoft YaHei Mono",     # 微软雅黑等宽
+                "Consolas",                 # Windows经典等宽
+                "Cascadia Mono",            # Windows Terminal字体
+                "JetBrains Mono",           # JetBrains等宽字体
+                "Fira Code",                # 编程连字字体
+                "Source Code Pro",          # Adobe开源等宽
+                "DejaVu Sans Mono",         # Linux常用
+                "Courier New"               # 最后的后备
+            ]
         
+        # 获取系统已安装的字体
+        font_db = QFontDatabase()
+        system_fonts = set(font_db.families())
+        
+        # 筛选系统中存在的字体
+        available_fonts = []
+        for font in candidate_fonts:
+            if font in system_fonts:
+                available_fonts.append(font)
+                logger.debug(f"[FONT] Found monospace font: {font}")
+        
+        # 如果没有找到任何候选字体，使用系统默认等宽字体
+        if not available_fonts:
+            logger.warning("[FONT] No preferred monospace fonts found, using system defaults")
+            if sys.platform == "darwin":
+                available_fonts = ["Monaco", "Courier New"]
+            else:
+                available_fonts = ["Courier New", "Consolas"]
+        
+        # 添加到下拉框
         self.ui.font_combo.clear()
-        for font in fonts:
+        for font in available_fonts:
             self.ui.font_combo.addItem(font)
+        
+        logger.info(f"[FONT] Available monospace fonts: {', '.join(available_fonts)}")
         
         # 从配置加载字体
         if self.connection_dialog:
@@ -3166,8 +3208,12 @@ class RTTMainWindow(QMainWindow):
             index = self.ui.font_combo.findText(saved_font)
             if index >= 0:
                 self.ui.font_combo.setCurrentIndex(index)
+                logger.info(f"[FONT] Loaded saved font: {saved_font}")
             else:
+                # 如果保存的字体不存在，使用第一个可用字体
                 self.ui.font_combo.setCurrentIndex(0)
+                default_font = available_fonts[0] if available_fonts else "Consolas"
+                logger.info(f"[FONT] Using default font: {default_font}")
     
     def on_font_changed(self, font_name):
         """字体变更时的处理"""
@@ -4544,7 +4590,7 @@ class ConnectionDialog(QDialog):
                             display_text = QCoreApplication.translate('dialog', 'Filter %s: (%s)') % (i-16, QCoreApplication.translate('dialog', 'Not Set'))
                         else:
                             display_text = QCoreApplication.translate('dialog', 'Filter %s: %s') % (i-16, tab_text)
-
+                    
                     self.ui.comboBox_SerialForward.addItem(display_text, i)
         
         elif hasattr(self.ui, 'radioButton_DATA') and self.ui.radioButton_DATA.isChecked():
@@ -5935,7 +5981,7 @@ class ConnectionDialog(QDialog):
                 # 如果没有font_combo，从配置加载
                 if hasattr(self, 'config'):
                     font_name = self.config.get_fontfamily()
-                else:
+            else:
                     # 默认字体
                     font_name = "SF Mono" if sys.platform == "darwin" else "Consolas"
             
