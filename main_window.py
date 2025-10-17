@@ -3147,76 +3147,91 @@ class RTTMainWindow(QMainWindow):
         self._update_jlink_log_style()
     
     def _init_font_combo(self):
-        """初始化字体选择下拉框，只包含真正支持CJK等宽的字体"""
+        """初始化字体选择下拉框，优先显示支持CJK等宽的字体"""
         import sys
         from PySide6.QtGui import QFontDatabase
         
-        # 定义候选字体列表（按优先级排序）
+        # 定义优先字体列表（按优先级排序，标注是否支持CJK）
         if sys.platform == "darwin":  # macOS
-            candidate_fonts = [
-                "SF Mono",
-                "Sarasa Mono SC",  # 更纱黑体等宽
-                "Menlo",
-                "Monaco",
-                "PingFang SC",
-                "Courier New"
+            priority_fonts = [
+                ("Sarasa Mono SC", True),           # 更纱黑体等宽 ✅
+                ("Sarasa Term SC", True),           # 更纱黑体终端 ✅
+                ("SF Mono", False),                 # macOS系统字体（仅英文）
+                ("Menlo", False),                   # macOS系统字体（仅英文）
+                ("Monaco", False),                  # macOS传统等宽字体（仅英文）
             ]
         else:  # Windows/Linux
-            candidate_fonts = [
-                "Sarasa Mono SC",           # 更纱黑体等宽（最佳）
-                "Sarasa Term SC",           # 更纱黑体终端
-                "等距更纱黑体 SC",          # 等距更纱黑体
-                "Microsoft YaHei Mono",     # 微软雅黑等宽
-                "Consolas",                 # Windows经典等宽
-                "Cascadia Mono",            # Windows Terminal字体
-                "JetBrains Mono",           # JetBrains等宽字体
-                "Fira Code",                # 编程连字字体
-                "Source Code Pro",          # Adobe开源等宽
-                "DejaVu Sans Mono",         # Linux常用
-                "Courier New"               # 最后的后备
+            priority_fonts = [
+                ("Sarasa Mono SC", True),           # 更纱黑体等宽 ✅ 最佳
+                ("Sarasa Term SC", True),           # 更纱黑体终端 ✅
+                ("等距更纱黑体 SC", True),          # 更纱黑体中文名 ✅
+                ("Microsoft YaHei Mono", True),     # 微软雅黑等宽 ✅
+                ("Cascadia Mono", True),            # Windows 11 ✅
+                ("Cascadia Code", True),            # Windows 11变体 ✅
+                ("JetBrains Mono", False),          # JetBrains字体（有限中文支持）
+                ("Fira Code", False),               # Mozilla字体（有限中文支持）
+                ("Source Code Pro", False),         # Adobe字体（有限中文支持）
+                ("Consolas", False),                # Windows传统等宽（仅英文）⚠️
+                ("Courier New", False),             # 后备字体（仅英文）⚠️
             ]
         
         # 获取系统已安装的字体
         font_db = QFontDatabase()
         system_fonts = set(font_db.families())
         
-        # 筛选系统中存在的字体
+        # 筛选出系统中实际存在的字体
         available_fonts = []
-        for font in candidate_fonts:
-            if font in system_fonts:
-                available_fonts.append(font)
-                logger.debug(f"[FONT] Found monospace font: {font}")
+        cjk_fonts = []
+        for font_name, supports_cjk in priority_fonts:
+            if font_name in system_fonts:
+                item_text = f"✅ {font_name}" if supports_cjk else f"⚠️ {font_name} (仅英文)"
+                available_fonts.append((font_name, item_text, supports_cjk))
+                if supports_cjk:
+                    cjk_fonts.append(font_name)
+                logger.debug(f"[FONT] Found installed font: {font_name} (CJK: {supports_cjk})")
         
-        # 如果没有找到任何候选字体，使用系统默认等宽字体
+        # 如果没有找到任何字体，使用系统默认等宽字体
         if not available_fonts:
-            logger.warning("[FONT] No preferred monospace fonts found, using system defaults")
-            if sys.platform == "darwin":
-                available_fonts = ["Monaco", "Courier New"]
-            else:
-                available_fonts = ["Courier New", "Consolas"]
+            default_font = "Consolas" if sys.platform == "win32" else "Monaco"
+            available_fonts = [(default_font, f"⚠️ {default_font} (仅英文)", False)]
+            logger.warning(f"[FONT] No priority fonts found, using default: {default_font}")
         
-        # 添加到下拉框
+        # 填充字体下拉框（显示带标记的名称）
         self.ui.font_combo.clear()
-        for font in available_fonts:
-            self.ui.font_combo.addItem(font)
+        for font_name, display_text, _ in available_fonts:
+            self.ui.font_combo.addItem(display_text, font_name)  # userData存储实际字体名
         
-        logger.info(f"[FONT] Available monospace fonts: {', '.join(available_fonts)}")
+        # 提示用户安装CJK字体
+        if not cjk_fonts:
+            logger.warning("[FONT] ⚠️ 未找到支持CJK的等宽字体！中文字符可能无法正确对齐")
+            logger.info("[FONT] 💡 建议安装更纱黑体（Sarasa Gothic）以获得最佳显示效果")
+            logger.info("[FONT] 💡 运行 install_sarasa_font.ps1 脚本可快速安装")
+        else:
+            logger.info(f"[FONT] ✅ 找到 {len(cjk_fonts)} 个支持CJK的等宽字体: {', '.join(cjk_fonts)}")
         
         # 从配置加载字体
         if self.connection_dialog:
             saved_font = self.connection_dialog.config.get_fontfamily()
-            index = self.ui.font_combo.findText(saved_font)
-            if index >= 0:
-                self.ui.font_combo.setCurrentIndex(index)
-                logger.info(f"[FONT] Loaded saved font: {saved_font}")
-            else:
-                # 如果保存的字体不存在，使用第一个可用字体
-                self.ui.font_combo.setCurrentIndex(0)
-                default_font = available_fonts[0] if available_fonts else "Consolas"
-                logger.info(f"[FONT] Using default font: {default_font}")
+            # 查找匹配的字体（使用userData）
+            for i in range(self.ui.font_combo.count()):
+                if self.ui.font_combo.itemData(i) == saved_font:
+                    self.ui.font_combo.setCurrentIndex(i)
+                    logger.info(f"[FONT] Loaded saved font: {saved_font}")
+                    return
+            
+            # 如果没有找到保存的字体，优先选择支持CJK的字体
+            for i, (font_name, _, supports_cjk) in enumerate(available_fonts):
+                if supports_cjk:
+                    self.ui.font_combo.setCurrentIndex(i)
+                    logger.info(f"[FONT] Using CJK-capable default font: {font_name}")
+                    return
+            
+            # 否则使用第一个可用字体
+            self.ui.font_combo.setCurrentIndex(0)
+            logger.info(f"[FONT] Using first available font: {available_fonts[0][0]}")
     
     def on_font_changed(self, display_text):
-        """字体变更时的处理"""
+        """字体变更时的处理 - 全局生效"""
         if self.connection_dialog and display_text:
             # 从ComboBox的userData获取实际字体名
             current_index = self.ui.font_combo.currentIndex()
@@ -3226,9 +3241,46 @@ class RTTMainWindow(QMainWindow):
                 # 保存到配置
                 self.connection_dialog.config.set_fontfamily(actual_font_name)
                 self.connection_dialog.config.save_config()
-                logger.info(f"[FONT] Font changed to: {actual_font_name}")
-                # 更新当前TAB的字体
-                self._update_current_tab_font()
+                logger.info(f"[FONT] Font changed to: {actual_font_name} - applying to all TABs")
+                # 🔑 全局更新：遍历所有TAB并更新字体
+                self._update_all_tabs_font()
+    
+    def _update_all_tabs_font(self):
+        """全局更新所有TAB的字体"""
+        try:
+            # 获取字体设置
+            if hasattr(self.ui, 'font_combo'):
+                combo_index = self.ui.font_combo.currentIndex()
+                font_name = self.ui.font_combo.itemData(combo_index)
+                if not font_name:  # 如果userData为空，使用显示文本
+                    font_name = self.ui.font_combo.currentText()
+            else:
+                font_name = "Consolas"
+            
+            font_size = self.ui.fontsize_box.value()
+            
+            # 创建字体对象
+            font = QFont(font_name, font_size)
+            font.setFixedPitch(True)
+            font.setStyleHint(QFont.Monospace)  # 🔑 设置字体提示为等宽
+            font.setKerning(False)  # 🔑 禁用字距调整
+            
+            # 遍历所有TAB并更新字体
+            from PySide6.QtWidgets import QPlainTextEdit
+            tab_count = self.ui.tem_switch.count()
+            updated_count = 0
+            
+            for i in range(tab_count):
+                page = self.ui.tem_switch.widget(i)
+                if page:
+                    text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.setFont(font)
+                        updated_count += 1
+            
+            logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
+        except Exception as e:
+            logger.warning(f"Failed to update all tabs font: {e}")
     
     def _update_current_tab_font(self):
         """更新当前TAB的字体"""
@@ -3258,14 +3310,15 @@ class RTTMainWindow(QMainWindow):
             logger.warning(f"Failed to update current tab font: {e}")
     
     def on_fontsize_changed(self):
-        """字体大小变更时的处理"""
+        """字体大小变更时的处理 - 全局生效"""
         if self.connection_dialog:
             self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
             # 同步保存到INI配置
             self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
             self.connection_dialog.config.save_config()
-            # 更新当前TAB的字体
-            self._update_current_tab_font()
+            logger.info(f"[FONT] Font size changed to: {self.ui.fontsize_box.value()}pt - applying to all TABs")
+        # 🔑 全局更新：遍历所有TAB并更新字体大小
+        self._update_all_tabs_font()
     
     def on_lock_h_changed(self):
         """水平滚动条锁定状态改变时保存配置"""
