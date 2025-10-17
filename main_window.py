@@ -2988,53 +2988,71 @@ class RTTMainWindow(QMainWindow):
             
             # Windows: 尝试复用已有的资源管理器窗口
             if sys.platform == "win32":
-                if not hasattr(self, '_explorer_window_opened'):
-                    self._explorer_window_opened = False
-                
-                if self._explorer_window_opened:
-                    # 已经打开过窗口，尝试用COM接口导航到新位置
-                    try:
-                        import win32com.client
-                        shell = win32com.client.Dispatch("Shell.Application")
-                        
-                        # 遍历所有打开的资源管理器窗口
-                        windows = shell.Windows()
-                        navigated = False
-                        
+                try:
+                    import win32com.client
+                    shell = win32com.client.Dispatch("Shell.Application")
+                    
+                    # 初始化窗口ID跟踪
+                    if not hasattr(self, '_my_explorer_window_id'):
+                        self._my_explorer_window_id = None
+                    
+                    # 遍历所有打开的资源管理器窗口
+                    windows = shell.Windows()
+                    navigated = False
+                    my_window = None
+                    
+                    # 🔑 尝试找到由本程序打开的窗口
+                    if self._my_explorer_window_id is not None:
                         for window in windows:
                             try:
-                                # 检查是否是资源管理器窗口
-                                if hasattr(window, 'Document') and window.Document:
-                                    # 导航到新文件夹
-                                    window.Navigate(target_dir)
-                                    # 激活窗口
-                                    window.Document.Application.Visible = True
-                                    navigated = True
-                                    logger.info(f"Reused existing window, navigated to: {target_dir}")
-                                    return
+                                # 通过HWND(窗口句柄)来识别窗口
+                                if hasattr(window, 'HWND') and window.HWND == self._my_explorer_window_id:
+                                    my_window = window
+                                    break
+                            except:
+                                continue
+                    
+                    # 如果找到了我们的窗口，复用它
+                    if my_window:
+                        try:
+                            my_window.Navigate(target_dir)
+                            my_window.Document.Application.Visible = True
+                            navigated = True
+                            logger.info(f"Reused tracked window (HWND={self._my_explorer_window_id}), navigated to: {target_dir}")
+                            return
+                        except Exception as e:
+                            logger.warning(f"Tracked window is invalid: {e}, will open new one")
+                            self._my_explorer_window_id = None
+                    
+                    # 如果没找到我们的窗口，打开新窗口并记录其ID
+                    if not navigated:
+                        logger.info("Opening new explorer window and tracking it")
+                        os.startfile(target_dir)
+                        
+                        # 等待窗口打开
+                        import time
+                        time.sleep(0.5)
+                        
+                        # 尝试找到新打开的窗口
+                        windows = shell.Windows()
+                        for window in windows:
+                            try:
+                                current_folder = window.LocationURL
+                                # 检查是否是我们刚打开的文件夹
+                                if current_folder and target_dir.replace('\\', '/').lower() in current_folder.lower():
+                                    self._my_explorer_window_id = window.HWND
+                                    logger.info(f"Tracked new window (HWND={self._my_explorer_window_id})")
+                                    break
                             except:
                                 continue
                         
-                        if not navigated:
-                            # 如果没找到可用窗口（可能被关闭了），重新打开
-                            logger.info("No existing window found, opening new one")
-                            os.startfile(target_dir)
-                            self._explorer_window_opened = True
-                            
-                    except ImportError:
-                        # 如果没有 win32com，回退到普通方式
-                        logger.warning("win32com not available, using fallback method")
-                        os.startfile(target_dir)
-                        self._explorer_window_opened = True
-                    except Exception as e:
-                        logger.warning(f"Failed to reuse window: {e}, opening new one")
-                        os.startfile(target_dir)
-                        self._explorer_window_opened = True
-                else:
-                    # 第一次打开
+                except ImportError:
+                    # 如果没有 win32com，回退到普通方式
+                    logger.warning("win32com not available, using fallback method")
                     os.startfile(target_dir)
-                    self._explorer_window_opened = True
-                    logger.info(f"Opened new folder window: {target_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to use COM automation: {e}, using fallback")
+                    os.startfile(target_dir)
             
             # macOS - Finder 默认只打开一个窗口，自动复用
             elif sys.platform == "darwin":
