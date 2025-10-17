@@ -432,12 +432,11 @@ class ConfigManager:
         import sys
         from PySide6.QtGui import QFontDatabase
         
-        # 定义优先字体列表
+        # 定义优先字体列表：SimSun -> Consolas -> Courier New
         if sys.platform == "darwin":
-            preferred_fonts = ["Sarasa Mono SC", "SF Mono", "Menlo", "Monaco"]
+            preferred_fonts = ["SimSun", "Consolas", "Courier New", "Monaco", "Menlo"]
         else:
-            preferred_fonts = ["Sarasa Mono SC", "Sarasa Term SC", "等距更纱黑体 SC", 
-                             "Microsoft YaHei Mono", "Consolas", "Cascadia Mono"]
+            preferred_fonts = ["SimSun", "Consolas", "Courier New"]
         
         # 检查系统中是否有优先字体
         font_db = QFontDatabase()
@@ -449,7 +448,7 @@ class ConfigManager:
                 break
         else:
             # 如果没有找到任何优先字体，使用最后的备选
-            default_font = "Consolas" if sys.platform != "darwin" else "Monaco"
+            default_font = "Courier New" if sys.platform != "darwin" else "Monaco"
         
         return self._safe_get('UI', 'fontfamily', default_font)
     

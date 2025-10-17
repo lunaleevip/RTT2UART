@@ -3207,10 +3207,22 @@ class RTTMainWindow(QMainWindow):
                 self.ui.font_combo.setCurrentIndex(index)
                 logger.info(f"[FONT] Loaded saved font: {saved_font}")
             else:
-                # 如果保存的字体不存在，使用第一个字体
-                if available_fonts:
+                # 如果保存的字体不存在，使用默认字体：SimSun -> Consolas -> Courier New
+                default_fonts = ["SimSun", "Consolas", "Courier New"]
+                selected_font = None
+                
+                for default_font in default_fonts:
+                    index = self.ui.font_combo.findText(default_font, Qt.MatchFixedString)
+                    if index >= 0:
+                        selected_font = default_font
+                        self.ui.font_combo.setCurrentIndex(index)
+                        logger.info(f"[FONT] Using default font: {default_font}")
+                        break
+                
+                # 如果所有默认字体都不存在，使用第一个字体
+                if not selected_font and available_fonts:
                     self.ui.font_combo.setCurrentIndex(0)
-                    logger.info(f"[FONT] Saved font not found, using: {available_fonts[0]}")
+                    logger.info(f"[FONT] No default font found, using: {available_fonts[0]}")
     
     def on_font_changed(self, font_name):
         """字体变更时的处理 - 全局生效"""
