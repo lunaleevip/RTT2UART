@@ -55,11 +55,29 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.dis_connect, 2, 3, 1, 1)
 
-        self.fontsize_box = QSpinBox(self.layoutWidget)
-        self.fontsize_box.setObjectName(u"fontsize_box")
+        self.font_combo = QComboBox(self.layoutWidget)
+        self.font_combo.setObjectName(u"font_combo")
         sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         sizePolicy1.setHorizontalStretch(0)
         sizePolicy1.setVerticalStretch(0)
+        sizePolicy1.setHeightForWidth(self.font_combo.sizePolicy().hasHeightForWidth())
+        self.font_combo.setSizePolicy(sizePolicy1)
+        self.font_combo.setMinimumSize(QSize(80, 20))
+        self.font_combo.setFont(font)
+
+        self.gridLayout.addWidget(self.font_combo, 2, 12, 1, 1)
+
+        self.label_fontsize = QLabel(self.layoutWidget)
+        self.label_fontsize.setObjectName(u"label_fontsize")
+        sizePolicy1.setHeightForWidth(self.label_fontsize.sizePolicy().hasHeightForWidth())
+        self.label_fontsize.setSizePolicy(sizePolicy1)
+        self.label_fontsize.setMinimumSize(QSize(30, 20))
+        self.label_fontsize.setFont(font)
+
+        self.gridLayout.addWidget(self.label_fontsize, 2, 13, 1, 1)
+
+        self.fontsize_box = QSpinBox(self.layoutWidget)
+        self.fontsize_box.setObjectName(u"fontsize_box")
         sizePolicy1.setHeightForWidth(self.fontsize_box.sizePolicy().hasHeightForWidth())
         self.fontsize_box.setSizePolicy(sizePolicy1)
         self.fontsize_box.setFont(font)
@@ -67,7 +85,7 @@ class Ui_xexun_rtt(object):
         self.fontsize_box.setMaximum(24)
         self.fontsize_box.setValue(9)
 
-        self.gridLayout.addWidget(self.fontsize_box, 2, 12, 1, 1)
+        self.gridLayout.addWidget(self.fontsize_box, 2, 14, 1, 1)
 
         self.clear = QPushButton(self.layoutWidget)
         self.clear.setObjectName(u"clear")
@@ -80,10 +98,6 @@ class Ui_xexun_rtt(object):
         self.openfolder.setFont(font)
 
         self.gridLayout.addWidget(self.openfolder, 2, 1, 1, 1)
-
-        self.horizontalSpacer_10 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-
-        self.gridLayout.addItem(self.horizontalSpacer_10, 2, 13, 1, 1)
 
         self.horizontalSpacer = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -216,6 +230,7 @@ class Ui_xexun_rtt(object):
         self.dis_connect.setToolTip(QCoreApplication.translate("xexun_rtt", u"F3", None))
 #endif // QT_CONFIG(tooltip)
         self.dis_connect.setText(QCoreApplication.translate("xexun_rtt", u"Disconnect", None))
+        self.label_fontsize.setText(QCoreApplication.translate("xexun_rtt", u"Size:", None))
 #if QT_CONFIG(tooltip)
         self.clear.setToolTip("")
 #endif // QT_CONFIG(tooltip)
@@ -243,7 +258,7 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab), QCoreApplication.translate("xexun_rtt", u"1", None))
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab_2), QCoreApplication.translate("xexun_rtt", u"2", None))
-        self.label.setText(QCoreApplication.translate("xexun_rtt", u"Font Size", None))
+        self.label.setText(QCoreApplication.translate("xexun_rtt", u"Font:", None))
 #if QT_CONFIG(tooltip)
         self.re_connect.setToolTip(QCoreApplication.translate("xexun_rtt", u"F2", None))
 #endif // QT_CONFIG(tooltip)

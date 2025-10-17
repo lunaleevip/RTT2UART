@@ -427,6 +427,20 @@ class ConfigManager:
         """设置字体大小"""
         self.config.set('UI', 'fontsize', str(size))
     
+    def get_fontfamily(self) -> str:
+        """获取字体名称"""
+        import sys
+        # 根据平台返回默认字体
+        if sys.platform == "darwin":
+            default_font = "SF Mono"
+        else:
+            default_font = "Consolas"
+        return self._safe_get('UI', 'fontfamily', default_font)
+    
+    def set_fontfamily(self, font: str):
+        """设置字体名称"""
+        self.config.set('UI', 'fontfamily', font)
+    
     def get_dpi_scale(self) -> str:
         """获取DPI缩放设置"""
         return self._safe_get('UI', 'dpi_scale', 'auto')

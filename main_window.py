@@ -836,6 +836,26 @@ class EditableTabBar(QTabBar):
         super().__init__(parent)
         self.main_window = None  # 将在主窗口中设置
     
+    def mousePressEvent(self, event):
+        """处理鼠标点击事件，鼠标中键点击清空筛选"""
+        if event.button() == Qt.MiddleButton:
+            index = self.tabAt(event.pos())
+            if index >= 17:  # 只处理Filters标签
+                # 清空该标签页
+                if self.main_window:
+                    # 保存当前标签页索引
+                    current_index = self.main_window.ui.tem_switch.currentIndex()
+                    # 切换到目标标签页
+                    self.main_window.ui.tem_switch.setCurrentIndex(index)
+                    # 执行清空操作
+                    self.main_window.on_clear_clicked()
+                    # 恢复原来的标签页（如果不是同一个）
+                    if current_index != index:
+                        self.main_window.ui.tem_switch.setCurrentIndex(current_index)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+    
     def tabSizeHint(self, index):
         """重写标签大小提示，让当前标签优先完整显示"""
         # 获取原始大小提示
@@ -1208,6 +1228,12 @@ class RTTMainWindow(QMainWindow):
         self.dark_stylesheet = qdarkstyle.load_stylesheet_pyside6()
         
         self.ui.light_checkbox.stateChanged.connect(self.set_style)
+        
+        # 初始化字体选择ComboBox
+        if hasattr(self.ui, 'font_combo'):
+            self._init_font_combo()
+            self.ui.font_combo.currentTextChanged.connect(self.on_font_changed)
+        
         self.ui.fontsize_box.valueChanged.connect(self.on_fontsize_changed)
         
         # 连接滚动条锁定复选框的信号
@@ -1867,6 +1893,13 @@ class RTTMainWindow(QMainWindow):
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
+            
+            # 加载字体设置
+            if hasattr(self.ui, 'font_combo'):
+                saved_font = self.connection_dialog.config.get_fontfamily()
+                index = self.ui.font_combo.findText(saved_font)
+                if index >= 0:
+                    self.ui.font_combo.setCurrentIndex(index)
             
             # 命令历史已在populateComboBox()中加载，这里只需要同步到settings
             cmd_history = self.connection_dialog.config.get_command_history()
@@ -2882,7 +2915,16 @@ class RTTMainWindow(QMainWindow):
             else:
                 logger.warning("Cannot access Worker, only cleared UI display")
                 
-            # 3. 标记页面为干净状态
+            # 3. 如果是Filters标签（17+），保存清空后的filter配置
+            if current_index >= 17 and self.connection_dialog and hasattr(self.connection_dialog, 'config'):
+                try:
+                    self.connection_dialog.config.set_filter(current_index, "")
+                    self.connection_dialog.config.save_config()
+                    logger.debug(f"Saved empty filter for TAB {current_index}")
+                except Exception as e:
+                    logger.warning(f"Failed to save filter for TAB {current_index}: {e}")
+            
+            # 4. 标记页面为干净状态
             if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
                 self.page_dirty_flags[current_index] = False
                 
@@ -3098,6 +3140,55 @@ class RTTMainWindow(QMainWindow):
         # 更新JLink日志区域的样式
         self._update_jlink_log_style()
     
+    def _init_font_combo(self):
+        """初始化字体选择下拉框"""
+        import sys
+        
+        # 根据平台添加合适的等宽字体
+        if sys.platform == "darwin":  # macOS
+            fonts = ["SF Mono", "Menlo", "Monaco", "Courier New"]
+        else:  # Windows/Linux
+            fonts = ["Consolas", "Courier New", "Lucida Console", "DejaVu Sans Mono"]
+        
+        self.ui.font_combo.clear()
+        for font in fonts:
+            self.ui.font_combo.addItem(font)
+        
+        # 从配置加载字体
+        if self.connection_dialog:
+            saved_font = self.connection_dialog.config.get_fontfamily()
+            index = self.ui.font_combo.findText(saved_font)
+            if index >= 0:
+                self.ui.font_combo.setCurrentIndex(index)
+            else:
+                self.ui.font_combo.setCurrentIndex(0)
+    
+    def on_font_changed(self, font_name):
+        """字体变更时的处理"""
+        if self.connection_dialog and font_name:
+            # 保存到配置
+            self.connection_dialog.config.set_fontfamily(font_name)
+            self.connection_dialog.config.save_config()
+            # 更新当前TAB的字体
+            self._update_current_tab_font()
+    
+    def _update_current_tab_font(self):
+        """更新当前TAB的字体"""
+        try:
+            current_index = self.ui.tem_switch.currentIndex()
+            current_page = self.ui.tem_switch.widget(current_index)
+            if current_page:
+                from PySide6.QtWidgets import QPlainTextEdit
+                text_edit = current_page.findChild(QPlainTextEdit) or current_page.findChild(QTextEdit)
+                if text_edit:
+                    font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
+                    font_size = self.ui.fontsize_box.value()
+                    font = QFont(font_name, font_size)
+                    font.setFixedPitch(True)
+                    text_edit.setFont(font)
+        except Exception as e:
+            logger.warning(f"Failed to update current tab font: {e}")
+    
     def on_fontsize_changed(self):
         """字体大小变更时的处理"""
         if self.connection_dialog:
@@ -3105,6 +3196,8 @@ class RTTMainWindow(QMainWindow):
             # 同步保存到INI配置
             self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
             self.connection_dialog.config.save_config()
+            # 更新当前TAB的字体
+            self._update_current_tab_font()
     
     def on_lock_h_changed(self):
         """水平滚动条锁定状态改变时保存配置"""
@@ -5827,17 +5920,21 @@ class ConnectionDialog(QDialog):
             if not text_edit:
                 text_edit = current_page_widget.findChild(QTextEdit)
             
-            # 使用等宽字体
-            if sys.platform == "darwin":  # macOS
-                font = QFont("SF Mono", self.main_window.ui.fontsize_box.value())
-                if not font.exactMatch():
-                    font = QFont("Menlo", self.main_window.ui.fontsize_box.value())
-                if not font.exactMatch():
-                    font = QFont("Monaco", self.main_window.ui.fontsize_box.value())
-            else:
-                font = QFont("Consolas", self.main_window.ui.fontsize_box.value())
-                if not font.exactMatch():
-                    font = QFont("Courier New", self.main_window.ui.fontsize_box.value())
+            # 使用等宽字体（优先使用配置的字体）
+            font_name = None
+            if hasattr(self.main_window.ui, 'font_combo'):
+                font_name = self.main_window.ui.font_combo.currentText()
+            
+            if not font_name:
+                # 如果没有font_combo，从配置加载
+                if hasattr(self, 'config'):
+                    font_name = self.config.get_fontfamily()
+                else:
+                    # 默认字体
+                    font_name = "SF Mono" if sys.platform == "darwin" else "Consolas"
+            
+            font_size = self.main_window.ui.fontsize_box.value()
+            font = QFont(font_name, font_size)
             font.setFixedPitch(True)
             if text_edit:
                 text_edit.setFont(font)

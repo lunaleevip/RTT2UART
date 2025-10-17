@@ -4,7 +4,7 @@
 import datetime
 
 # 应用版本号
-VERSION = "2.3"
+VERSION = "2.3.1"
 
 # 版本名称
 VERSION_NAME = "XexunRTT"
