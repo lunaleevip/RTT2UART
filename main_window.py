@@ -3187,10 +3187,14 @@ class RTTMainWindow(QMainWindow):
             available_fonts = [default_font]
             logger.warning(f"[FONT] No fonts found, using default: {default_font}")
         
-        # 填充字体下拉框
+        # 填充字体下拉框，并为每个项设置对应的字体样式
         self.ui.font_combo.clear()
         for font_name in available_fonts:
             self.ui.font_combo.addItem(font_name)
+            # 🔑 关键：为该项设置对应的字体，让用户直观看到字体效果
+            item_index = self.ui.font_combo.count() - 1
+            font = QFont(font_name, 10)  # 使用固定大小10pt用于显示
+            self.ui.font_combo.setItemData(item_index, font, Qt.FontRole)
         
         logger.info(f"[FONT] Loaded {len(available_fonts)} fonts ({len(likely_monospace)} monospace)")
         
