@@ -3414,11 +3414,41 @@ class RTTMainWindow(QMainWindow):
                         # 2. 设置文档默认字体（这对新增内容生效）
                         text_edit.document().setDefaultFont(font)
                         
-                        # 3. 触发文档重新布局
+                        # 3. 🔑 关键修复：强制更新所有已存在文本的字体
+                        # 因为已插入的文本有自己的QTextCharFormat，需要遍历并更新
                         doc = text_edit.document()
+                        cursor = QTextCursor(doc)
+                        cursor.select(QTextCursor.Document)  # 选择整个文档
+                        
+                        # 获取当前选择的格式并只更新字体，保留颜色等其他格式
+                        cursor.beginEditBlock()  # 开始批量编辑，提高性能
+                        
+                        # 遍历文档的所有块
+                        block = doc.begin()
+                        while block.isValid():
+                            # 遍历块中的所有fragment
+                            it = block.begin()
+                            while not it.atEnd():
+                                fragment = it.fragment()
+                                if fragment.isValid():
+                                    # 获取fragment的格式
+                                    char_format = fragment.charFormat()
+                                    # 只更新字体，保留其他格式（颜色、背景等）
+                                    char_format.setFont(font)
+                                    # 应用新格式
+                                    frag_cursor = QTextCursor(doc)
+                                    frag_cursor.setPosition(fragment.position())
+                                    frag_cursor.setPosition(fragment.position() + fragment.length(), QTextCursor.KeepAnchor)
+                                    frag_cursor.setCharFormat(char_format)
+                                it += 1
+                            block = block.next()
+                        
+                        cursor.endEditBlock()  # 结束批量编辑
+                        
+                        # 4. 触发文档重新布局
                         doc.setModified(True)
                         
-                        # 4. 🔑 对于不可见的TAB，需要额外处理
+                        # 5. 🔑 对于不可见的TAB，需要额外处理
                         if not is_current:
                             # 强制设置widget可见性状态，触发更新
                             text_edit.setVisible(True)
@@ -3426,11 +3456,11 @@ class RTTMainWindow(QMainWindow):
                             if hasattr(text_edit, 'updateGeometry'):
                                 text_edit.updateGeometry()
                         
-                        # 5. 强制视口更新
+                        # 6. 强制视口更新
                         text_edit.viewport().update()
                         text_edit.update()
                         
-                        # 6. 🔑 使用QApplication.processEvents强制立即处理
+                        # 7. 🔑 使用QApplication.processEvents强制立即处理
                         QApplication.processEvents()
                         
                         updated_count += 1
