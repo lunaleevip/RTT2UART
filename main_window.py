@@ -3279,9 +3279,10 @@ class RTTMainWindow(QMainWindow):
         self.setStyleSheet(stylesheet)
         if self.connection_dialog:
             self.connection_dialog.settings['light_mode'] = self.ui.light_checkbox.isChecked()
-            # 同步保存到INI配置
-            self.connection_dialog.config.set_light_mode(self.ui.light_checkbox.isChecked())
-            self.connection_dialog.config.save_config()
+            # 同步保存到INI配置（只在UI初始化完成后保存）
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_light_mode(self.ui.light_checkbox.isChecked())
+                self.connection_dialog.config.save_config()
         
         # 更新JLink日志区域的样式
         self._update_jlink_log_style()
@@ -3367,9 +3368,10 @@ class RTTMainWindow(QMainWindow):
     def on_font_changed(self, font_name):
         """字体变更时的处理 - 全局生效"""
         if self.connection_dialog and font_name:
-            # 保存到配置
-            self.connection_dialog.config.set_fontfamily(font_name)
-            self.connection_dialog.config.save_config()
+            # 保存到配置（只在UI初始化完成后保存）
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_fontfamily(font_name)
+                self.connection_dialog.config.save_config()
             logger.info(f"[FONT] Font changed to: {font_name} - applying to all TABs")
             # 🔑 全局更新：遍历所有TAB并更新字体
             self._update_all_tabs_font()
@@ -3674,17 +3676,19 @@ class RTTMainWindow(QMainWindow):
         self.ui.LockH_checkBox.setChecked(not self.ui.LockH_checkBox.isChecked())
         if self.connection_dialog:
             self.connection_dialog.settings['lock_h'] = self.ui.LockH_checkBox.isChecked()
-            # 同步保存到INI配置
-            self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
-            self.connection_dialog.config.save_config()
+            # 同步保存到INI配置（只在UI初始化完成后保存）
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
+                self.connection_dialog.config.save_config()
     
     def toggle_lock_v_checkbox(self):
         self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
         if self.connection_dialog:
             self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
-            # 同步保存到INI配置
-            self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
-            self.connection_dialog.config.save_config()
+            # 同步保存到INI配置（只在UI初始化完成后保存）
+            if self._ui_initialization_complete:
+                self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
+                self.connection_dialog.config.save_config()
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
