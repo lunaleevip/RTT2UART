@@ -849,9 +849,12 @@ class EditableTabBar(QTabBar):
                     self.main_window.ui.tem_switch.setCurrentIndex(index)
                     # 执行清空操作
                     self.main_window.on_clear_clicked()
+                    # 重置标签文本为"filter"
+                    self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
                     # 恢复原来的标签页（如果不是同一个）
                     if current_index != index:
                         self.main_window.ui.tem_switch.setCurrentIndex(current_index)
+                    logger.info(f"[MIDDLE-CLICK] Cleared filter TAB {index}")
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -899,15 +902,18 @@ class EditableTabBar(QTabBar):
                 
                 # 保存过滤器设置和正则表达式状态
                 if self.main_window and self.main_window.connection_dialog:
-                    filter_text = new_text if new_text else QCoreApplication.translate("main_window", "filter")
-                    if filter_text != QCoreApplication.translate("main_window", "filter"):
-                        self.main_window.connection_dialog.config.set_filter(index, filter_text)
+                    # 保存筛选文本（包括空字符串）
+                    if new_text:
+                        self.main_window.connection_dialog.config.set_filter(index, new_text)
+                    else:
+                        # 用户清空了筛选，保存空字符串
+                        self.main_window.connection_dialog.config.set_filter(index, "")
                     
                     # 🔧 修改：为单个TAB保存正则表达式状态
                     self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
                     self.main_window.connection_dialog.config.save_config()
                     
-                    print(f"[SAVE] TAB {index} regex state saved: {regex_enabled}")
+                    print(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
     def __init__(self):
