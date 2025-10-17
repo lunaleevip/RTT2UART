@@ -3475,6 +3475,17 @@ class RTTMainWindow(QMainWindow):
             
             logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
             
+            # 🔑 关键修复：强制当前TAB立即刷新
+            # 方法：临时切换TAB触发重绘，然后立即切回
+            if tab_count > 1 and current_tab >= 0:
+                # 找一个不同的TAB索引
+                temp_tab = (current_tab + 1) % tab_count
+                self.ui.tem_switch.setCurrentIndex(temp_tab)
+                QApplication.processEvents()  # 处理切换事件
+                self.ui.tem_switch.setCurrentIndex(current_tab)
+                QApplication.processEvents()  # 处理切回事件
+                logger.info(f"[FONT] Force refreshed by switching tabs: {current_tab} -> {temp_tab} -> {current_tab}")
+            
             # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
             # 同时遍历所有TAB并触发重绘
             QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
