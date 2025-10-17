@@ -6,7 +6,7 @@
     <message>
         <location filename="rtt2uart_updated.ui" line="35"/>
         <source>RTT2UART Control Panel</source>
-        <translation type="unfinished"></translation>
+        <translation>RTT2UART 控制面板</translation>
     </message>
     <message>
         <location filename="rtt2uart_updated.ui" line="59"/>
@@ -1625,17 +1625,17 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="14"/>
         <source>Form</source>
-        <translation type="unfinished"></translation>
+        <translation>表单</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="62"/>
         <source>can read from cmd.txt</source>
-        <translation type="unfinished"></translation>
+        <translation>可以从 cmd.txt 读取</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="77"/>
         <source>F3</source>
-        <translation type="unfinished"></translation>
+        <translation>F3</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="80"/>
@@ -1655,7 +1655,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="176"/>
         <source>F1</source>
-        <translation type="unfinished"></translation>
+        <translation>F1</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="179"/>
@@ -1665,12 +1665,12 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="264"/>
         <source>Send</source>
-        <translation type="unfinished"></translation>
+        <translation>发送</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="298"/>
         <source>F7</source>
-        <translation type="unfinished"></translation>
+        <translation>F7</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="301"/>
@@ -1680,7 +1680,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="313"/>
         <source>F8</source>
-        <translation type="unfinished"></translation>
+        <translation>F8</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="316"/>
@@ -1690,12 +1690,12 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="334"/>
         <source>60</source>
-        <translation type="unfinished"></translation>
+        <translation>60</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="349"/>
         <source>F9</source>
-        <translation type="unfinished"></translation>
+        <translation>F9</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="352"/>
@@ -1710,12 +1710,12 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="377"/>
         <source>1</source>
-        <translation type="unfinished"></translation>
+        <translation>1</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="382"/>
         <source>2</source>
-        <translation type="unfinished"></translation>
+        <translation>2</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="407"/>
@@ -1725,7 +1725,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="435"/>
         <source>F2</source>
-        <translation type="unfinished"></translation>
+        <translation>F2</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="438"/>
@@ -1735,7 +1735,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="450"/>
         <source>F5</source>
-        <translation type="unfinished"></translation>
+        <translation>F5</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="453"/>
@@ -1745,7 +1745,7 @@ RTT调试工具
     <message>
         <location filename="xexunrtt.ui" line="465"/>
         <source>F6</source>
-        <translation type="unfinished"></translation>
+        <translation>F6</translation>
     </message>
     <message>
         <location filename="xexunrtt.ui" line="468"/>
