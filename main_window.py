@@ -60,9 +60,9 @@ import resources_rc
 try:
     from update_dialog import check_for_updates_on_startup
     UPDATE_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     UPDATE_AVAILABLE = False
-    logger.warning("自动更新模块未找到，更新功能将不可用")
+    print(f"Warning: 自动更新模块未找到，更新功能将不可用: {e}")
 
 
 # 修复Python控制台编码问题 - 确保UTF-8输出正常显示

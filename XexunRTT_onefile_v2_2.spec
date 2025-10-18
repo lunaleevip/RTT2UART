@@ -97,6 +97,35 @@ a = Analysis(
         'binascii',  # base64依赖
         'struct',  # 二进制数据处理
         
+        # 自动更新依赖
+        'bsdiff4',  # 差异化更新
+        'requests',  # HTTP 请求
+        'urllib3',  # requests 依赖
+        'charset_normalizer',  # requests 依赖
+        'certifi',  # SSL 证书
+        'idna',  # 国际化域名
+        
+        # email 模块及其子模块（urllib3 依赖）
+        'email',
+        'email.mime',
+        'email.mime.text',
+        'email.mime.multipart',
+        'email.mime.base',
+        'email.parser',
+        'email.message',
+        'email.utils',
+        'email.encoders',
+        'email.header',
+        'email.charset',
+        'email.errors',
+        'email.generator',
+        'email.policy',
+        'email.contentmanager',
+        'email._parseaddr',
+        'email._policybase',
+        'email._encoded_words',
+        'email._header_value_parser',
+        
         # PySide6 子模块
         'PySide6.QtCore.QTimer',
         'PySide6.QtCore.QThread',
@@ -238,9 +267,9 @@ a = Analysis(
         'xmlrpc',
         'http.server',
         'wsgiref',
-        'email',
+        # 'email',  # ❌ 不要排除，urllib3/requests 依赖它
         'mailbox',
-        'mimetypes',
+        # 'mimetypes',  # ❌ 不要排除，requests 可能需要它
         # 'base64',  # ❌ 不要排除，PySide6/shiboken6依赖它
         'binhex',
         # 'binascii',  # ❌ 不要排除，base64依赖它
@@ -258,7 +287,7 @@ a = Analysis(
         'plistlib',
         'calendar',
         'mailcap',
-        'mimetypes',
+        # 'mimetypes',  # 已在上面注释，不要重复
         'chunk',
         'colorsys',
         'imghdr',
