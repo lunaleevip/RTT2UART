@@ -56,6 +56,14 @@ from config_manager import config_manager
 #from performance_test import show_performance_test
 import resources_rc
 
+# 自动更新模块
+try:
+    from update_dialog import check_for_updates_on_startup
+    UPDATE_AVAILABLE = True
+except ImportError:
+    UPDATE_AVAILABLE = False
+    logger.warning("自动更新模块未找到，更新功能将不可用")
+
 
 # 修复Python控制台编码问题 - 确保UTF-8输出正常显示
 def fix_console_encoding():
@@ -1321,6 +1329,13 @@ class RTTMainWindow(QMainWindow):
         
         # 立即加载并应用保存的配置
         self._apply_saved_settings()
+        
+        # 🔄 自动更新检查（延迟5秒，不影响启动速度）
+        if UPDATE_AVAILABLE:
+            check_for_updates_on_startup(self)
+            logger.info("Auto update check scheduled")
+        else:
+            logger.warning("Auto update module not available")
     
     # 串口转发功能已移动到连接对话框中
     
@@ -1979,7 +1994,7 @@ class RTTMainWindow(QMainWindow):
                     filter_content = self.connection_dialog.config.get_filter(i)
                     if filter_content:
                         self.ui.tem_switch.setTabText(i, filter_content)
-                        logger.debug(f"  Filter[{i}] loaded from INI: '{filter_content}'")
+                        #logger.debug(f"  Filter[{i}] loaded from INI: '{filter_content}'")
                     elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
                         # 兼容旧格式：从settings加载，并同步到config对象
                         filter_text = settings['filter'][i-17]
@@ -1989,7 +2004,7 @@ class RTTMainWindow(QMainWindow):
                     else:
                         # 没有配置值，确保config对象中有空字符串占位
                         self.connection_dialog.config.set_filter(i, "")  # 🔑 确保config对象中有该key
-                        logger.debug(f"  Filter[{i}] initialized as empty")
+                        #logger.debug(f"  Filter[{i}] initialized as empty")
                 
                 # 🔑 标记：filter已经加载到UI，UI初始化完成，现在可以安全保存配置
                 self._filters_loaded = True
@@ -3397,7 +3412,7 @@ class RTTMainWindow(QMainWindow):
             import sys
             default_font = "Consolas" if sys.platform == "win32" else "Monaco"
             available_fonts = [default_font]
-            logger.warning(f"[FONT] No fonts found, using default: {default_font}")
+            #logger.warning(f"[FONT] No fonts found, using default: {default_font}")
         
         # 填充字体下拉框，并为每个项设置对应的字体样式
         self.ui.font_combo.clear()
@@ -3408,7 +3423,7 @@ class RTTMainWindow(QMainWindow):
             font = QFont(font_name, 10)  # 使用固定大小10pt用于显示
             self.ui.font_combo.setItemData(item_index, font, Qt.FontRole)
         
-        logger.info(f"[FONT] Loaded {len(available_fonts)} fonts ({len(likely_monospace)} monospace)")
+        #logger.info(f"[FONT] Loaded {len(available_fonts)} fonts ({len(likely_monospace)} monospace)")
         
         # 从配置加载保存的字体
         if self.connection_dialog:
@@ -3417,7 +3432,7 @@ class RTTMainWindow(QMainWindow):
             index = self.ui.font_combo.findText(saved_font)
             if index >= 0:
                 self.ui.font_combo.setCurrentIndex(index)
-                logger.info(f"[FONT] Loaded saved font: {saved_font}")
+                #logger.info(f"[FONT] Loaded saved font: {saved_font}")
             else:
                 # 如果保存的字体不存在，使用默认字体：SimSun -> Consolas -> Courier New
                 default_fonts = ["SimSun", "Consolas", "Courier New"]
@@ -3428,13 +3443,13 @@ class RTTMainWindow(QMainWindow):
                     if index >= 0:
                         selected_font = default_font
                         self.ui.font_combo.setCurrentIndex(index)
-                        logger.info(f"[FONT] Using default font: {default_font}")
+                        #logger.info(f"[FONT] Using default font: {default_font}")
                         break
                 
                 # 如果所有默认字体都不存在，使用第一个字体
                 if not selected_font and available_fonts:
                     self.ui.font_combo.setCurrentIndex(0)
-                    logger.info(f"[FONT] No default font found, using: {available_fonts[0]}")
+                    #logger.info(f"[FONT] No default font found, using: {available_fonts[0]}")
     
     def on_font_changed(self, font_name):
         """字体变更时的处理 - 检测变化并全局刷新"""
@@ -4977,31 +4992,31 @@ class ConnectionDialog(QDialog):
             if (hasattr(self.main_window, '_filters_loaded') and 
                 self.main_window._filters_loaded and 
                 hasattr(self.main_window.ui, 'tem_switch')):
-                logger.info("=" * 80)
-                logger.info("[FILTER SAVE] 开始保存筛选值到配置文件")
-                logger.info(f"[FILTER SAVE] _filters_loaded = {self.main_window._filters_loaded}")
-                logger.info(f"[FILTER SAVE] TAB总数 = {self.main_window.ui.tem_switch.count()}")
+                # logger.info("=" * 80)
+                # logger.info("[FILTER SAVE] 开始保存筛选值到配置文件")
+                # logger.info(f"[FILTER SAVE] _filters_loaded = {self.main_window._filters_loaded}")
+                # logger.info(f"[FILTER SAVE] TAB总数 = {self.main_window.ui.tem_switch.count()}")
                 for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
                     tab_text = self.main_window.ui.tem_switch.tabText(i)
                     # 如果是默认的"filter"文本，保存为空字符串
                     if tab_text == QCoreApplication.translate("main_window", "filter"):
                         self.config.set_filter(i, "")
-                        logger.info(f"[FILTER SAVE] TAB[{i}] = '' (默认filter文本)")
+                        #logger.info(f"[FILTER SAVE] TAB[{i}] = '' (默认filter文本)")
                     else:
                         self.config.set_filter(i, tab_text)
-                        logger.info(f"[FILTER SAVE] TAB[{i}] = '{tab_text}'")
-                logger.info("[FILTER SAVE] 筛选值保存完成")
-                logger.info("=" * 80)
-            else:
-                logger.warning("=" * 80)
-                logger.warning("[FILTER SAVE] ⚠️ 跳过筛选值保存！")
-                if not hasattr(self.main_window, '_filters_loaded'):
-                    logger.warning("[FILTER SAVE] 原因: _filters_loaded属性不存在")
-                elif not self.main_window._filters_loaded:
-                    logger.warning("[FILTER SAVE] 原因: _filters_loaded = False (筛选值尚未加载到UI)")
-                elif not hasattr(self.main_window.ui, 'tem_switch'):
-                    logger.warning("[FILTER SAVE] 原因: tem_switch不存在")
-                logger.warning("=" * 80)
+                        #logger.info(f"[FILTER SAVE] TAB[{i}] = '{tab_text}'")
+                #logger.info("[FILTER SAVE] 筛选值保存完成")
+                #logger.info("=" * 80)
+            # else:
+                # logger.warning("=" * 80)
+                # logger.warning("[FILTER SAVE] ⚠️ 跳过筛选值保存！")
+                # if not hasattr(self.main_window, '_filters_loaded'):
+                #     logger.warning("[FILTER SAVE] 原因: _filters_loaded属性不存在")
+                # elif not self.main_window._filters_loaded:
+                #     logger.warning("[FILTER SAVE] 原因: _filters_loaded = False (筛选值尚未加载到UI)")
+                # elif not hasattr(self.main_window.ui, 'tem_switch'):
+                #     logger.warning("[FILTER SAVE] 原因: tem_switch不存在")
+                # logger.warning("=" * 80)
             
             # 保存命令历史
             if hasattr(self.main_window.ui, 'cmd_buffer'):
@@ -6318,7 +6333,7 @@ class ConnectionDialog(QDialog):
     
     def _refresh_jlink_devices(self):
         """刷新JLINK设备列表"""
-        logger.info("🔄" * 40)
+        #logger.info("🔄" * 40)
         logger.info("[REFRESH JLINK] 用户点击刷新按钮")
         try:
             # 检查ComboBox是否存在
@@ -6379,15 +6394,15 @@ class ConnectionDialog(QDialog):
                                 continue
                 
                 logger.info(f"[REFRESH JLINK] Refreshed device list: {len(self.available_jlinks)} devices found")
-                logger.info("🔄" * 40)
+                #logger.info("🔄" * 40)
                 
             except Exception as e:
                 logger.error(f"Error adding devices to ComboBox: {e}")
-                logger.info("🔄" * 40)
+                #logger.info("🔄" * 40)
             
         except Exception as e:
             logger.error(f"Error refreshing device list: {e}")
-            logger.info("🔄" * 40)
+            #logger.info("🔄" * 40)
 
     def usb_selete_slot(self):
         self.connect_type = 'USB'

@@ -1,0 +1,48 @@
+{
+  "version": "2.3.0",
+  "hash": "a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
+  "file": "XexunRTT_v2.3.0.exe",
+  "size": 47456789,
+  "release_notes": "## XexunRTT v2.3.0 更新内容\n\n### 🐛 问题修复\n- 修复了筛选值被意外清空的问题\n- 修复了字体设置不能立即生效的问题\n- 修复了F4清屏错误保存配置的问题\n\n### ✨ 新功能\n- 新增RTT Control Block自定义配置\n- 新增自动更新功能,支持增量更新\n- 优化了启动速度\n\n### 🎨 界面改进\n- 改进了字体渲染兼容性\n- 优化了滚动性能\n- 完善了多语言翻译",
+  "patches": {
+    "2.2.0_2.3.0": {
+      "file": "patch_2.2.0_to_2.3.0.patch",
+      "size": 3356789,
+      "from_version": "2.2.0",
+      "to_version": "2.3.0"
+    },
+    "2.1.3_2.3.0": {
+      "file": "patch_2.1.3_to_2.3.0.patch",
+      "size": 5678901,
+      "from_version": "2.1.3",
+      "to_version": "2.3.0"
+    },
+    "2.1.0_2.3.0": {
+      "file": "patch_2.1.0_to_2.3.0.patch",
+      "size": 8956789,
+      "from_version": "2.1.0",
+      "to_version": "2.3.0"
+    }
+  },
+  "history": [
+    {
+      "version": "2.2.0",
+      "hash": "xyz9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "file": "XexunRTT_v2.2.0.exe",
+      "size": 47123456,
+      "release_date": "2025-10-15"
+    },
+    {
+      "version": "2.1.3",
+      "hash": "abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "file": "XexunRTT_v2.1.3.exe",
+      "size": 46789012,
+      "release_date": "2025-09-20"
+    }
+  ],
+  "min_supported_version": "2.1.0",
+  "update_url": "https://your-server.com/xexunrtt/updates",
+  "release_date": "2025-10-18",
+  "changelog_url": "https://your-server.com/xexunrtt/changelog.html"
+}
+
