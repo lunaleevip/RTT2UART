@@ -6318,10 +6318,13 @@ class ConnectionDialog(QDialog):
     
     def _refresh_jlink_devices(self):
         """刷新JLINK设备列表"""
+        logger.info("🔄" * 40)
+        logger.info("[REFRESH JLINK] 用户点击刷新按钮")
         try:
             # 检查ComboBox是否存在
             if not hasattr(self.ui, 'comboBox_serialno'):
                 logger.warning("ComboBox未找到，跳过设备列表刷新")
+                logger.info("🔄" * 40)
                 return
             
             # 重新检测设备
@@ -6375,13 +6378,16 @@ class ConnectionDialog(QDialog):
                             except Exception:
                                 continue
                 
-                logger.info(f"Refreshed device list: {len(self.available_jlinks)} devices found")
+                logger.info(f"[REFRESH JLINK] Refreshed device list: {len(self.available_jlinks)} devices found")
+                logger.info("🔄" * 40)
                 
             except Exception as e:
                 logger.error(f"Error adding devices to ComboBox: {e}")
+                logger.info("🔄" * 40)
             
         except Exception as e:
             logger.error(f"Error refreshing device list: {e}")
+            logger.info("🔄" * 40)
 
     def usb_selete_slot(self):
         self.connect_type = 'USB'
