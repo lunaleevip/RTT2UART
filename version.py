@@ -3,13 +3,13 @@
 """
 
 # 应用版本号
-VERSION = "2.3.2"
+VERSION = "2.3.4"
 
 # 版本名称
 VERSION_NAME = "XexunRTT"
 
 # 编译时期（由 build.py 自动更新，无需手动修改）
-BUILD_TIME = "2025-10-17 13:57:16"
+BUILD_TIME = "2025-10-18 10:07:42"
 
 # 版本描述
 VERSION_DESC = f"{VERSION_NAME} v{VERSION}"

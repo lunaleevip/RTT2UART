@@ -52,10 +52,7 @@ a = Analysis(
     datas=[
         ('xexunrtt_complete.qm', '.'),
         ('qt_zh_CN.qm', '.'),
-        ('JLinkCommandFile.jlink', '.'),
         ('JLinkDevicesBuildIn.xml', '.'),
-        ('cmd.txt', '.'),
-        ('picture', 'picture'),
     ],
     hiddenimports=[
         # 核心模块
