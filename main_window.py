@@ -937,6 +937,10 @@ class RTTMainWindow(QMainWindow):
         self._filters_loaded = False  # 🔑 标记filter是否已加载到UI
         self._ui_initialization_complete = False  # 🔑 标记UI初始化是否完成
         
+        # 🔑 当前字体和字号的临时变量（用于检测变化并触发全局刷新）
+        self._current_font_name = None  # 当前应用的字体名称
+        self._current_font_size = None  # 当前应用的字号
+        
         # 获取DPI缩放比例（支持手动设置或自动检测）
         manual_dpi = config_manager.get_dpi_scale()
         self.dpi_scale = get_dpi_scale_factor(manual_dpi)
@@ -1909,6 +1913,11 @@ class RTTMainWindow(QMainWindow):
                 index = self.ui.font_combo.findText(saved_font)
                 if index >= 0:
                     self.ui.font_combo.setCurrentIndex(index)
+                # 🔑 初始化当前字体变量（避免首次加载时触发不必要的刷新）
+                self._current_font_name = saved_font
+            
+            # 🔑 初始化当前字号变量
+            self._current_font_size = settings['fontsize']
             
             # 命令历史已在populateComboBox()中加载，这里只需要同步到settings
             cmd_history = self.connection_dialog.config.get_command_history()
@@ -3367,15 +3376,27 @@ class RTTMainWindow(QMainWindow):
                     logger.info(f"[FONT] No default font found, using: {available_fonts[0]}")
     
     def on_font_changed(self, font_name):
-        """字体变更时的处理 - 全局生效"""
-        if self.connection_dialog and font_name:
-            # 保存到配置（只在UI初始化完成后保存）
-            if self._ui_initialization_complete:
-                self.connection_dialog.config.set_fontfamily(font_name)
-                self.connection_dialog.config.save_config()
-            logger.info(f"[FONT] Font changed to: {font_name} - applying to all TABs")
-            # 🔑 全局更新：遍历所有TAB并更新字体
-            self._update_all_tabs_font()
+        """字体变更时的处理 - 检测变化并全局刷新"""
+        if not font_name:
+            return
+            
+        # 🔑 检测字体是否真的改变了
+        if self._current_font_name == font_name:
+            logger.debug(f"[FONT] Font unchanged: {font_name}, skipping refresh")
+            return
+        
+        logger.info(f"[FONT] Font changed from '{self._current_font_name}' to '{font_name}' - forcing全局刷新")
+        
+        # 保存到配置（只在UI初始化完成后保存）
+        if self.connection_dialog and self._ui_initialization_complete:
+            self.connection_dialog.config.set_fontfamily(font_name)
+            self.connection_dialog.config.save_config()
+        
+        # 🔑 全局更新：遍历所有TAB并强制刷新已有文本的字体
+        self._update_all_tabs_font()
+        
+        # 更新当前字体变量
+        self._current_font_name = font_name
     
     def _update_all_tabs_font(self):
         """全局更新所有TAB的字体 - 增强兼容性版本"""
@@ -3561,16 +3582,28 @@ class RTTMainWindow(QMainWindow):
             logger.warning(f"Failed to update current tab font: {e}")
     
     def on_fontsize_changed(self):
-        """字体大小变更时的处理 - 全局生效"""
+        """字体大小变更时的处理 - 检测变化并全局刷新"""
+        font_size = self.ui.fontsize_box.value()
+        
+        # 🔑 检测字号是否真的改变了
+        if self._current_font_size == font_size:
+            logger.debug(f"[FONT] Font size unchanged: {font_size}pt, skipping refresh")
+            return
+        
+        logger.info(f"[FONT] Font size changed from {self._current_font_size}pt to {font_size}pt - forcing全局刷新")
+        
         if self.connection_dialog:
-            self.connection_dialog.settings['fontsize'] = self.ui.fontsize_box.value()
+            self.connection_dialog.settings['fontsize'] = font_size
             # 同步保存到INI配置（🔑 只在UI初始化完成后保存）
             if self._ui_initialization_complete:
-                self.connection_dialog.config.set_fontsize(self.ui.fontsize_box.value())
+                self.connection_dialog.config.set_fontsize(font_size)
                 self.connection_dialog.config.save_config()
-            logger.info(f"[FONT] Font size changed to: {self.ui.fontsize_box.value()}pt - applying to all TABs")
-        # 🔑 全局更新：遍历所有TAB并更新字体大小
+        
+        # 🔑 全局更新：遍历所有TAB并强制刷新已有文本的字号
         self._update_all_tabs_font()
+        
+        # 更新当前字号变量
+        self._current_font_size = font_size
     
     def on_lock_h_changed(self):
         """水平滚动条锁定状态改变时保存配置"""
