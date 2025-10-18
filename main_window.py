@@ -1967,31 +1967,48 @@ class RTTMainWindow(QMainWindow):
             
             logger.debug(f"Command history synced to settings: {len(unique_commands)} items")
             
-            # 从配置管理器加载筛选器设置
-            # 🔑 关键改进：确保config对象中始终包含所有筛选值（即使是空值）
-            # 这样save_config()时就不会意外删除任何筛选值
-            logger.info("📥 Loading filters from config and syncing to both UI and config object")
-            for i in range(17, MAX_TAB_SIZE):
-                # 优先从INI配置加载筛选器
-                filter_content = self.connection_dialog.config.get_filter(i)
-                if filter_content:
-                    self.ui.tem_switch.setTabText(i, filter_content)
-                    logger.debug(f"  Filter[{i}] loaded from INI: '{filter_content}'")
-                elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
-                    # 兼容旧格式：从settings加载，并同步到config对象
-                    filter_text = settings['filter'][i-17]
-                    self.ui.tem_switch.setTabText(i, filter_text)
-                    self.connection_dialog.config.set_filter(i, filter_text)  # 🔑 同步到config对象
-                    logger.debug(f"  Filter[{i}] loaded from settings and synced: '{filter_text}'")
-                else:
-                    # 没有配置值，确保config对象中有空字符串占位
-                    self.connection_dialog.config.set_filter(i, "")  # 🔑 确保config对象中有该key
-                    logger.debug(f"  Filter[{i}] initialized as empty")
+            # 🔑 关键修复：只在程序启动时加载筛选值，连接时不要重新加载
+            # 避免F4清空后重新连接导致筛选值被清空
+            if not self._filters_loaded:
+                # 从配置管理器加载筛选器设置
+                # 🔑 关键改进：确保config对象中始终包含所有筛选值（即使是空值）
+                # 这样save_config()时就不会意外删除任何筛选值
+                logger.info("📥 Loading filters from config and syncing to both UI and config object")
+                for i in range(17, MAX_TAB_SIZE):
+                    # 优先从INI配置加载筛选器
+                    filter_content = self.connection_dialog.config.get_filter(i)
+                    if filter_content:
+                        self.ui.tem_switch.setTabText(i, filter_content)
+                        logger.debug(f"  Filter[{i}] loaded from INI: '{filter_content}'")
+                    elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
+                        # 兼容旧格式：从settings加载，并同步到config对象
+                        filter_text = settings['filter'][i-17]
+                        self.ui.tem_switch.setTabText(i, filter_text)
+                        self.connection_dialog.config.set_filter(i, filter_text)  # 🔑 同步到config对象
+                        logger.debug(f"  Filter[{i}] loaded from settings and synced: '{filter_text}'")
+                    else:
+                        # 没有配置值，确保config对象中有空字符串占位
+                        self.connection_dialog.config.set_filter(i, "")  # 🔑 确保config对象中有该key
+                        logger.debug(f"  Filter[{i}] initialized as empty")
+                
+                # 🔑 标记：filter已经加载到UI，UI初始化完成，现在可以安全保存配置
+                self._filters_loaded = True
+                logger.info("✅ UI initialization completed, all filters synced to config object, config saving is now safe")
+            else:
+                # 连接时，只同步UI上当前的筛选值到config对象，不要从配置文件重新加载
+                logger.info("🔄 Reconnecting: syncing current UI filters to config object (not reloading from file)")
+                for i in range(17, MAX_TAB_SIZE):
+                    tab_text = self.ui.tem_switch.tabText(i)
+                    # 如果是默认的"filter"文本，保存为空字符串
+                    if tab_text == QCoreApplication.translate("main_window", "filter"):
+                        self.connection_dialog.config.set_filter(i, "")
+                        logger.debug(f"  Filter[{i}] synced as empty (default text)")
+                    else:
+                        self.connection_dialog.config.set_filter(i, tab_text)
+                        logger.debug(f"  Filter[{i}] synced from UI: '{tab_text}'")
             
-            # 🔑 标记：filter已经加载到UI，UI初始化完成，现在可以安全保存配置
-            self._filters_loaded = True
+            # 🔑 标记：UI初始化完成，现在可以安全保存配置
             self._ui_initialization_complete = True
-            logger.info("✅ UI initialization completed, all filters synced to config object, config saving is now safe")
                     
             # 应用样式
             self.set_style()
@@ -2877,7 +2894,7 @@ class RTTMainWindow(QMainWindow):
         time_since_last_data = current_time - self.last_data_time if self.last_data_time > 0 else 0
         
         # 调试日志
-        logger.debug(f"[AUTO-RECONNECT] Timeout check: last_data_time={self.last_data_time:.2f}, current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
+        #logger.debug(f"[AUTO-RECONNECT] Timeout check: last_data_time={self.last_data_time:.2f}, current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
         
         if self.last_data_time > 0 and time_since_last_data > timeout:
             logger.warning(f"No data received for {timeout} seconds, auto reconnecting...")
@@ -7439,7 +7456,7 @@ class Worker(QObject):
                 recent_data = self.buffers[index][-check_count:]
                 if data in recent_data:
                     # 检测到重复数据，跳过添加
-                    logger.debug(f"检测到重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
+                    #logger.debug(f"检测到重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
                     return
             current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
@@ -7485,7 +7502,7 @@ class Worker(QObject):
                 recent_data = self.colored_buffers[index][-check_count:]
                 if data in recent_data:
                     # 检测到重复数据，跳过添加
-                    logger.debug(f"检测到重复彩色数据，跳过添加到colored_buffer[{index}]: {data[:50]}...")
+                    #logger.debug(f"检测到重复彩色数据，跳过添加到colored_buffer[{index}]: {data[:50]}...")
                     return
             current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
@@ -7576,10 +7593,10 @@ class Worker(QObject):
             refresh_rate = self.refresh_count / time_elapsed if time_elapsed > 0 else 0
             
             # 记录性能指标
-            logger.info(f"[PERF] Performance monitoring - refresh rate: {refresh_rate:.1f}Hz, "
-                       f"总数据量: {memory_info['total_memory_mb']:.1f}MB, "
-                       f"容量利用率: {memory_info['capacity_utilization']:.1f}%, "
-                       f"最大单缓冲: {memory_info['max_single_buffer']//1024:.0f}KB")
+            # logger.info(f"[PERF] Performance monitoring - refresh rate: {refresh_rate:.1f}Hz, "
+            #            f"总数据量: {memory_info['total_memory_mb']:.1f}MB, "
+            #            f"容量利用率: {memory_info['capacity_utilization']:.1f}%, "
+            #            f"最大单缓冲: {memory_info['max_single_buffer']//1024:.0f}KB")
             
             # 检查性能阈值
             if memory_info['total_memory_mb'] > 0.8:  # 800KB以上
