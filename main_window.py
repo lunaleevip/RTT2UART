@@ -3017,23 +3017,14 @@ class RTTMainWindow(QMainWindow):
             else:
                 logger.warning("Cannot access Worker, only cleared UI display")
                 
-            # 3. 如果是Filters标签（17+），保存清空后的filter配置
-            if current_index >= 17 and self.connection_dialog and hasattr(self.connection_dialog, 'config'):
-                try:
-                    logger.info("🟣" * 40)
-                    logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
-                    
-                    # 🔑 架构改进：config对象在UI初始化时已包含所有筛选值
-                    # 只需要更新当前TAB的值即可
-                    self.connection_dialog.config.set_filter(current_index, "")
-                    logger.info(f"[F4 CLEAR] Set filter[{current_index}] = ''")
-                    
-                    logger.info(f"[F4 CLEAR] 准备调用 save_config()")
-                    self.connection_dialog.config.save_config()
-                    logger.info(f"[F4 CLEAR] save_config() 调用完成")
-                    logger.info("🟣" * 40)
-                except Exception as e:
-                    logger.warning(f"Failed to save filter for TAB {current_index}: {e}")
+            # 3. F4清空不应该修改配置文件
+            # F4只是临时清空UI显示和数据缓存，用户可能之后还想恢复筛选值
+            # 只有中键清空或双击编辑才会修改配置文件
+            if current_index >= 17:
+                logger.info("🟣" * 40)
+                logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
+                logger.info(f"[F4 CLEAR] 只清空UI显示和数据缓存，不修改配置文件中的筛选值")
+                logger.info("🟣" * 40)
             
             # 4. 标记页面为干净状态
             if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
