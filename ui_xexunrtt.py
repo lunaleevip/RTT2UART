@@ -232,7 +232,7 @@ class Ui_xexun_rtt(object):
         self.dis_connect.setText(QCoreApplication.translate("xexun_rtt", u"Disconnect", None))
         self.label_fontsize.setText(QCoreApplication.translate("xexun_rtt", u"Size:", None))
 #if QT_CONFIG(tooltip)
-        self.clear.setToolTip("")
+        self.clear.setToolTip(QCoreApplication.translate("xexun_rtt", u"F4", None))
 #endif // QT_CONFIG(tooltip)
         self.clear.setText(QCoreApplication.translate("xexun_rtt", u"Clear", None))
 #if QT_CONFIG(tooltip)
