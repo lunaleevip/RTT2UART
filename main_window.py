@@ -257,9 +257,32 @@ class JLinkLogHandler(logging.Handler):
         except Exception:
             pass
 
-logging.basicConfig(level=logging.WARN,
-                    format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s')
+# 配置日志 - 同时输出到文件和控制台
+import os
+from pathlib import Path
+
+# 创建日志目录
+log_dir = Path.home() / "AppData" / "Local" / "XexunRTT" / "logs"
+log_dir.mkdir(parents=True, exist_ok=True)
+log_file = log_dir / "xexunrtt.log"
+
+# 配置日志处理器
+log_handlers = [
+    logging.FileHandler(log_file, encoding='utf-8', mode='a'),  # 追加模式
+]
+
+# 如果是开发环境，也输出到控制台
+if not getattr(sys, 'frozen', False):
+    log_handlers.append(logging.StreamHandler())
+
+logging.basicConfig(
+    level=logging.INFO,  # 改为 INFO 级别以查看更新日志
+    format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s',
+    handlers=log_handlers
+)
+
 logger = logging.getLogger(__name__)
+logger.info(f"📝 Log file: {log_file}")
 
 # pylink支持的最大速率是12000kHz（Release v0.7.0开始支持15000及以上速率）
 speed_list = [5, 10, 20, 30, 50, 100, 200, 300, 400, 500, 600, 750,
