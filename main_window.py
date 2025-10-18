@@ -843,6 +843,11 @@ class EditableTabBar(QTabBar):
             if index >= 17:  # 只处理Filters标签
                 # 清空该标签页
                 if self.main_window:
+                    logger.info("🔴" * 40)
+                    logger.info(f"[MIDDLE-CLICK] 用户中键点击清空TAB {index}")
+                    old_text = self.tabText(index)
+                    logger.info(f"[MIDDLE-CLICK] 原文本: '{old_text}'")
+                    
                     # 保存当前标签页索引
                     current_index = self.main_window.ui.tem_switch.currentIndex()
                     # 切换到目标标签页
@@ -851,10 +856,37 @@ class EditableTabBar(QTabBar):
                     self.main_window.on_clear_clicked()
                     # 重置标签文本为"filter"
                     self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
+                    
+                    # 🔑 保存空字符串到配置
+                    if self.main_window.connection_dialog:
+                        logger.info(f"[MIDDLE-CLICK] 准备保存空字符串到配置")
+                        
+                        # 🔑 关键修复：在保存前，先将所有TAB的筛选值从UI同步到config对象
+                        logger.info(f"[MIDDLE-CLICK] 准备同步所有TAB的筛选值到config对象")
+                        for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
+                            tab_text = self.tabText(i)
+                            if i == index:
+                                # 当前TAB设置为空
+                                self.main_window.connection_dialog.config.set_filter(i, "")
+                                logger.info(f"[MIDDLE-CLICK]   TAB[{i}] = '' (中键清空的TAB)")
+                            else:
+                                # 其他TAB保持原值
+                                if tab_text == QCoreApplication.translate("main_window", "filter"):
+                                    self.main_window.connection_dialog.config.set_filter(i, "")
+                                else:
+                                    self.main_window.connection_dialog.config.set_filter(i, tab_text)
+                                    logger.info(f"[MIDDLE-CLICK]   TAB[{i}] = '{tab_text}' (保持原值)")
+                        
+                        logger.info(f"[MIDDLE-CLICK] 准备调用 save_config()")
+                        self.main_window.connection_dialog.config.save_config()
+                        logger.info(f"[MIDDLE-CLICK] save_config() 调用完成")
+                    
                     # 恢复原来的标签页（如果不是同一个）
                     if current_index != index:
                         self.main_window.ui.tem_switch.setCurrentIndex(current_index)
+                    
                     logger.info(f"[MIDDLE-CLICK] Cleared filter TAB {index}")
+                    logger.info("🔴" * 40)
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -902,16 +934,39 @@ class EditableTabBar(QTabBar):
                 
                 # 保存过滤器设置和正则表达式状态
                 if self.main_window and self.main_window.connection_dialog:
-                    # 保存筛选文本（包括空字符串）
-                    if new_text:
-                        self.main_window.connection_dialog.config.set_filter(index, new_text)
-                    else:
-                        # 用户清空了筛选，保存空字符串
-                        self.main_window.connection_dialog.config.set_filter(index, "")
+                    logger.info("🟡" * 40)
+                    logger.info(f"[FILTER EDIT] 用户双击编辑TAB {index}")
+                    logger.info(f"[FILTER EDIT] 原文本: '{old_text}'")
+                    logger.info(f"[FILTER EDIT] 新文本: '{new_text}'")
+                    logger.info(f"[FILTER EDIT] 正则: {regex_enabled}")
+                    
+                    # 🔑 关键修复：在保存前，先将所有TAB的筛选值从UI同步到config对象
+                    logger.info(f"[FILTER EDIT] 准备同步所有TAB的筛选值到config对象")
+                    for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
+                        tab_text = self.tabText(i)
+                        if i == index:
+                            # 当前TAB设置为新值
+                            if new_text:
+                                self.main_window.connection_dialog.config.set_filter(i, new_text)
+                                logger.info(f"[FILTER EDIT]   TAB[{i}] = '{new_text}' (当前编辑的TAB)")
+                            else:
+                                self.main_window.connection_dialog.config.set_filter(i, "")
+                                logger.info(f"[FILTER EDIT]   TAB[{i}] = '' (用户清空)")
+                        else:
+                            # 其他TAB保持原值
+                            if tab_text == QCoreApplication.translate("main_window", "filter"):
+                                self.main_window.connection_dialog.config.set_filter(i, "")
+                            else:
+                                self.main_window.connection_dialog.config.set_filter(i, tab_text)
+                                logger.info(f"[FILTER EDIT]   TAB[{i}] = '{tab_text}' (保持原值)")
                     
                     # 🔧 修改：为单个TAB保存正则表达式状态
                     self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
+                    
+                    logger.info(f"[FILTER EDIT] 准备调用 save_config()")
                     self.main_window.connection_dialog.config.save_config()
+                    logger.info(f"[FILTER EDIT] save_config() 调用完成")
+                    logger.info("🟡" * 40)
                     
                     print(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
@@ -2959,9 +3014,32 @@ class RTTMainWindow(QMainWindow):
             # 3. 如果是Filters标签（17+），保存清空后的filter配置
             if current_index >= 17 and self.connection_dialog and hasattr(self.connection_dialog, 'config'):
                 try:
-                    self.connection_dialog.config.set_filter(current_index, "")
+                    logger.info("🟣" * 40)
+                    logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
+                    
+                    # 🔑 关键修复：在保存前，先将所有TAB的筛选值从UI同步到config对象
+                    # 否则 config.write() 会删除文件中其他TAB的筛选值！
+                    logger.info(f"[F4 CLEAR] 准备同步所有TAB的筛选值到config对象")
+                    for i in range(17, min(33, self.ui.tem_switch.count())):
+                        tab_text = self.ui.tem_switch.tabText(i)
+                        if i == current_index:
+                            # 当前TAB设置为空
+                            self.connection_dialog.config.set_filter(i, "")
+                            logger.info(f"[F4 CLEAR]   TAB[{i}] = '' (当前清空的TAB)")
+                        else:
+                            # 其他TAB保持原值
+                            if tab_text == QCoreApplication.translate("main_window", "filter"):
+                                self.connection_dialog.config.set_filter(i, "")
+                                logger.info(f"[F4 CLEAR]   TAB[{i}] = '' (默认filter文本)")
+                            else:
+                                self.connection_dialog.config.set_filter(i, tab_text)
+                                logger.info(f"[F4 CLEAR]   TAB[{i}] = '{tab_text}' (保持原值)")
+                    
+                    logger.info(f"[F4 CLEAR] 准备调用 save_config()")
                     self.connection_dialog.config.save_config()
-                    logger.debug(f"Saved empty filter for TAB {current_index}")
+                    logger.info(f"[F4 CLEAR] save_config() 调用完成")
+                    logger.info(f"[F4 CLEAR] Saved empty filter for TAB {current_index}")
+                    logger.info("🟣" * 40)
                 except Exception as e:
                     logger.warning(f"Failed to save filter for TAB {current_index}: {e}")
             
@@ -4916,13 +4994,31 @@ class ConnectionDialog(QDialog):
             if (hasattr(self.main_window, '_filters_loaded') and 
                 self.main_window._filters_loaded and 
                 hasattr(self.main_window.ui, 'tem_switch')):
+                logger.info("=" * 80)
+                logger.info("[FILTER SAVE] 开始保存筛选值到配置文件")
+                logger.info(f"[FILTER SAVE] _filters_loaded = {self.main_window._filters_loaded}")
+                logger.info(f"[FILTER SAVE] TAB总数 = {self.main_window.ui.tem_switch.count()}")
                 for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
                     tab_text = self.main_window.ui.tem_switch.tabText(i)
                     # 如果是默认的"filter"文本，保存为空字符串
                     if tab_text == QCoreApplication.translate("main_window", "filter"):
                         self.config.set_filter(i, "")
+                        logger.info(f"[FILTER SAVE] TAB[{i}] = '' (默认filter文本)")
                     else:
                         self.config.set_filter(i, tab_text)
+                        logger.info(f"[FILTER SAVE] TAB[{i}] = '{tab_text}'")
+                logger.info("[FILTER SAVE] 筛选值保存完成")
+                logger.info("=" * 80)
+            else:
+                logger.warning("=" * 80)
+                logger.warning("[FILTER SAVE] ⚠️ 跳过筛选值保存！")
+                if not hasattr(self.main_window, '_filters_loaded'):
+                    logger.warning("[FILTER SAVE] 原因: _filters_loaded属性不存在")
+                elif not self.main_window._filters_loaded:
+                    logger.warning("[FILTER SAVE] 原因: _filters_loaded = False (筛选值尚未加载到UI)")
+                elif not hasattr(self.main_window.ui, 'tem_switch'):
+                    logger.warning("[FILTER SAVE] 原因: tem_switch不存在")
+                logger.warning("=" * 80)
             
             # 保存命令历史
             if hasattr(self.main_window.ui, 'cmd_buffer'):

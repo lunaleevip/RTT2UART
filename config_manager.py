@@ -196,11 +196,39 @@ class ConfigManager:
             True if saved, False if no changes or error
         """
         try:
+            # 📍 打印调用栈，用于调试筛选值清空问题
+            import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            call_stack = traceback.extract_stack()
+            caller_info = []
+            # 获取最近的5个调用层级（排除当前函数）
+            for frame in call_stack[-6:-1]:
+                caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
+            
+            logger.info("🔵" * 40)
+            logger.info("[CONFIG SAVE] save_config() 被调用")
+            logger.info(f"[CONFIG SAVE] 调用栈:")
+            for i, caller in enumerate(caller_info, 1):
+                logger.info(f"[CONFIG SAVE]   {i}. {caller}")
+            
+            # 打印当前所有筛选值
+            logger.info(f"[CONFIG SAVE] 当前配置中的筛选值:")
+            for i in range(17, 33):
+                filter_key = f'filter_{i}'
+                if self.config.has_option('Filters', filter_key):
+                    filter_value = self.config.get('Filters', filter_key)
+                    if filter_value:
+                        logger.info(f"[CONFIG SAVE]   filter_{i} = '{filter_value}'")
+            
             # 🔑 脏数据检测：只有在配置真正改变时才写入文件
             if not force:
                 current_snapshot = self._create_config_snapshot()
                 if self._last_saved_snapshot is not None and current_snapshot == self._last_saved_snapshot:
                     # 配置未改变，跳过保存
+                    logger.info("[CONFIG SAVE] ⏭️ 配置未改变，跳过保存")
+                    logger.info("🔵" * 40)
                     return False
             
             # 配置已改变或强制保存，写入文件
@@ -211,6 +239,8 @@ class ConfigManager:
             # 更新快照
             self._last_saved_snapshot = self._create_config_snapshot()
             
+            logger.info(f"[CONFIG SAVE] ✅ 配置保存成功: {self.config_file}")
+            logger.info("🔵" * 40)
             print(f"配置保存成功: {self.config_file}")
             return True
         except Exception as e:
@@ -582,8 +612,33 @@ class ConfigManager:
     
     def set_filter(self, filter_index: int, content: str):
         """设置指定过滤器的内容"""
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # 📍 打印调用栈和修改信息
+        call_stack = traceback.extract_stack()
+        caller_info = []
+        # 获取最近的3个调用层级（排除当前函数）
+        for frame in call_stack[-4:-1]:
+            caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
+        
+        logger.info("🟢" * 40)
+        logger.info(f"[FILTER SET] set_filter({filter_index}, '{content}')")
+        logger.info(f"[FILTER SET] 调用栈:")
+        for i, caller in enumerate(caller_info, 1):
+            logger.info(f"[FILTER SET]   {i}. {caller}")
+        
         key = f'filter_{filter_index}'
+        
+        # 记录修改前的值
+        old_value = self.config.get('Filters', key, fallback='<不存在>')
+        logger.info(f"[FILTER SET] 修改前: filter_{filter_index} = '{old_value}'")
+        
         self.config.set('Filters', key, content)
+        
+        logger.info(f"[FILTER SET] 修改后: filter_{filter_index} = '{content}'")
+        logger.info("🟢" * 40)
     
     def get_all_filters(self) -> Dict[int, str]:
         """获取所有过滤器设置"""
