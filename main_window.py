@@ -3413,7 +3413,7 @@ class RTTMainWindow(QMainWindow):
             font = QFont(font_name, font_size)
             font.setFixedPitch(True)
             font.setStyleHint(QFont.TypeWriter)  # 使用TypeWriter而不是Monospace，更严格
-            font.setStyleStrategy(QFont.PreferDefault | QFont.ForceIntegerMetrics)  # 强制整数度量
+            font.setStyleStrategy(QFont.PreferDefault)  # 使用默认策略
             font.setKerning(False)  # 禁用字距调整
             
             # 遍历所有TAB并更新字体
@@ -7756,7 +7756,7 @@ class PythonHighlighter(QSyntaxHighlighter):
                         font = QFont(font_name, font_size)
                         font.setFixedPitch(True)
                         font.setStyleHint(QFont.TypeWriter)
-                        font.setStyleStrategy(QFont.PreferDefault | QFont.ForceIntegerMetrics)
+                        font.setStyleStrategy(QFont.PreferDefault)
                         font.setKerning(False)
                         format.setFont(font)
                     except:
