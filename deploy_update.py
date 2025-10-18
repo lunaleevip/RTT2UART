@@ -1,313 +1,422 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-快速部署更新工具
-自动化生成补丁、上传服务器的完整流程
+智能更新部署工具 - 自动识别版本并生成补丁
+
+使用方法:
+    python deploy_update.py dist/XexunRTT_v2.5.exe
+    或
+    python deploy_update.py dist/XexunRTT_v2.5.exe --notes "修复Bug"
 """
 
 import os
 import sys
 import json
+import re
 import argparse
 from pathlib import Path
-import subprocess
+import shutil
+import hashlib
+import datetime
 
 try:
-    from generate_patch import generate_patch, calculate_hash, format_size, update_version_file
+    import bsdiff4
+    BSDIFF_AVAILABLE = True
 except ImportError:
-    print("错误: 需要 generate_patch.py 文件")
-    sys.exit(1)
+    BSDIFF_AVAILABLE = False
+    print("⚠️  警告: bsdiff4 未安装，无法生成补丁（仅提供完整更新）")
+    print("   安装: pip install bsdiff4")
 
 
-def deploy_update(new_version: str, 
-                 new_file: Path,
-                 old_versions: list,
-                 release_notes: str,
-                 output_dir: Path,
-                 upload_server: str = None,
-                 upload_path: str = None):
+def calculate_hash(file_path: Path) -> str:
+    """计算文件SHA256哈希"""
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(8192):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def format_size(size: int) -> str:
+    """格式化文件大小"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
+
+
+def extract_version_from_filename(filename: str) -> str:
     """
-    完整的部署流程
+    从文件名提取版本号
+    
+    支持格式:
+        XexunRTT_v2.4.exe → 2.4
+        XexunRTT_v2.5.1.exe → 2.5.1
+        XexunRTT_2.4.exe → 2.4
+    """
+    patterns = [
+        r'[vV](\d+\.\d+(?:\.\d+)?)',  # v2.4 或 v2.5.1
+        r'_(\d+\.\d+(?:\.\d+)?)',      # _2.4
+        r'(\d+\.\d+(?:\.\d+)?)',       # 2.4
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, filename)
+        if match:
+            return match.group(1)
+    
+    return None
+
+
+def generate_patch(old_file: Path, new_file: Path, patch_file: Path) -> tuple:
+    """
+    生成补丁文件
+    
+    Returns:
+        (patch_size, old_hash)
+    """
+    if not BSDIFF_AVAILABLE:
+        raise ImportError("bsdiff4 not available")
+    
+    # 读取文件
+    with open(old_file, 'rb') as f:
+        old_data = f.read()
+    
+    with open(new_file, 'rb') as f:
+        new_data = f.read()
+    
+    # 计算旧文件哈希
+    old_hash = hashlib.sha256(old_data).hexdigest()
+    
+    # 生成补丁
+    patch_data = bsdiff4.diff(old_data, new_data)
+    
+    # 保存补丁
+    with open(patch_file, 'wb') as f:
+        f.write(patch_data)
+    
+    return len(patch_data), old_hash
+
+
+def load_version_json(version_file: Path) -> dict:
+    """加载现有的 version.json"""
+    if version_file.exists():
+        with open(version_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {
+        'version': '0.0',
+        'hash': '',
+        'file': '',
+        'size': 0,
+        'patches': {},
+        'release_notes': '',
+        'history': []
+    }
+
+
+def save_version_json(version_file: Path, data: dict):
+    """保存 version.json"""
+    with open(version_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
+def deploy_update(new_file: Path, 
+                 release_notes: str = None,
+                 output_dir: Path = None,
+                 max_patches: int = 3) -> bool:
+    """
+    智能部署更新
     
     Args:
-        new_version: 新版本号
-        new_file: 新版本文件
-        old_versions: 旧版本文件列表
-        release_notes: 更新说明
-        output_dir: 输出目录
-        upload_server: 上传服务器地址 (可选)
-        upload_path: 服务器上的路径 (可选)
+        new_file: 新版本文件 (如 dist/XexunRTT_v2.5.exe)
+        release_notes: 更新说明（可选）
+        output_dir: 输出目录（默认: updates）
+        max_patches: 最多保留多少个版本的补丁（默认: 3）
     """
     
     print("=" * 70)
-    print("XexunRTT 更新部署工具")
+    print("🚀 XexunRTT 智能更新部署工具")
     print("=" * 70)
     print()
     
-    # 1. 验证文件
-    print("📋 步骤 1/5: 验证文件")
+    # ========== 步骤 1: 验证和提取版本 ==========
+    print("📋 步骤 1/6: 验证文件并提取版本")
     print("-" * 70)
     
     if not new_file.exists():
-        print(f"❌ 错误: 新版本文件不存在: {new_file}")
+        print(f"❌ 错误: 文件不存在: {new_file}")
+        return False
+    
+    # 从文件名提取版本号
+    new_version = extract_version_from_filename(new_file.name)
+    if not new_version:
+        print(f"❌ 错误: 无法从文件名提取版本号: {new_file.name}")
+        print("   文件名应类似: XexunRTT_v2.5.exe 或 XexunRTT_2.5.exe")
         return False
     
     print(f"✅ 新版本文件: {new_file.name}")
+    print(f"   版本号: v{new_version}")
     print(f"   大小: {format_size(new_file.stat().st_size)}")
-    
-    valid_old_versions = []
-    for old_file in old_versions:
-        old_path = Path(old_file)
-        if old_path.exists():
-            valid_old_versions.append(old_path)
-            print(f"✅ 旧版本文件: {old_path.name}")
-        else:
-            print(f"⚠️  跳过不存在的文件: {old_file}")
-    
-    if not valid_old_versions:
-        print("⚠️  警告: 没有有效的旧版本文件,将只提供完整下载")
-    
     print()
     
-    # 2. 准备输出目录
-    print("📂 步骤 2/5: 准备输出目录")
+    # ========== 步骤 2: 准备输出目录 ==========
+    print("📂 步骤 2/6: 准备输出目录")
     print("-" * 70)
+    
+    if output_dir is None:
+        output_dir = Path('updates')
     
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"✅ 输出目录: {output_dir.absolute()}")
     print()
     
-    # 3. 生成补丁
-    print("🔧 步骤 3/5: 生成补丁文件")
+    # ========== 步骤 3: 读取现有 version.json ==========
+    print("📝 步骤 3/6: 读取现有版本信息")
     print("-" * 70)
     
-    import shutil
+    version_file = output_dir / 'version.json'
+    version_data = load_version_json(version_file)
     
-    # 复制新版本文件
-    new_file_name = f"XexunRTT_v{new_version}.exe"
-    new_file_dest = output_dir / new_file_name
-    shutil.copy2(new_file, new_file_dest)
+    old_version = version_data.get('version', '0.0')
+    old_file_name = version_data.get('file', '')
+    old_hash = version_data.get('hash', '')
+    
+    print(f"   当前版本: v{old_version}")
+    if old_file_name:
+        print(f"   当前文件: {old_file_name}")
+        print(f"   当前哈希: {old_hash[:16]}...")
+    else:
+        print("   ⚠️  这是首次部署")
+    print()
+    
+    # ========== 步骤 4: 计算新版本信息 ==========
+    print("🔍 步骤 4/6: 计算新版本信息")
+    print("-" * 70)
     
     new_hash = calculate_hash(new_file)
     new_size = new_file.stat().st_size
+    new_file_name = f"XexunRTT_v{new_version}.exe"
     
-    print(f"✅ 新版本已复制: {new_file_dest.name}")
-    print(f"   SHA256: {new_hash[:16]}...")
+    print(f"   SHA256: {new_hash}")
+    print(f"   大小: {format_size(new_size)}")
     print()
     
-    # 生成补丁
-    patches = {}
+    # 检查是否与当前版本相同
+    if old_version == new_version and old_hash == new_hash:
+        print("⚠️  警告: 新版本与当前版本完全相同（版本号和哈希都一致）")
+        print("   跳过部署")
+        return False
     
-    if valid_old_versions:
-        for old_file in valid_old_versions:
-            # 提取版本号
-            old_version = old_file.stem.split('_v')[-1]
-            
-            print(f"正在生成补丁: {old_version} → {new_version}")
-            
-            # 生成补丁文件名
-            patch_name = f"patch_{old_version}_to_{new_version}.patch"
-            patch_file = output_dir / patch_name
-            
-            # 生成补丁
-            patch_size = generate_patch(old_file, new_file, patch_file)
-            
-            # 记录信息
-            patch_key = f"{old_version}_{new_version}"
-            patches[patch_key] = {
-                'file': patch_name,
-                'size': patch_size,
-                'from_version': old_version,
-                'to_version': new_version
-            }
-            
-            print()
-    
-    # 4. 更新 version.json
-    print("📝 步骤 4/5: 更新版本信息")
+    # ========== 步骤 5: 复制新版本文件 ==========
+    print("📦 步骤 5/6: 复制新版本文件")
     print("-" * 70)
     
-    version_info = {
+    new_file_dest = output_dir / new_file_name
+    shutil.copy2(new_file, new_file_dest)
+    print(f"✅ 已复制: {new_file_name}")
+    print()
+    
+    # ========== 步骤 6: 生成补丁 ==========
+    print("🔧 步骤 6/6: 生成补丁文件")
+    print("-" * 70)
+    
+    patches = version_data.get('patches', {})
+    history = version_data.get('history', [])
+    
+    # 如果有旧版本，尝试生成补丁
+    if old_file_name and old_version != new_version and BSDIFF_AVAILABLE:
+        old_file_path = output_dir / old_file_name
+        
+        if old_file_path.exists():
+            print(f"正在生成补丁: v{old_version} → v{new_version}")
+            
+            try:
+                # 生成补丁文件名
+                patch_name = f"patch_{old_version}_to_{new_version}.patch"
+                patch_file = output_dir / patch_name
+                
+                # 生成补丁
+                patch_size, old_file_hash = generate_patch(old_file_path, new_file, patch_file)
+                
+                # 计算节省比例
+                save_ratio = (1 - patch_size / new_size) * 100
+                
+                print(f"   ✅ 补丁大小: {format_size(patch_size)}")
+                print(f"   💰 节省流量: {save_ratio:.1f}%")
+                print(f"   📄 补丁文件: {patch_name}")
+                
+                # 记录补丁信息
+                patch_key = f"{old_version}_{new_version}"
+                patches[patch_key] = {
+                    'file': patch_name,
+                    'size': patch_size,
+                    'from_version': old_version,
+                    'to_version': new_version,
+                    'from_hash': old_file_hash
+                }
+                
+            except Exception as e:
+                print(f"   ⚠️  补丁生成失败: {e}")
+        else:
+            print(f"   ⚠️  旧版本文件不存在: {old_file_name}")
+    elif not BSDIFF_AVAILABLE:
+        print("   ⚠️  跳过补丁生成 (bsdiff4 未安装)")
+    else:
+        print("   ℹ️  首次部署，无需生成补丁")
+    
+    print()
+    
+    # ========== 清理旧补丁 ==========
+    # 保留最近 max_patches 个版本的补丁
+    if len(patches) > max_patches:
+        print(f"🧹 清理旧补丁 (保留最近 {max_patches} 个)")
+        print("-" * 70)
+        
+        # 按版本排序
+        sorted_patches = sorted(patches.items(), key=lambda x: x[1]['to_version'], reverse=True)
+        patches_to_keep = dict(sorted_patches[:max_patches])
+        patches_to_remove = dict(sorted_patches[max_patches:])
+        
+        for patch_key, patch_info in patches_to_remove.items():
+            patch_file = output_dir / patch_info['file']
+            if patch_file.exists():
+                patch_file.unlink()
+                print(f"   🗑️  删除: {patch_info['file']}")
+        
+        patches = patches_to_keep
+        print()
+    
+    # ========== 更新历史记录 ==========
+    # 将当前版本加入历史
+    if old_version != '0.0' and old_version != new_version:
+        history.append({
+            'version': old_version,
+            'hash': old_hash,
+            'timestamp': datetime.datetime.now().isoformat()
+        })
+        
+        # 只保留最近 10 个历史版本
+        if len(history) > 10:
+            history = history[-10:]
+    
+    # ========== 生成更新说明 ==========
+    if release_notes is None:
+        release_notes = f"XexunRTT v{new_version} 更新"
+    
+    # ========== 更新 version.json ==========
+    print("📝 更新版本配置文件")
+    print("-" * 70)
+    
+    version_data = {
         'version': new_version,
         'hash': new_hash,
         'file': new_file_name,
         'size': new_size,
         'release_notes': release_notes,
-        'patches': patches
+        'patches': patches,
+        'history': history
     }
     
-    version_file = output_dir / 'version.json'
-    update_version_file(version_file, version_info)
+    save_version_json(version_file, version_data)
+    print(f"✅ 已更新: {version_file.name}")
     print()
     
-    # 5. 上传到服务器 (可选)
-    if upload_server and upload_path:
-        print("🚀 步骤 5/5: 上传到服务器")
-        print("-" * 70)
-        
-        try:
-            upload_to_server(output_dir, upload_server, upload_path)
-            print("✅ 上传完成")
-        except Exception as e:
-            print(f"❌ 上传失败: {e}")
-            print("   请手动上传文件到服务器")
-    else:
-        print("📤 步骤 5/5: 手动上传")
-        print("-" * 70)
-        print(f"请将以下目录的所有文件上传到服务器:")
-        print(f"   {output_dir.absolute()}")
-        print()
-        print("需要上传的文件:")
-        for file in output_dir.iterdir():
-            if file.is_file():
-                print(f"   - {file.name} ({format_size(file.stat().st_size)})")
-    
-    print()
+    # ========== 显示摘要 ==========
     print("=" * 70)
-    print("✅ 部署准备完成!")
+    print("✅ 部署完成!")
     print("=" * 70)
     print()
     
-    # 显示摘要
-    print("📊 更新摘要:")
-    print(f"   版本: {new_version}")
+    print("📊 部署摘要:")
+    print(f"   版本: v{new_version}")
     print(f"   文件: {new_file_name} ({format_size(new_size)})")
     print(f"   哈希: {new_hash[:32]}...")
     
     if patches:
         print(f"   补丁数量: {len(patches)}")
         total_patch_size = sum(p['size'] for p in patches.values())
-        avg_ratio = (1 - total_patch_size / (new_size * len(patches))) * 100
-        print(f"   平均节省: {avg_ratio:.1f}%")
+        if len(patches) > 0:
+            avg_patch_size = total_patch_size / len(patches)
+            avg_ratio = (1 - avg_patch_size / new_size) * 100
+            print(f"   平均补丁大小: {format_size(avg_patch_size)}")
+            print(f"   平均节省流量: {avg_ratio:.1f}%")
     
     print()
     print("📝 更新说明:")
     for line in release_notes.split('\n'):
         print(f"   {line}")
     
+    print()
+    print("📂 需要上传到服务器的文件:")
+    print(f"   目录: {output_dir.absolute()}")
+    print()
+    
+    # 列出所有需要上传的文件
+    files_to_upload = []
+    for file in output_dir.iterdir():
+        if file.is_file():
+            files_to_upload.append(file)
+            print(f"   ✅ {file.name} ({format_size(file.stat().st_size)})")
+    
+    print()
+    print("💡 提示:")
+    print(f"   将以上文件上传到服务器的更新目录")
+    print(f"   服务器 URL 配置在 auto_updater.py 中")
+    print()
+    
     return True
-
-
-def upload_to_server(local_dir: Path, server: str, remote_path: str):
-    """
-    上传文件到服务器 (使用 SCP)
-    
-    Args:
-        local_dir: 本地目录
-        server: 服务器地址 (user@host)
-        remote_path: 远程路径
-    """
-    
-    print(f"正在上传到 {server}:{remote_path}")
-    
-    # 使用 SCP 上传
-    cmd = [
-        'scp', '-r',
-        f"{local_dir}/*",
-        f"{server}:{remote_path}"
-    ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        raise Exception(f"SCP failed: {result.stderr}")
-    
-    print("上传成功")
-
-
-def interactive_mode():
-    """交互式模式"""
-    
-    print("=" * 70)
-    print("XexunRTT 更新部署向导")
-    print("=" * 70)
-    print()
-    
-    # 获取新版本信息
-    new_version = input("请输入新版本号 (如 2.3.0): ").strip()
-    new_file = input("请输入新版本文件路径: ").strip()
-    
-    # 获取旧版本
-    print("\n请输入旧版本文件路径 (每行一个,输入空行结束):")
-    old_versions = []
-    while True:
-        old_file = input(f"旧版本 {len(old_versions) + 1} (或按回车结束): ").strip()
-        if not old_file:
-            break
-        old_versions.append(old_file)
-    
-    # 获取更新说明
-    print("\n请输入更新说明 (输入END结束):")
-    release_notes_lines = []
-    while True:
-        line = input()
-        if line.strip().upper() == 'END':
-            break
-        release_notes_lines.append(line)
-    release_notes = '\n'.join(release_notes_lines)
-    
-    # 输出目录
-    output_dir = input("\n输出目录 (默认: ./updates): ").strip()
-    if not output_dir:
-        output_dir = "./updates"
-    
-    # 是否上传
-    upload = input("\n是否上传到服务器? (y/N): ").strip().lower()
-    upload_server = None
-    upload_path = None
-    
-    if upload == 'y':
-        upload_server = input("服务器地址 (如 user@host): ").strip()
-        upload_path = input("远程路径 (如 /var/www/html/updates): ").strip()
-    
-    print()
-    
-    # 执行部署
-    return deploy_update(
-        new_version=new_version,
-        new_file=Path(new_file),
-        old_versions=old_versions,
-        release_notes=release_notes,
-        output_dir=Path(output_dir),
-        upload_server=upload_server if upload_server else None,
-        upload_path=upload_path if upload_path else None
-    )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='XexunRTT 更新部署工具',
-        epilog='如果不提供参数,将进入交互式模式'
+        description='XexunRTT 智能更新部署工具',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+使用示例:
+  # 部署新版本 (自动识别版本号)
+  python deploy_update.py dist/XexunRTT_v2.5.exe
+  
+  # 指定更新说明
+  python deploy_update.py dist/XexunRTT_v2.5.exe --notes "修复Bug"
+  
+  # 指定输出目录
+  python deploy_update.py dist/XexunRTT_v2.5.exe --output updates
+  
+  # 自定义保留补丁数量
+  python deploy_update.py dist/XexunRTT_v2.5.exe --max-patches 5
+
+注意:
+  - 文件名必须包含版本号，如: XexunRTT_v2.5.exe
+  - 会自动从 updates/version.json 读取历史版本并生成补丁
+  - 补丁文件会自动生成并保存到输出目录
+        '''
     )
     
-    parser.add_argument('--new-version', '-v', help='新版本号')
-    parser.add_argument('--new-file', '-n', help='新版本文件路径')
-    parser.add_argument('--old-versions', '-o', nargs='+', help='旧版本文件路径')
-    parser.add_argument('--release-notes', '-r', default='', help='更新说明')
-    parser.add_argument('--output-dir', '-d', default='./updates', help='输出目录')
-    parser.add_argument('--upload-server', '-s', help='上传服务器 (user@host)')
-    parser.add_argument('--upload-path', '-p', help='服务器路径')
-    parser.add_argument('--interactive', '-i', action='store_true', help='交互式模式')
+    parser.add_argument('new_file', 
+                       help='新版本文件路径 (如 dist/XexunRTT_v2.5.exe)')
+    parser.add_argument('--notes', '-n', 
+                       help='更新说明')
+    parser.add_argument('--output', '-o', 
+                       default='updates',
+                       help='输出目录 (默认: updates)')
+    parser.add_argument('--max-patches', '-m', 
+                       type=int, 
+                       default=3,
+                       help='最多保留的补丁数量 (默认: 3)')
     
     args = parser.parse_args()
     
-    # 如果没有必需参数,进入交互模式
-    if args.interactive or not (args.new_version and args.new_file):
-        success = interactive_mode()
-    else:
-        success = deploy_update(
-            new_version=args.new_version,
-            new_file=Path(args.new_file),
-            old_versions=args.old_versions or [],
-            release_notes=args.release_notes,
-            output_dir=Path(args.output_dir),
-            upload_server=args.upload_server,
-            upload_path=args.upload_path
-        )
+    # 执行部署
+    success = deploy_update(
+        new_file=Path(args.new_file),
+        release_notes=args.notes,
+        output_dir=Path(args.output),
+        max_patches=args.max_patches
+    )
     
     return 0 if success else 1
 
 
 if __name__ == '__main__':
     sys.exit(main())
-
