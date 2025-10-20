@@ -276,8 +276,8 @@ a = Analysis(
         # 'base64',  # ❌ 不要排除，PySide6/shiboken6依赖它
         'binhex',
         # 'binascii',  # ❌ 不要排除，base64依赖它
-        'quopri',
-        'uu',
+        # 'quopri',  # ❌ 不要排除，email 依赖它
+        # 'uu',  # ❌ 不要排除，email 可能需要它
         'html',
         'xml.dom',
         'xml.sax',
