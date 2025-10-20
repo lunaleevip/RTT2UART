@@ -1489,6 +1489,46 @@ class RTTMainWindow(QMainWindow):
         # self.turbo_mode_action.triggered.connect(self.toggle_turbo_mode)
         # tools_menu.addAction(self.turbo_mode_action)
         
+        # Language 菜单（固定不翻译）
+        self.language_menu = menubar.addMenu("Language")
+        
+        # 创建语言动作组（用于单选）
+        self.language_action_group = QActionGroup(self)
+        self.language_action_group.setExclusive(True)
+        
+        # 当前语言设置
+        current_language = self.connection_dialog.config.get_language()
+        
+        # English
+        self.action_en = QAction("English", self)
+        self.action_en.setCheckable(True)
+        self.action_en.setData("en_US")
+        if current_language == "en_US":
+            self.action_en.setChecked(True)
+        self.action_en.triggered.connect(lambda: self._change_language("en_US"))
+        self.language_action_group.addAction(self.action_en)
+        self.language_menu.addAction(self.action_en)
+        
+        # 中文（简体）
+        self.action_zh_cn = QAction("中文（简体）", self)
+        self.action_zh_cn.setCheckable(True)
+        self.action_zh_cn.setData("zh_CN")
+        if current_language == "zh_CN":
+            self.action_zh_cn.setChecked(True)
+        self.action_zh_cn.triggered.connect(lambda: self._change_language("zh_CN"))
+        self.language_action_group.addAction(self.action_zh_cn)
+        self.language_menu.addAction(self.action_zh_cn)
+        
+        # 中文（繁体）
+        self.action_zh_tw = QAction("中文（繁體）", self)
+        self.action_zh_tw.setCheckable(True)
+        self.action_zh_tw.setData("zh_TW")
+        if current_language == "zh_TW":
+            self.action_zh_tw.setChecked(True)
+        self.action_zh_tw.triggered.connect(lambda: self._change_language("zh_TW"))
+        self.language_action_group.addAction(self.action_zh_tw)
+        self.language_menu.addAction(self.action_zh_tw)
+        
         # 帮助菜单
         self.help_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Help(&H)"))
         
@@ -1746,6 +1786,41 @@ class RTTMainWindow(QMainWindow):
             # 如果以上方法都失败，使用系统退出
             import sys
             sys.exit(0)
+    
+    def _change_language(self, language: str):
+        """切换界面语言
+        
+        Args:
+            language: 语言代码 ('en_US', 'zh_CN', 'zh_TW')
+        """
+        # 保存语言设置
+        self.connection_dialog.config.set_language(language)
+        self.connection_dialog.config.save_config()
+        
+        # 显示重启提示
+        language_names = {
+            'en_US': 'English',
+            'zh_CN': '中文（简体）',
+            'zh_TW': '中文（繁體）'
+        }
+        
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Information)
+        msg.setWindowTitle("Language")
+        
+        # 根据目标语言显示不同的提示文本
+        if language == 'en_US':
+            msg.setText(f"Language changed to {language_names[language]}")
+            msg.setInformativeText("Please restart the application for the changes to take effect.")
+        elif language == 'zh_CN':
+            msg.setText(f"语言已切换到{language_names[language]}")
+            msg.setInformativeText("请重启应用程序使更改生效。")
+        else:  # zh_TW
+            msg.setText(f"語言已切換到{language_names[language]}")
+            msg.setInformativeText("請重啟應用程式使更改生效。")
+        
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec()
     
     def _show_about(self):
         """显示关于对话框"""
@@ -7955,10 +8030,6 @@ if __name__ == "__main__":
     # Try to load translation files from multiple locations
     translation_loaded = False
     
-    # Check system locale to determine which translation to load
-    locale = QLocale.system()
-    print(f"System locale: {locale.name()}, language: {locale.language()}, country: {locale.country()}")
-    
     # 🔧 获取资源文件路径（支持PyInstaller打包）
     def get_resource_path(filename):
         """获取资源文件的正确路径（支持开发环境和PyInstaller打包环境）"""
@@ -7968,10 +8039,14 @@ if __name__ == "__main__":
         # 开发环境，资源文件在当前目录
         return filename
     
-    # Force Chinese translation for testing, or if system is Chinese
-    force_chinese = True  # 强制使用中文翻译
-    if force_chinese or locale.language() == QLocale.Chinese:
-        # 尝试按优先级加载翻译文件
+    # 🌐 根据配置文件加载对应的语言
+    config_language = config_manager.get_language()
+    print(f"[LANGUAGE] Configured language: {config_language}")
+    
+    # 根据配置的语言加载对应的翻译文件
+    if config_language in ['zh_CN', 'zh_TW']:
+        # 简体中文和繁体中文都使用同一个翻译文件（目前只有简体中文翻译）
+        # TODO: 将来可以为繁体中文提供单独的翻译文件 xexunrtt_zh_TW.qm
         qm_paths = [
             get_resource_path("xexunrtt_complete.qm"),  # PyInstaller或当前目录
             "xexunrtt_complete.qm",  # 当前目录（备用）
@@ -7991,30 +8066,33 @@ if __name__ == "__main__":
         
         if not translation_loaded:
             print("[WARNING] Cannot load Chinese translation file, using English interface")
+    elif config_language == 'en_US':
+        print("[LANGUAGE] Using English interface (no translation file needed)")
     else:
-        print("Using English interface (default).")
+        print(f"[WARNING] Unknown language '{config_language}', using English interface")
 
-    # Load Qt built-in translation files
+    # Load Qt built-in translation files (only for Chinese)
     qt_translator = QTranslator()
     qt_translation_loaded = False
     
-    # 尝试按优先级加载Qt翻译文件
-    qt_qm_paths = [
-        get_resource_path("qt_zh_CN.qm"),  # PyInstaller或当前目录
-        "qt_zh_CN.qm",  # 当前目录（备用）
-        "../Resources/qt_zh_CN.qm",  # Resources目录（macOS）
-        ":/qt_zh_CN.qm"  # Qt资源（备用）
-    ]
-    
-    for qt_qm_path in qt_qm_paths:
-        if qt_translator.load(qt_qm_path):
-            QCoreApplication.installTranslator(qt_translator)
-            qt_translation_loaded = True
-            print(f"[OK] Qt translation loaded successfully: {qt_qm_path}")
-            break
-    
-    if not qt_translation_loaded:
-        print("[WARNING] Cannot load Qt translation file")
+    if config_language in ['zh_CN', 'zh_TW']:
+        # 尝试按优先级加载Qt翻译文件
+        qt_qm_paths = [
+            get_resource_path("qt_zh_CN.qm"),  # PyInstaller或当前目录
+            "qt_zh_CN.qm",  # 当前目录（备用）
+            "../Resources/qt_zh_CN.qm",  # Resources目录（macOS）
+            ":/qt_zh_CN.qm"  # Qt资源（备用）
+        ]
+        
+        for qt_qm_path in qt_qm_paths:
+            if qt_translator.load(qt_qm_path):
+                QCoreApplication.installTranslator(qt_translator)
+                qt_translation_loaded = True
+                print(f"[OK] Qt translation loaded successfully: {qt_qm_path}")
+                break
+        
+        if not qt_translation_loaded:
+            print("[WARNING] Cannot load Qt translation file")
     
     # Create main window
     main_window = RTTMainWindow()

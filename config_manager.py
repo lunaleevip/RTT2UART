@@ -100,7 +100,8 @@ class ConfigManager:
             'window_geometry': '',  # 主窗口几何信息
             'dialog_geometry': '',  # 连接对话框几何信息
             'dpi_scale': 'auto',    # DPI缩放设置: auto或具体数值(0.1-5.0)
-            'regex_filter': 'false' # 正则表达式筛选开关，默认关闭
+            'regex_filter': 'false', # 正则表达式筛选开关，默认关闭
+            'language': 'zh_CN'     # 界面语言: en_US, zh_CN, zh_TW
         }
         
         # 文本编码设置（读取/写入日志与显示）
@@ -598,6 +599,23 @@ class ConfigManager:
     def set_regex_filter(self, enabled: bool):
         """设置全局正则表达式筛选开关（向后兼容）"""
         self.config.set('UI', 'regex_filter', str(enabled).lower())
+    
+    def get_language(self) -> str:
+        """获取界面语言设置"""
+        return self.config.get('UI', 'language', fallback='zh_CN')
+    
+    def set_language(self, language: str):
+        """设置界面语言
+        
+        Args:
+            language: 语言代码，支持 'en_US', 'zh_CN', 'zh_TW'
+        """
+        valid_languages = ['en_US', 'zh_CN', 'zh_TW']
+        if language in valid_languages:
+            self.config.set('UI', 'language', language)
+        else:
+            print(f"Warning: Invalid language '{language}', using default 'zh_CN'")
+            self.config.set('UI', 'language', 'zh_CN')
     
     def get_tab_regex_filter(self, tab_index: int) -> bool:
         """获取指定TAB的正则表达式筛选开关设置"""
