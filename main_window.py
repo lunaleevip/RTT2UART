@@ -1496,8 +1496,8 @@ class RTTMainWindow(QMainWindow):
         self.language_action_group = QActionGroup(self)
         self.language_action_group.setExclusive(True)
         
-        # 当前语言设置
-        current_language = self.connection_dialog.config.get_language()
+        # 当前语言设置（使用全局 config_manager）
+        current_language = config_manager.get_language()
         
         # English
         self.action_en = QAction("English", self)
@@ -1793,9 +1793,9 @@ class RTTMainWindow(QMainWindow):
         Args:
             language: 语言代码 ('en_US', 'zh_CN', 'zh_TW')
         """
-        # 保存语言设置
-        self.connection_dialog.config.set_language(language)
-        self.connection_dialog.config.save_config()
+        # 保存语言设置（使用全局 config_manager）
+        config_manager.set_language(language)
+        config_manager.save_config()
         
         # 显示重启提示
         language_names = {
