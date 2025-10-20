@@ -108,15 +108,35 @@ class AutoUpdater:
     def _get_current_exe(self) -> Path:
         """获取当前可执行文件路径"""
         if getattr(sys, 'frozen', False):
-            # 打包后的exe
+            # 打包后的可执行文件
             return Path(sys.executable)
         else:
             # 开发环境
-            return Path(__file__).parent / "XexunRTT.exe"
+            if sys.platform == "darwin":
+                return Path(__file__).parent / "XexunRTT.app"
+            else:
+                return Path(__file__).parent / "XexunRTT.exe"
+    
+    def _get_app_bundle_path(self) -> Path:
+        """
+        获取 macOS .app 包的根路径
+        
+        例如:
+        可执行文件: /Applications/XexunRTT.app/Contents/MacOS/XexunRTT
+        返回:       /Applications/XexunRTT.app
+        """
+        if sys.platform == "darwin" and getattr(sys, 'frozen', False):
+            # 从 .../Contents/MacOS/XexunRTT 向上3级
+            return self.current_exe.parent.parent.parent
+        else:
+            return self.current_exe
     
     def _calculate_file_hash(self, file_path: Path) -> str:
         """
         计算文件SHA256哈希
+        
+        对于 macOS .app 包，只计算可执行文件的哈希
+        对于 Windows .exe 文件，计算整个文件的哈希
         
         Args:
             file_path: 文件路径
@@ -124,6 +144,21 @@ class AutoUpdater:
         Returns:
             SHA256哈希值
         """
+        # macOS: 如果是 .app 包，只计算可执行文件
+        if sys.platform == "darwin" and file_path.suffix == ".app":
+            exe_path = file_path / "Contents" / "MacOS"
+            # 找到可执行文件（通常与 app 名称相同，去掉 .app 后缀）
+            app_name = file_path.stem  # XexunRTT.app -> XexunRTT
+            exe_file = exe_path / app_name
+            if not exe_file.exists():
+                # 尝试查找第一个可执行文件
+                executables = [f for f in exe_path.iterdir() if f.is_file() and os.access(f, os.X_OK)]
+                if executables:
+                    exe_file = executables[0]
+                else:
+                    raise FileNotFoundError(f"No executable found in {exe_path}")
+            file_path = exe_file
+        
         sha256 = hashlib.sha256()
         with open(file_path, 'rb') as f:
             while chunk := f.read(8192):
@@ -430,20 +465,53 @@ class AutoUpdater:
                 progress_callback(0, 100, "正在下载更新文件...")
             
             temp_dir = Path(tempfile.mkdtemp())
-            new_exe = temp_dir / "XexunRTT_new.exe"
             
-            self._download_file(update_info['full_url'], new_exe,
+            # macOS 使用 ZIP 格式，Windows 使用 EXE
+            if sys.platform == "darwin":
+                download_file = temp_dir / "update.zip"
+            else:
+                download_file = temp_dir / "XexunRTT_new.exe"
+            
+            self._download_file(update_info['full_url'], download_file,
                               update_info['size'], progress_callback)
             
-            # 2. 验证哈希
+            # 2. macOS: 解压 ZIP
+            if sys.platform == "darwin":
+                if progress_callback:
+                    progress_callback(0, 100, "正在解压更新文件...")
+                
+                import zipfile
+                extract_dir = temp_dir / "extracted"
+                extract_dir.mkdir()
+                
+                with zipfile.ZipFile(download_file, 'r') as zf:
+                    zf.extractall(extract_dir)
+                
+                # 找到 .app 包
+                app_bundles = list(extract_dir.glob("*.app"))
+                if not app_bundles:
+                    # 可能在子目录中
+                    app_bundles = list(extract_dir.rglob("*.app"))
+                
+                if not app_bundles:
+                    raise FileNotFoundError("No .app bundle found in ZIP file")
+                
+                new_exe = app_bundles[0]
+                logger.info(f"Found .app bundle: {new_exe.name}")
+            else:
+                new_exe = download_file
+            
+            # 3. 验证哈希
             if progress_callback:
                 progress_callback(0, 100, "正在验证文件完整性...")
             
             new_hash = self._calculate_file_hash(new_exe)
             if new_hash != update_info['hash']:
-                raise ValueError("Hash verification failed")
+                raise ValueError(f"Hash verification failed: expected {update_info['hash'][:16]}..., got {new_hash[:16]}...")
             
-            # 3. 替换旧文件
+            logger.info("✅ Hash verification passed")
+            
+            # 4. 替换旧文件
             if progress_callback:
                 progress_callback(0, 100, "正在安装更新...")
             
@@ -490,18 +558,21 @@ class AutoUpdater:
         替换可执行文件
         
         Args:
-            new_exe: 新的exe路径
+            new_exe: 新的exe路径（Windows: .exe文件，macOS: .app包）
             
         Returns:
             是否成功
         """
         try:
-            # Windows下需要使用批处理脚本来替换正在运行的exe
             if sys.platform == 'win32':
+                # Windows: 使用批处理脚本替换正在运行的exe
                 return self._replace_exe_windows(new_exe)
+            elif sys.platform == 'darwin':
+                # macOS: 替换整个 .app 包
+                return self._replace_app_bundle_macos(new_exe)
             else:
-                # macOS/Linux 可以直接替换
-                backup = self.current_exe.with_suffix('.exe.old')
+                # Linux: 直接替换
+                backup = self.current_exe.with_suffix('.old')
                 if backup.exists():
                     backup.unlink()
                 shutil.copy2(self.current_exe, backup)
@@ -520,6 +591,13 @@ class AutoUpdater:
         创建批处理脚本,在程序退出后执行替换
         """
         try:
+            # 🔧 关键修复：将新文件复制到一个不会被删除的位置
+            # 使用与当前 EXE 相同的目录，避免临时目录被清理
+            permanent_new_exe = self.current_exe.parent / "XexunRTT_new.exe"
+            
+            logger.info(f"Copying new exe to permanent location: {permanent_new_exe}")
+            shutil.copy2(new_exe, permanent_new_exe)
+            
             # 创建更新脚本
             script_path = self.current_exe.parent / "_update.bat"
             
@@ -532,7 +610,7 @@ if exist "{self.current_exe}.old" del /f "{self.current_exe}.old"
 move /y "{self.current_exe}" "{self.current_exe}.old"
 
 echo Installing new version...
-move /y "{new_exe}" "{self.current_exe}"
+move /y "{permanent_new_exe}" "{self.current_exe}"
 
 echo Update completed!
 timeout /t 2 /nobreak > nul
@@ -548,16 +626,76 @@ del /f "%~f0"
             with open(script_path, 'w', encoding='gbk') as f:
                 f.write(script_content)
             
+            logger.info(f"Update script created: {script_path}")
+            logger.info(f"New exe ready at: {permanent_new_exe}")
+            
             # 启动更新脚本
             import subprocess
             subprocess.Popen([str(script_path)], 
                            creationflags=subprocess.CREATE_NEW_CONSOLE,
                            shell=True)
             
+            logger.info("Update script started, application will exit now")
             return True
             
         except Exception as e:
             logger.error(f"Failed to create update script: {e}")
+            return False
+    
+    def _replace_app_bundle_macos(self, new_app: Path) -> bool:
+        """
+        macOS 下替换 .app 包
+        
+        Args:
+            new_app: 新的 .app 包路径（临时目录中解压出来的）
+            
+        Returns:
+            是否成功
+        """
+        try:
+            current_app = self._get_app_bundle_path()
+            backup_app = current_app.parent / f"{current_app.stem}.app.old"
+            
+            logger.info(f"Replacing .app bundle: {current_app}")
+            logger.info(f"Backup location: {backup_app}")
+            
+            # 1. 删除旧备份
+            if backup_app.exists():
+                logger.info("Removing old backup...")
+                shutil.rmtree(backup_app)
+            
+            # 2. 将当前版本重命名为备份
+            logger.info("Creating backup of current version...")
+            shutil.move(str(current_app), str(backup_app))
+            
+            # 3. 复制新版本（保留符号链接）
+            logger.info("Installing new version...")
+            shutil.copytree(new_app, current_app, symlinks=True)
+            
+            # 4. 设置可执行权限
+            exe_path = current_app / "Contents" / "MacOS"
+            for exe_file in exe_path.iterdir():
+                if exe_file.is_file():
+                    os.chmod(exe_file, 0o755)
+                    logger.info(f"Set executable permission: {exe_file.name}")
+            
+            logger.info("✅ .app bundle replaced successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to replace .app bundle: {e}")
+            
+            # 尝试恢复备份
+            if backup_app.exists():
+                try:
+                    logger.info("Attempting to restore from backup...")
+                    if current_app.exists():
+                        shutil.rmtree(current_app)
+                    shutil.move(str(backup_app), str(current_app))
+                    logger.info("✅ Restored from backup")
+                except Exception as restore_error:
+                    logger.error(f"❌ Failed to restore backup: {restore_error}")
+            
             return False
     
     def _compare_versions(self, v1: str, v2: str) -> int:
