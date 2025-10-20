@@ -288,8 +288,8 @@ a = Analysis(
         'netrc',
         'xdrlib',
         'plistlib',
-        'calendar',
-        'mailcap',
+        # 'calendar',  # ❌ 不要排除，email.utils 依赖它
+        # 'mailcap',  # ❌ 不要排除，email 可能需要它
         # 'mimetypes',  # 已在上面注释，不要重复
         'chunk',
         'colorsys',

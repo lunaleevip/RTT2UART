@@ -35,11 +35,14 @@ dependencies = {
         'email.message',
     ],
     'email.charset': [
-        'quopri',  # ← 这个被排除了！
+        'quopri',
     ],
     'email.encoders': [
         'base64',
         'quopri',
+    ],
+    'email.utils': [
+        'calendar',  # ← email.utils 需要！
     ],
     'http.client': [
         'email.parser',
