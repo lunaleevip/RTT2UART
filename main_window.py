@@ -88,13 +88,19 @@ from config_manager import config_manager
 #from performance_test import show_performance_test
 import resources_rc
 
-# 自动更新模块
+# 自动更新模块 - 必须在 try-except 外先导入以确保 PyInstaller 能识别
+import update_dialog  # 先导入模块本身
+import auto_updater   # 确保 auto_updater 也被导入
+
 try:
     from update_dialog import check_for_updates_on_startup
     UPDATE_AVAILABLE = True
+    logger.info("✅ Auto update module loaded successfully")
 except ImportError as e:
     UPDATE_AVAILABLE = False
-    print(f"Warning: 自动更新模块未找到，更新功能将不可用: {e}")
+    logger.error(f"❌ Failed to load auto update module: {e}")
+    import traceback
+    logger.error(f"Traceback:\n{traceback.format_exc()}")
 
 
 # 修复Python控制台编码问题 - 确保UTF-8输出正常显示
