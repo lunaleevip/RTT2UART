@@ -8097,12 +8097,15 @@ if __name__ == "__main__":
     qt_translation_loaded = False
     
     if config_language in ['zh_CN', 'zh_TW']:
+        # 根据语言选择对应的Qt翻译文件
+        qt_translation_file = "qt_zh_CN.qm" if config_language == 'zh_CN' else "qt_zh_TW.qm"
+        
         # 尝试按优先级加载Qt翻译文件
         qt_qm_paths = [
-            get_resource_path("qt_zh_CN.qm"),  # PyInstaller或当前目录
-            "qt_zh_CN.qm",  # 当前目录（备用）
-            "../Resources/qt_zh_CN.qm",  # Resources目录（macOS）
-            ":/qt_zh_CN.qm"  # Qt资源（备用）
+            get_resource_path(qt_translation_file),  # PyInstaller或当前目录
+            qt_translation_file,  # 当前目录（备用）
+            f"../Resources/{qt_translation_file}",  # Resources目录（macOS）
+            f":/{qt_translation_file}"  # Qt资源（备用）
         ]
         
         for qt_qm_path in qt_qm_paths:
@@ -8113,7 +8116,7 @@ if __name__ == "__main__":
                 break
         
         if not qt_translation_loaded:
-            print("[WARNING] Cannot load Qt translation file")
+            print(f"[WARNING] Cannot load Qt translation file: {qt_translation_file}")
     
     # Create main window
     main_window = RTTMainWindow()

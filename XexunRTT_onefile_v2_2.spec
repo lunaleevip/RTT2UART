@@ -50,8 +50,10 @@ a = Analysis(
     pathex=[str(Path.cwd())],
     binaries=pywin32_binaries,
     datas=[
-        ('xexunrtt_complete.qm', '.'),
-        ('qt_zh_CN.qm', '.'),
+        ('xexunrtt_complete.qm', '.'),     # 简体中文应用翻译
+        ('xexunrtt_zh_TW.qm', '.'),        # 繁体中文应用翻译
+        ('qt_zh_CN.qm', '.'),              # Qt 简体中文翻译
+        ('qt_zh_TW.qm', '.'),              # Qt 繁体中文翻译
         ('JLinkDevicesBuildIn.xml', '.'),
     ],
     hiddenimports=[
