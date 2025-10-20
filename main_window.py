@@ -8044,9 +8044,8 @@ if __name__ == "__main__":
     print(f"[LANGUAGE] Configured language: {config_language}")
     
     # 根据配置的语言加载对应的翻译文件
-    if config_language in ['zh_CN', 'zh_TW']:
-        # 简体中文和繁体中文都使用同一个翻译文件（目前只有简体中文翻译）
-        # TODO: 将来可以为繁体中文提供单独的翻译文件 xexunrtt_zh_TW.qm
+    if config_language == 'zh_CN':
+        # 简体中文
         qm_paths = [
             get_resource_path("xexunrtt_complete.qm"),  # PyInstaller或当前目录
             "xexunrtt_complete.qm",  # 当前目录（备用）
@@ -8058,14 +8057,36 @@ if __name__ == "__main__":
             if translator.load(qm_path):
                 QCoreApplication.installTranslator(translator)
                 translation_loaded = True
-                print(f"[OK] Chinese translation loaded successfully: {qm_path}")
+                print(f"[OK] Simplified Chinese translation loaded successfully: {qm_path}")
                 # Test if translation is working
                 test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
                 print(f"翻译测试: 'JLink Debug Log' → '{test_text}'")
                 break
         
         if not translation_loaded:
-            print("[WARNING] Cannot load Chinese translation file, using English interface")
+            print("[WARNING] Cannot load Simplified Chinese translation file, using English interface")
+    
+    elif config_language == 'zh_TW':
+        # 繁体中文
+        qm_paths = [
+            get_resource_path("xexunrtt_zh_TW.qm"),  # PyInstaller或当前目录
+            "xexunrtt_zh_TW.qm",  # 当前目录（备用）
+            "../Resources/xexunrtt_zh_TW.qm",  # Resources目录（macOS）
+            ":/xexunrtt_zh_TW.qm"  # Qt资源（备用）
+        ]
+        
+        for qm_path in qm_paths:
+            if translator.load(qm_path):
+                QCoreApplication.installTranslator(translator)
+                translation_loaded = True
+                print(f"[OK] Traditional Chinese translation loaded successfully: {qm_path}")
+                # Test if translation is working
+                test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
+                print(f"翻譯測試: 'JLink Debug Log' → '{test_text}'")
+                break
+        
+        if not translation_loaded:
+            print("[WARNING] Cannot load Traditional Chinese translation file, using English interface")
     elif config_language == 'en_US':
         print("[LANGUAGE] Using English interface (no translation file needed)")
     else:
