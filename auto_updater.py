@@ -613,13 +613,10 @@ echo Installing new version...
 move /y "{permanent_new_exe}" "{self.current_exe}"
 
 echo Update completed!
-timeout /t 2 /nobreak > nul
-
-echo Starting application...
-start "" "{self.current_exe}"
+echo Please restart the application manually.
+timeout /t 3 /nobreak > nul
 
 echo Cleaning up...
-timeout /t 2 /nobreak > nul
 del /f "%~f0"
 """
             

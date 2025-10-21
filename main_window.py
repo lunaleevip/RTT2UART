@@ -131,7 +131,7 @@ def fix_console_encoding():
             )
     except Exception as e:
         # 如果编码设置失败，至少记录错误
-        print(f"Warning: Failed to set console encoding: {e}")
+        logger.debug(f"Warning: Failed to set console encoding: {e}")
 
 # 立即修复编码问题
 fix_console_encoding()
@@ -924,24 +924,25 @@ class EditableTabBar(QTabBar):
                 return
         super().mousePressEvent(event)
     
-    def tabSizeHint(self, index):
-        """重写标签大小提示，让当前标签优先完整显示"""
-        # 获取原始大小提示
-        size = super().tabSizeHint(index)
-        
-        # 如果是当前标签，保持完整宽度
-        if index == self.currentIndex():
-            return size
-        
-        # 非当前标签，缩小到最小宽度（显示省略号）
-        # 设置最小宽度为字体宽度的3倍（足够显示1-2个字符+省略号）
-        from PySide6.QtGui import QFontMetrics
-        fm = QFontMetrics(self.font())
-        min_width = fm.averageCharWidth() * 4  # 4个字符宽度
-        
-        # 返回最小宽度和原始宽度的较小值
-        size.setWidth(min(size.width(), max(min_width, 40)))
-        return size
+    # 移除 tabSizeHint 重写，恢复原来的自适应行为
+    # def tabSizeHint(self, index):
+    #     """重写标签大小提示，让当前标签优先完整显示"""
+    #     # 获取原始大小提示
+    #     size = super().tabSizeHint(index)
+    #     
+    #     # 如果是当前标签，保持完整宽度
+    #     if index == self.currentIndex():
+    #         return size
+    #     
+    #     # 非当前标签，缩小到最小宽度（显示省略号）
+    #     # 设置最小宽度为字体宽度的3倍（足够显示1-2个字符+省略号）
+    #     from PySide6.QtGui import QFontMetrics
+    #     fm = QFontMetrics(self.font())
+    #     min_width = fm.averageCharWidth() * 4  # 4个字符宽度
+    #     
+    #     # 返回最小宽度和原始宽度的较小值
+    #     size.setWidth(min(size.width(), max(min_width, 40)))
+    #     return size
     
     def mouseDoubleClickEvent(self, event):
         index = self.tabAt(event.pos())
@@ -990,7 +991,7 @@ class EditableTabBar(QTabBar):
                     logger.info(f"[FILTER EDIT] save_config() 调用完成")
                     logger.info("🟡" * 40)
                     
-                    print(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
+                    logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
     def __init__(self):
@@ -1263,11 +1264,11 @@ class RTTMainWindow(QMainWindow):
                 self.ui.tem_switch.setUsesScrollButtons(True)  # 当标签过多时使用滚动按钮
                 self.ui.tem_switch.setElideMode(Qt.ElideRight)  # 标签文本过长时省略显示
                 
-                # 🔧 标签宽度自适应：当前标签优先完整显示
+                # 🔧 标签宽度自适应：恢复原始自适应行为
                 tab_bar = self.ui.tem_switch.tabBar()
                 if tab_bar:
-                    # 设置标签不扩展填充整个空间
-                    tab_bar.setExpanding(False)
+                    # 设置标签扩展填充整个空间（自适应）
+                    tab_bar.setExpanding(True)
                     # 设置允许滚动，让当前标签始终可见
                     tab_bar.setUsesScrollButtons(True)
                     # 设置自动调整当前标签到可见区域
@@ -1580,9 +1581,9 @@ class RTTMainWindow(QMainWindow):
                 # 开发环境，启动新的Python进程
                 subprocess.Popen([sys.executable, "main_window.py"])
                 
-            print("[OK] New window started")
+            logger.debug("[OK] New window started")
         except Exception as e:
-            print(f"[ERROR] Failed to start new window: {e}")
+            logger.debug(f"[ERROR] Failed to start new window: {e}")
             # 显示错误消息
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
@@ -2060,7 +2061,7 @@ class RTTMainWindow(QMainWindow):
             
         try:
             settings = self.connection_dialog.settings
-            print(f"[RESTORE] Scrollbar lock settings: H={settings['lock_h']}, V={settings['lock_v']}")
+            logger.debug(f"[RESTORE] Scrollbar lock settings: H={settings['lock_h']}, V={settings['lock_v']}")
             self.ui.LockH_checkBox.setChecked(settings['lock_h'])
             self.ui.LockV_checkBox.setChecked(settings['lock_v'])
             self.ui.light_checkbox.setChecked(settings['light_mode'])
@@ -2870,6 +2871,9 @@ class RTTMainWindow(QMainWindow):
         
         # 每次切换页面时都确保工具提示设置正确
         self._ensure_correct_tooltips()
+        
+        # 更新窗口标题（显示新的当前标签名称）
+        self.update_window_title()
 
 
     @Slot()
@@ -3801,7 +3805,7 @@ class RTTMainWindow(QMainWindow):
             if self._ui_initialization_complete:
                 self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
                 self.connection_dialog.config.save_config()
-                print(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
+                logger.debug(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
     
     def on_lock_v_changed(self):
         """垂直滚动条锁定状态改变时保存配置"""
@@ -3812,7 +3816,7 @@ class RTTMainWindow(QMainWindow):
             if self._ui_initialization_complete:
                 self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
                 self.connection_dialog.config.save_config()
-                print(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
+                logger.debug(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
     
     
     def _update_jlink_log_style(self):
@@ -3945,6 +3949,45 @@ class RTTMainWindow(QMainWindow):
         self.data_stats_label.setText(
             QCoreApplication.translate("main_window", "Read: {} | Write: {}").format(readed, writed)
         )
+        
+        # 更新窗口标题
+        self.update_window_title()
+    
+    def update_window_title(self):
+        """更新窗口标题，显示连接状态、当前标签页、读写字节数"""
+        title_parts = []
+        try:
+            from version import VERSION, VERSION_NAME, BUILD_TIME
+            title_parts.append(VERSION_NAME + " v" + VERSION)
+        except Exception as e:
+            pass
+
+        # 1. 连接状态和设备信息
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
+            title_parts.append(QCoreApplication.translate("main_window", "已连接 %s") % device_info)
+        else:
+            title_parts.append(QCoreApplication.translate("main_window", "未连接"))
+        
+        # 2. 读写字节统计
+        readed = 0
+        writed = 0
+        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
+            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
+            writed = self.connection_dialog.rtt2uart.write_bytes0
+        
+        title_parts.append(QCoreApplication.translate("main_window", "读取 %10d字节") % readed)
+        title_parts.append(QCoreApplication.translate("main_window", "写入 %4d字节") % writed)
+
+        # 3. 当前标签页名称
+        if hasattr(self, 'ui') and hasattr(self.ui, 'tem_switch'):
+            current_index = self.ui.tem_switch.currentIndex()
+            current_tab_name = self.ui.tem_switch.tabText(current_index)
+            title_parts.append(current_tab_name)
+                
+        # 组合标题
+        title = " | ".join(title_parts)
+        self.setWindowTitle(title)
     
     def update_periodic_task(self):
         
@@ -4255,7 +4298,7 @@ class FindDialog(QDialog):
             self.search_input.addItems(history)
             self.search_input.setCurrentText("")
         except Exception as e:
-            print(f"Failed to load search history: {e}")
+            logger.debug(f"Failed to load search history: {e}")
     
     def save_search_to_history(self, search_text: str):
         """Save search text to history"""
@@ -4269,7 +4312,7 @@ class FindDialog(QDialog):
             self.load_search_history()
             self.search_input.setCurrentText(search_text)
         except Exception as e:
-            print(f"Failed to save search history: {e}")
+            logger.debug(f"Failed to save search history: {e}")
         
     def set_text_edit(self, text_edit):
         """Set text editor to search"""
@@ -4686,7 +4729,7 @@ class ConnectionDialog(QDialog):
                 # 迁移成功后删除旧文件
                 try:
                     os.remove(old_settings_file)
-                    print("旧配置文件已删除")
+                    logger.debug("旧配置文件已删除")
                 except:
                     pass
 
@@ -5021,7 +5064,7 @@ class ConnectionDialog(QDialog):
                 self.ui.comboBox_Port.setCurrentIndex(port_index)
                 
         except Exception as e:
-            print(f"应用配置到UI时出错: {e}")
+            logger.debug(f"应用配置到UI时出错: {e}")
     
     def _save_ui_settings(self):
         """保存当前UI设置到配置"""
@@ -5154,7 +5197,7 @@ class ConnectionDialog(QDialog):
             tab_count = self.main_window.ui.tem_switch.count()
             tab_ready = (tab_count >= MAX_TAB_SIZE)
             if not tab_ready:
-                print(f"[DEBUG] TAB not ready yet, count={tab_count}, expected={MAX_TAB_SIZE}")
+                logger.debug(f"[DEBUG] TAB not ready yet, count={tab_count}, expected={MAX_TAB_SIZE}")
             
         # 临时断开信号连接，避免在更新过程中触发不必要的事件
         # 使用blockSignals更安全的方式
@@ -5419,16 +5462,16 @@ class ConnectionDialog(QDialog):
                 # 🔍 调试信息：显示设备选择详情
                 combo_index = self.ui.comboBox_serialno.currentIndex()
                 combo_text = self.ui.comboBox_serialno.currentText()
-                print(f"[DEBUG] Device selection info:")
-                print(f"   ComboBox索引: {combo_index}")
-                print(f"   ComboBox文本: {combo_text}")
-                print(f"   连接参数: {connect_para}")
-                print(f"   计算的设备索引: {device_index}")
-                print(f"   可用设备数量: {len(self.available_jlinks)}")
+                logger.debug(f"[DEBUG] Device selection info:")
+                logger.debug(f"   ComboBox索引: {combo_index}")
+                logger.debug(f"   ComboBox文本: {combo_text}")
+                logger.debug(f"   连接参数: {connect_para}")
+                logger.debug(f"   计算的设备索引: {device_index}")
+                logger.debug(f"   可用设备数量: {len(self.available_jlinks)}")
                 if self.available_jlinks:
                     for i, dev in enumerate(self.available_jlinks):
                         marker = "=>" if i == device_index else "  "
-                        print(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
+                        logger.debug(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
                 
                 # 🚨 重大BUG修复：清空Worker缓存，防止历史数据写入新文件夹
                 if hasattr(self.main_window, 'append_jlink_log'):
@@ -5471,9 +5514,9 @@ class ConnectionDialog(QDialog):
                     
                     # 🔍 调试信息：确认设备连接
                     device_info = f"USB_{device_index}_{connect_para}" if connect_para else f"USB_{device_index}"
-                    print(f"[DEVICE] Connection confirmed: {device_info}")
-                    print(f"   目标设备: {self.target_device}")
-                    print(f"   连接类型: {self.connect_type}")
+                    logger.debug(f"[DEVICE] Connection confirmed: {device_info}")
+                    logger.debug(f"   目标设备: {self.target_device}")
+                    logger.debug(f"   连接类型: {self.connect_type}")
 
                 self.rtt2uart.start()
                 
@@ -6065,7 +6108,7 @@ class ConnectionDialog(QDialog):
     def _clear_main_window_ui(self):
         """清空主窗口的所有TAB显示内容 - 已禁用，保留旧数据显示"""
         # BUG2修复：新连接时保留窗口旧数据，只清除写入文件的缓冲区
-        print("[INFO] Keep old window data display, only clear file write buffer")
+        logger.debug("[INFO] Keep old window data display, only clear file write buffer")
         pass
 
     def _clear_all_worker_caches(self):
@@ -6081,7 +6124,7 @@ class ConnectionDialog(QDialog):
             if hasattr(worker, 'log_buffers'):
                 cleared_count = len(worker.log_buffers)
                 worker.log_buffers.clear()
-                print(f"[CLEAN] Cleared {cleared_count} log file buffers")
+                logger.debug(f"[CLEAN] Cleared {cleared_count} log file buffers")
             
             
             # 2. BUG1修复：清空字节缓冲区和批量缓冲区，防止残余数据
@@ -6089,13 +6132,13 @@ class ConnectionDialog(QDialog):
                 # 字节缓冲区 - 强制清除，防止残余数据
                 if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
                     if len(worker.byte_buffer[i]) > 0:
-                        print(f"[WARNING] Clear channel {i} byte buffer residual data: {len(worker.byte_buffer[i])} bytes")
+                        logger.debug(f"[WARNING] Clear channel {i} byte buffer residual data: {len(worker.byte_buffer[i])} bytes")
                     worker.byte_buffer[i].clear()
                 
                 # 批量缓冲区
                 if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
                     if len(worker.batch_buffers[i]) > 0:
-                        print(f"[WARNING] Clear channel {i} batch buffer residual data: {len(worker.batch_buffers[i])} items")
+                        logger.debug(f"[WARNING] Clear channel {i} batch buffer residual data: {len(worker.batch_buffers[i])} items")
                     worker.batch_buffers[i].clear()
                 
                 # BUG1修复：清空筛选TAB(17+)的buffers和colored_buffers，避免重复检测失效
@@ -6132,13 +6175,13 @@ class ConnectionDialog(QDialog):
             # 清空筛选TAB(17+)以确保重复检测正常工作
             
             log_msg = QCoreApplication.translate("main_window", "File write cache cleared, channel TABs keep old data, filter TABs cleared")
-            print(f"🎉 {log_msg}")
+            logger.debug(f"🎉 {log_msg}")
             
             if hasattr(self.main_window, 'append_jlink_log'):
                 self.main_window.append_jlink_log(log_msg)
                 
         except Exception as e:
-            print(f"[ERROR] Error clearing Worker cache: {e}")
+            logger.debug(f"[ERROR] Error clearing Worker cache: {e}")
             if hasattr(self.main_window, 'append_jlink_log'):
                 self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Error clearing Worker cache')}: {e}")
 
@@ -6150,7 +6193,7 @@ class ConnectionDialog(QDialog):
             
             # 如果选择的是空项（索引0），跳过
             if current_combo_index <= 0:
-                print("[WARNING] Empty item or invalid index selected, using default value 0")
+                logger.debug("[WARNING] Empty item or invalid index selected, using default value 0")
                 return 0
             
             # ComboBox索引需要减1，因为索引0是空项
@@ -6160,26 +6203,26 @@ class ConnectionDialog(QDialog):
             if 0 <= actual_device_index < len(self.available_jlinks):
                 selected_device = self.available_jlinks[actual_device_index]
                 
-                print(f"[SELECT] ComboBox selection: Index {current_combo_index} -> Device index {actual_device_index}")
-                print(f"   Device: {selected_device['serial']} ({selected_device['product_name']})")
-                print(f"   Connect param: {connect_para}")
+                logger.debug(f"[SELECT] ComboBox selection: Index {current_combo_index} -> Device index {actual_device_index}")
+                logger.debug(f"   Device: {selected_device['serial']} ({selected_device['product_name']})")
+                logger.debug(f"   Connect param: {connect_para}")
                 
                 # 验证序列号是否匹配
                 if selected_device['serial'] == connect_para:
-                    print(f"[OK] Serial number matched, using device index: {actual_device_index} (USB_{actual_device_index})")
+                    logger.debug(f"[OK] Serial number matched, using device index: {actual_device_index} (USB_{actual_device_index})")
                     return actual_device_index
                 else:
-                    print(f"[WARNING] Serial number mismatch: Expected {connect_para}, Got {selected_device['serial']}")
-                    print(f"   Still using ComboBox selected index: {actual_device_index}")
+                    logger.debug(f"[WARNING] Serial number mismatch: Expected {connect_para}, Got {selected_device['serial']}")
+                    logger.debug(f"   Still using ComboBox selected index: {actual_device_index}")
                     return actual_device_index
             else:
-                print(f"[WARNING] Invalid device index: {actual_device_index}, Device count: {len(self.available_jlinks)}")
+                logger.debug(f"[WARNING] Invalid device index: {actual_device_index}, Device count: {len(self.available_jlinks)}")
                 
         except Exception as e:
-            print(f"[ERROR] Failed to get device index: {e}")
+            logger.debug(f"[ERROR] Failed to get device index: {e}")
         
         # 如果出现问题，返回0作为默认值
-        print("[WARNING] Using default index: 0")
+        logger.debug("[WARNING] Using default index: 0")
         return 0
 
     def _detect_jlink_devices(self):
@@ -6482,11 +6525,11 @@ class ConnectionDialog(QDialog):
                         # 不使用星标，直接显示索引和序列号
                         display_text = f"#{device_index} {serial}"
                         self.ui.comboBox_serialno.addItem(display_text, serial)
-                        print(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
+                        logger.debug(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
                     else:
                         display_text = f"#{device_index} {QCoreApplication.translate('main_window', 'Auto Detect')}"
                         self.ui.comboBox_serialno.addItem(display_text, "")
-                        print(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
+                        logger.debug(f"[ADD] Add device to ComboBox: Index {device_index} -> {display_text}")
                 
                 # 恢复之前的选择
                 if current_text:
@@ -6888,7 +6931,7 @@ class ConnectionDialog(QDialog):
                         
                 except Exception as e:
                     # 🔧 异常处理：不再清空缓冲区，只记录错误
-                    print(f"文本更新异常: {e}")  # 调试信息
+                    logger.debug(f"文本更新异常: {e}")  # 调试信息
                 
                 # 📋 使用正确的显示模式：累积显示全部数据
                 # 只清空增量缓冲区（colored_buffers），保留累积缓冲区（buffers）
@@ -6907,9 +6950,9 @@ class ConnectionDialog(QDialog):
                 if self.main_window.ui.LockH_checkBox.isChecked():
                     text_edit.horizontalScrollBar().setValue(hscroll)
             else:
-                print("No QTextEdit found on page:", index)
+                logger.debug("No QTextEdit found on page:", index)
         else:
-            print("Invalid page index or widget type:", index)
+            logger.debug("Invalid page index or widget type:", index)
 
     def clear_current_tab(self):
         """清空当前标签页的内容 - 仅限RTT通道（0-15），不包括ALL窗口"""
@@ -7996,7 +8039,7 @@ if __name__ == "__main__":
             try:
                 if temp_jlink.connected():
                     temp_jlink.close()
-                    print("[EMERGENCY] Force closed JLink connection on exit")
+                    logger.debug("[EMERGENCY] Force closed JLink connection on exit")
             except:
                 pass
         except:
@@ -8016,7 +8059,7 @@ if __name__ == "__main__":
                 os.environ['QT_SCALE_FACTOR'] = str(dpi_value)
                 os.environ['QT_SCREEN_SCALE_FACTORS'] = str(dpi_value)
                 os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '0'
-                print(f"[CONFIG] Setting Qt DPI environment variables: {dpi_value}")
+                logger.debug(f"[CONFIG] Setting Qt DPI environment variables: {dpi_value}")
         except ValueError:
             pass
     
@@ -8041,7 +8084,7 @@ if __name__ == "__main__":
     
     # 🌐 根据配置文件加载对应的语言
     config_language = config_manager.get_language()
-    print(f"[LANGUAGE] Configured language: {config_language}")
+    logger.debug(f"[LANGUAGE] Configured language: {config_language}")
     
     # 根据配置的语言加载对应的翻译文件
     if config_language == 'zh_CN':
@@ -8057,14 +8100,14 @@ if __name__ == "__main__":
             if translator.load(qm_path):
                 QCoreApplication.installTranslator(translator)
                 translation_loaded = True
-                print(f"[OK] Simplified Chinese translation loaded successfully: {qm_path}")
+                logger.debug(f"[OK] Simplified Chinese translation loaded successfully: {qm_path}")
                 # Test if translation is working
                 test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-                print(f"翻译测试: 'JLink Debug Log' → '{test_text}'")
+                logger.debug(f"翻译测试: 'JLink Debug Log' → '{test_text}'")
                 break
         
         if not translation_loaded:
-            print("[WARNING] Cannot load Simplified Chinese translation file, using English interface")
+            logger.debug("[WARNING] Cannot load Simplified Chinese translation file, using English interface")
     
     elif config_language == 'zh_TW':
         # 繁体中文
@@ -8079,18 +8122,18 @@ if __name__ == "__main__":
             if translator.load(qm_path):
                 QCoreApplication.installTranslator(translator)
                 translation_loaded = True
-                print(f"[OK] Traditional Chinese translation loaded successfully: {qm_path}")
+                logger.debug(f"[OK] Traditional Chinese translation loaded successfully: {qm_path}")
                 # Test if translation is working
                 test_text = QCoreApplication.translate("main_window", "JLink Debug Log")
-                print(f"翻譯測試: 'JLink Debug Log' → '{test_text}'")
+                logger.debug(f"翻譯測試: 'JLink Debug Log' → '{test_text}'")
                 break
         
         if not translation_loaded:
-            print("[WARNING] Cannot load Traditional Chinese translation file, using English interface")
+            logger.debug("[WARNING] Cannot load Traditional Chinese translation file, using English interface")
     elif config_language == 'en_US':
-        print("[LANGUAGE] Using English interface (no translation file needed)")
+        logger.debug("[LANGUAGE] Using English interface (no translation file needed)")
     else:
-        print(f"[WARNING] Unknown language '{config_language}', using English interface")
+        logger.debug(f"[WARNING] Unknown language '{config_language}', using English interface")
 
     # Load Qt built-in translation files (only for Chinese)
     qt_translator = QTranslator()
@@ -8112,11 +8155,11 @@ if __name__ == "__main__":
             if qt_translator.load(qt_qm_path):
                 QCoreApplication.installTranslator(qt_translator)
                 qt_translation_loaded = True
-                print(f"[OK] Qt translation loaded successfully: {qt_qm_path}")
+                logger.debug(f"[OK] Qt translation loaded successfully: {qt_qm_path}")
                 break
         
         if not qt_translation_loaded:
-            print(f"[WARNING] Cannot load Qt translation file: {qt_translation_file}")
+            logger.debug(f"[WARNING] Cannot load Qt translation file: {qt_translation_file}")
     
     # Create main window
     main_window = RTTMainWindow()

@@ -9,8 +9,11 @@
 import os
 import configparser
 import json
+import logging
 from typing import Any, List, Dict, Optional
 from PySide6.QtCore import QCoreApplication
+
+logger = logging.getLogger(__name__)
 
 class ConfigManager:
     """配置管理器，使用INI格式保存设置"""
@@ -141,13 +144,13 @@ class ConfigManager:
         if os.path.exists(self.config_file):
             try:
                 self.config.read(self.config_file, encoding='utf-8')
-                print(f"配置文件加载成功: {self.config_file}")
+                logger.debug(f"配置文件加载成功: {self.config_file}")
             except Exception as e:
-                print(f"配置文件加载失败: {e}")
+                logger.debug(f"配置文件加载失败: {e}")
                 # 使用默认设置
                 pass
         else:
-            print(f"配置文件不存在，使用默认设置: {self.config_file}")
+            logger.debug(f"配置文件不存在，使用默认设置: {self.config_file}")
         
         # 🔑 加载后创建快照，用于脏数据检测
         self._last_saved_snapshot = self._create_config_snapshot()
@@ -157,7 +160,7 @@ class ConfigManager:
         try:
             return self.config.getint(section, option, fallback=fallback)
         except ValueError as e:
-            print(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
+            logger.debug(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
             self.config.set(section, option, str(fallback))
             return fallback
     
@@ -166,7 +169,7 @@ class ConfigManager:
         try:
             return self.config.getboolean(section, option, fallback=fallback)
         except ValueError as e:
-            print(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
+            logger.debug(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
             self.config.set(section, option, str(fallback).lower())
             return fallback
     
@@ -175,7 +178,7 @@ class ConfigManager:
         try:
             return self.config.get(section, option, fallback=fallback)
         except Exception as e:
-            print(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
+            logger.debug(f"配置项 [{section}] {option} 值无效: {e}，使用默认值 {fallback}")
             self.config.set(section, option, str(fallback))
             return fallback
     
@@ -252,10 +255,10 @@ class ConfigManager:
                 logger = logging.getLogger(__name__)
                 logger.info(f"[CONFIG SAVE] ✅ 配置保存成功: {self.config_file}")
                 logger.info("🔵" * 40)
-            print(f"配置保存成功: {self.config_file}")
+            logger.debug(f"配置保存成功: {self.config_file}")
             return True
         except Exception as e:
-            print(f"配置保存失败: {e}")
+            logger.debug(f"配置保存失败: {e}")
             return False
 
     # ===========================================
@@ -614,7 +617,7 @@ class ConfigManager:
         if language in valid_languages:
             self.config.set('UI', 'language', language)
         else:
-            print(f"Warning: Invalid language '{language}', using default 'zh_CN'")
+            logger.debug(f"Warning: Invalid language '{language}', using default 'zh_CN'")
             self.config.set('UI', 'language', 'zh_CN')
     
     def get_tab_regex_filter(self, tab_index: int) -> bool:
@@ -718,10 +721,10 @@ class ConfigManager:
                     self._convert_cmd_file_to_utf8(commands)
                     return commands
             except Exception as e:
-                print(f"读取命令历史失败 (GBK): {e}")
+                logger.debug(f"读取命令历史失败 (GBK): {e}")
                 return []
         except Exception as e:
-            print(f"读取命令历史失败: {e}")
+            logger.debug(f"读取命令历史失败: {e}")
             return []
     
     def add_command_to_history(self, command: str):
@@ -749,10 +752,10 @@ class ConfigManager:
                 for cmd in existing_commands:
                     f.write(cmd + '\n')
             
-            print(f"命令已添加到历史记录: {command}")
+            logger.debug(f"命令已添加到历史记录: {command}")
             
         except Exception as e:
-            print(f"保存命令历史失败: {e}")
+            logger.debug(f"保存命令历史失败: {e}")
     
     def _convert_cmd_file_to_utf8(self, commands: List[str]):
         """将命令历史文件从GBK转换为UTF-8编码"""
@@ -761,9 +764,9 @@ class ConfigManager:
             with open(self.cmd_file, 'w', encoding='utf-8') as f:
                 for cmd in commands:
                     f.write(cmd + '\n')
-            print(f"命令历史文件已转换为UTF-8编码: {self.cmd_file}")
+            logger.debug(f"命令历史文件已转换为UTF-8编码: {self.cmd_file}")
         except Exception as e:
-            print(f"转换命令历史文件编码失败: {e}")
+            logger.debug(f"转换命令历史文件编码失败: {e}")
     
     def clear_command_history(self):
         """清空命令历史"""
@@ -772,9 +775,9 @@ class ConfigManager:
             os.makedirs(self.config_dir, exist_ok=True)
             with open(self.cmd_file, 'w', encoding='utf-8') as f:
                 pass  # 创建空文件
-            print("命令历史已清空")
+            logger.debug("命令历史已清空")
         except Exception as e:
-            print(f"清空命令历史失败: {e}")
+            logger.debug(f"清空命令历史失败: {e}")
     
     # ===========================================
     # 查找历史相关方法
@@ -813,7 +816,7 @@ class ConfigManager:
             self.config.set('Find', 'search_history', json.dumps(existing_history, ensure_ascii=False))
             
         except Exception as e:
-            print(f"保存查找历史失败: {e}")
+            logger.debug(f"保存查找历史失败: {e}")
     
     def clear_search_history(self):
         """清空查找历史"""
@@ -821,9 +824,9 @@ class ConfigManager:
             if not self.config.has_section('Find'):
                 self.config.add_section('Find')
             self.config.set('Find', 'search_history', '[]')
-            print("查找历史已清空")
+            logger.debug("查找历史已清空")
         except Exception as e:
-            print(f"清空查找历史失败: {e}")
+            logger.debug(f"清空查找历史失败: {e}")
     
     def get_max_log_size(self) -> int:
         """获取最大日志行数"""
@@ -885,7 +888,7 @@ class ConfigManager:
             with open(pickle_file_path, 'rb') as f:
                 old_settings = pickle.load(f)
             
-            print("开始从pickle格式迁移配置...")
+            logger.debug("开始从pickle格式迁移配置...")
             
             # 迁移各项设置
             if 'device' in old_settings:
@@ -941,11 +944,11 @@ class ConfigManager:
             # 保存迁移后的配置
             self.save_config()
             
-            print("配置迁移完成")
+            logger.debug("配置迁移完成")
             return True
             
         except Exception as e:
-            print(f"配置迁移失败: {e}")
+            logger.debug(f"配置迁移失败: {e}")
             return False
     
     def _migrate_from_app_bundle(self):
@@ -968,7 +971,7 @@ class ConfigManager:
                 
                 # 迁移配置文件
                 if os.path.exists(app_config_file) and not os.path.exists(self.config_file):
-                    print(f"从APP内部迁移配置文件: {app_config_file} -> {self.config_file}")
+                    logger.debug(f"从APP内部迁移配置文件: {app_config_file} -> {self.config_file}")
                     os.makedirs(self.config_dir, exist_ok=True)
                     import shutil
                     shutil.copy2(app_config_file, self.config_file)
@@ -977,13 +980,13 @@ class ConfigManager:
                 
                 # 迁移命令历史文件
                 if os.path.exists(app_cmd_file) and not os.path.exists(self.cmd_file):
-                    print(f"从APP内部迁移命令历史: {app_cmd_file} -> {self.cmd_file}")
+                    logger.debug(f"从APP内部迁移命令历史: {app_cmd_file} -> {self.cmd_file}")
                     os.makedirs(self.config_dir, exist_ok=True)
                     import shutil
                     shutil.copy2(app_cmd_file, self.cmd_file)
                     
         except Exception as e:
-            print(f"配置文件迁移失败: {e}")
+            logger.debug(f"配置文件迁移失败: {e}")
 
 
 # 全局配置管理器实例

@@ -2,14 +2,17 @@
 版本信息配置文件
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 # 应用版本号
-VERSION = "2.4"
+VERSION = "2.4.1"
 
 # 版本名称
 VERSION_NAME = "XexunRTT"
 
 # 编译时期（由 build.py 自动更新，无需手动修改）
-BUILD_TIME = "2025-10-18 15:18:51"
+BUILD_TIME = "2025-10-21 17:47:32"
 
 # 版本描述
 VERSION_DESC = f"{VERSION_NAME} v{VERSION}"
@@ -28,4 +31,4 @@ RTT调试工具
 """
 
 if __name__ == "__main__":
-    print(ABOUT_TEXT)
+    logger.debug(ABOUT_TEXT)
