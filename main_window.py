@@ -1174,6 +1174,9 @@ class RTTMainWindow(QMainWindow):
         # 注册到全局实例管理器（主窗口）
         instance_manager.register_main_window(self)
         
+        # 主窗口标识（用于日志文件夹等）
+        self.window_id = "main"
+        
         # TAB子窗口列表
         self.tab_windows = []
         
@@ -2001,72 +2004,6 @@ class RTTMainWindow(QMainWindow):
             QMessageBox.warning(self,
                 QCoreApplication.translate("main_window", "Error"),
                 QCoreApplication.translate("main_window", "Failed to create split layout:\n{}").format(e))
-    
-    def _create_compact_view_for_instance(self, instance):
-        """为实例创建紧缩视图
-        
-        Args:
-            instance: RTTMainWindow实例
-            
-        Returns:
-            QWidget: 紧缩视图部件
-        """
-        from PySide6.QtWidgets import QVBoxLayout, QLabel, QTextEdit, QPushButton
-        
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(5, 5, 5, 5)
-        
-        # 标题标签
-        instance_type = "Main" if instance_manager.is_main_instance(instance) else "Child"
-        title_label = QLabel(f"[{instance_type}] {instance.window_id[:12]}")
-        title_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
-        layout.addWidget(title_label)
-        
-        # 连接状态标签
-        status_label = QLabel("Disconnected")
-        if instance.connection_dialog and instance.connection_dialog.rtt2uart:
-            device_info = getattr(instance.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            status_label.setText(f"Connected: {device_info}")
-            status_label.setStyleSheet("color: green;")
-        else:
-            status_label.setStyleSheet("color: red;")
-        layout.addWidget(status_label)
-        
-        # 日志预览（只读）
-        log_preview = QTextEdit()
-        log_preview.setReadOnly(True)
-        log_preview.setMaximumHeight(200)
-        
-        # 尝试获取当前TAB的内容
-        try:
-            if hasattr(instance.ui, 'tem_switch'):
-                current_index = instance.ui.tem_switch.currentIndex()
-                current_tab = instance.ui.tem_switch.widget(current_index)
-                if hasattr(current_tab, 'toPlainText'):
-                    content = current_tab.toPlainText()
-                    # 只显示最后100行
-                    lines = content.split('\n')[-100:]
-                    log_preview.setPlainText('\n'.join(lines))
-        except Exception as e:
-            log_preview.setPlainText(f"Failed to load log: {e}")
-        
-        layout.addWidget(log_preview)
-        
-        # 操作按钮
-        button_layout = QHBoxLayout()
-        
-        focus_btn = QPushButton(QCoreApplication.translate("main_window", "Focus"))
-        focus_btn.clicked.connect(lambda: self._focus_instance(instance))
-        button_layout.addWidget(focus_btn)
-        
-        close_btn = QPushButton(QCoreApplication.translate("main_window", "Close"))
-        close_btn.clicked.connect(lambda: instance.close())
-        button_layout.addWidget(close_btn)
-        
-        layout.addLayout(button_layout)
-        
-        return view
     
     def _remove_split(self):
         """移除所有分割窗口"""
