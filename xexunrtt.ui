@@ -23,22 +23,6 @@
     </rect>
    </property>
    <layout class="QGridLayout" name="gridLayout">
-    <item row="2" column="13">
-     <spacer name="horizontalSpacer_8">
-      <property name="orientation">
-       <enum>Qt::Horizontal</enum>
-      </property>
-      <property name="sizeType">
-       <enum>QSizePolicy::Fixed</enum>
-      </property>
-      <property name="sizeHint" stdset="0">
-       <size>
-        <width>13</width>
-        <height>20</height>
-       </size>
-      </property>
-     </spacer>
-    </item>
     <item row="1" column="1" colspan="19">
      <widget class="QComboBox" name="cmd_buffer">
       <property name="sizePolicy">
@@ -81,7 +65,7 @@
       </property>
      </widget>
     </item>
-    <item row="2" column="12">
+    <item row="2" column="13">
      <widget class="QComboBox" name="font_combo">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -99,30 +83,6 @@
        <font>
         <family>Arial</family>
        </font>
-      </property>
-     </widget>
-    </item>
-    <item row="2" column="13">
-     <widget class="QLabel" name="label_fontsize">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>30</width>
-        <height>20</height>
-       </size>
-      </property>
-      <property name="font">
-       <font>
-        <family>Arial</family>
-       </font>
-      </property>
-      <property name="text">
-       <string>Size:</string>
       </property>
      </widget>
     </item>
@@ -353,6 +313,36 @@
       </property>
      </widget>
     </item>
+    <item row="2" column="11">
+     <widget class="QPushButton" name="new_window_button">
+      <property name="font">
+       <font>
+        <family>Arial</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>F10</string>
+      </property>
+      <property name="text">
+       <string>New Window</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="12">
+     <widget class="QCheckBox" name="compact_mode_checkbox">
+      <property name="font">
+       <font>
+        <family>Arial</family>
+       </font>
+      </property>
+      <property name="toolTip">
+       <string>F11</string>
+      </property>
+      <property name="text">
+       <string>Compact Mode</string>
+      </property>
+     </widget>
+    </item>
     <item row="0" column="0" colspan="22">
      <widget class="QTabWidget" name="tem_switch">
       <property name="minimumSize">
@@ -382,30 +372,6 @@
         <string>2</string>
        </attribute>
       </widget>
-     </widget>
-    </item>
-    <item row="2" column="11">
-     <widget class="QLabel" name="label">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>50</width>
-        <height>20</height>
-       </size>
-      </property>
-      <property name="font">
-       <font>
-        <family>Arial</family>
-       </font>
-      </property>
-      <property name="text">
-       <string>Font:</string>
-      </property>
      </widget>
     </item>
     <item row="2" column="21">

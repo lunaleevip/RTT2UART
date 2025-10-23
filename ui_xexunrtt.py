@@ -30,10 +30,6 @@ class Ui_xexun_rtt(object):
         self.gridLayout = QGridLayout(self.layoutWidget)
         self.gridLayout.setObjectName(u"gridLayout")
         self.gridLayout.setContentsMargins(0, 0, 0, 0)
-        self.horizontalSpacer_8 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
-
-        self.gridLayout.addItem(self.horizontalSpacer_8, 2, 13, 1, 1)
-
         self.cmd_buffer = QComboBox(self.layoutWidget)
         self.cmd_buffer.setObjectName(u"cmd_buffer")
         sizePolicy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -65,16 +61,7 @@ class Ui_xexun_rtt(object):
         self.font_combo.setMinimumSize(QSize(80, 20))
         self.font_combo.setFont(font)
 
-        self.gridLayout.addWidget(self.font_combo, 2, 12, 1, 1)
-
-        self.label_fontsize = QLabel(self.layoutWidget)
-        self.label_fontsize.setObjectName(u"label_fontsize")
-        sizePolicy1.setHeightForWidth(self.label_fontsize.sizePolicy().hasHeightForWidth())
-        self.label_fontsize.setSizePolicy(sizePolicy1)
-        self.label_fontsize.setMinimumSize(QSize(30, 20))
-        self.label_fontsize.setFont(font)
-
-        self.gridLayout.addWidget(self.label_fontsize, 2, 13, 1, 1)
+        self.gridLayout.addWidget(self.font_combo, 2, 13, 1, 1)
 
         self.fontsize_box = QSpinBox(self.layoutWidget)
         self.fontsize_box.setObjectName(u"fontsize_box")
@@ -154,6 +141,18 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.restart_app_button, 2, 10, 1, 1)
 
+        self.new_window_button = QPushButton(self.layoutWidget)
+        self.new_window_button.setObjectName(u"new_window_button")
+        self.new_window_button.setFont(font)
+
+        self.gridLayout.addWidget(self.new_window_button, 2, 11, 1, 1)
+
+        self.compact_mode_checkbox = QCheckBox(self.layoutWidget)
+        self.compact_mode_checkbox.setObjectName(u"compact_mode_checkbox")
+        self.compact_mode_checkbox.setFont(font)
+
+        self.gridLayout.addWidget(self.compact_mode_checkbox, 2, 12, 1, 1)
+
         self.tem_switch = QTabWidget(self.layoutWidget)
         self.tem_switch.setObjectName(u"tem_switch")
         self.tem_switch.setMinimumSize(QSize(100, 200))
@@ -166,15 +165,6 @@ class Ui_xexun_rtt(object):
         self.tem_switch.addTab(self.tab_2, "")
 
         self.gridLayout.addWidget(self.tem_switch, 0, 0, 1, 22)
-
-        self.label = QLabel(self.layoutWidget)
-        self.label.setObjectName(u"label")
-        sizePolicy1.setHeightForWidth(self.label.sizePolicy().hasHeightForWidth())
-        self.label.setSizePolicy(sizePolicy1)
-        self.label.setMinimumSize(QSize(50, 20))
-        self.label.setFont(font)
-
-        self.gridLayout.addWidget(self.label, 2, 11, 1, 1)
 
         self.horizontalSpacer_3 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -230,7 +220,6 @@ class Ui_xexun_rtt(object):
         self.dis_connect.setToolTip(QCoreApplication.translate("xexun_rtt", u"F3", None))
 #endif // QT_CONFIG(tooltip)
         self.dis_connect.setText(QCoreApplication.translate("xexun_rtt", u"Disconnect", None))
-        self.label_fontsize.setText(QCoreApplication.translate("xexun_rtt", u"Size:", None))
 #if QT_CONFIG(tooltip)
         self.clear.setToolTip(QCoreApplication.translate("xexun_rtt", u"F4", None))
 #endif // QT_CONFIG(tooltip)
@@ -254,11 +243,18 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.restart_app_button.setText(QCoreApplication.translate("xexun_rtt", u"Restart APP", None))
 #if QT_CONFIG(tooltip)
+        self.new_window_button.setToolTip(QCoreApplication.translate("xexun_rtt", u"F10", None))
+#endif // QT_CONFIG(tooltip)
+        self.new_window_button.setText(QCoreApplication.translate("xexun_rtt", u"New Window", None))
+#if QT_CONFIG(tooltip)
+        self.compact_mode_checkbox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F11", None))
+#endif // QT_CONFIG(tooltip)
+        self.compact_mode_checkbox.setText(QCoreApplication.translate("xexun_rtt", u"Compact Mode", None))
+#if QT_CONFIG(tooltip)
         self.tem_switch.setToolTip(QCoreApplication.translate("xexun_rtt", u"double click filter to write filter text", None))
 #endif // QT_CONFIG(tooltip)
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab), QCoreApplication.translate("xexun_rtt", u"1", None))
         self.tem_switch.setTabText(self.tem_switch.indexOf(self.tab_2), QCoreApplication.translate("xexun_rtt", u"2", None))
-        self.label.setText(QCoreApplication.translate("xexun_rtt", u"Font:", None))
 #if QT_CONFIG(tooltip)
         self.re_connect.setToolTip(QCoreApplication.translate("xexun_rtt", u"F2", None))
 #endif // QT_CONFIG(tooltip)

@@ -1,6 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
     <file>./Jlink_ICON.ico</file>
+    <file>./xexunrtt.ico</file>
     <file>./qt_zh_CN.qm</file>
     <file>./xexunrtt_complete.qm</file>
 </qresource>

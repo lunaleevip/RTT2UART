@@ -91,7 +91,8 @@ class ConfigManager:
         
         # Restart 设置
         self.config['Restart'] = {
-            'method': 'SFR'  # SFR 或 RESET_PIN
+            'method': 'SFR',  # SFR 或 RESET_PIN
+            'format_ram': 'false'  # 重启前是否格式化RAM
         }
         
         # UI界面设置
@@ -207,7 +208,7 @@ class ConfigManager:
             if DEBUG_CONFIG_SAVE:
                 import traceback
                 import logging
-                logger = logging.getLogger(__name__)
+                debug_logger = logging.getLogger(__name__)
                 
                 call_stack = traceback.extract_stack()
                 caller_info = []
@@ -215,20 +216,20 @@ class ConfigManager:
                 for frame in call_stack[-6:-1]:
                     caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
                 
-                logger.info("🔵" * 40)
-                logger.info("[CONFIG SAVE] save_config() 被调用")
-                logger.info(f"[CONFIG SAVE] 调用栈:")
+                debug_logger.info("🔵" * 40)
+                debug_logger.info("[CONFIG SAVE] save_config() 被调用")
+                debug_logger.info(f"[CONFIG SAVE] 调用栈:")
                 for i, caller in enumerate(caller_info, 1):
-                    logger.info(f"[CONFIG SAVE]   {i}. {caller}")
+                    debug_logger.info(f"[CONFIG SAVE]   {i}. {caller}")
                 
                 # 打印当前所有筛选值
-                logger.info(f"[CONFIG SAVE] 当前配置中的筛选值:")
+                debug_logger.info(f"[CONFIG SAVE] 当前配置中的筛选值:")
                 for i in range(17, 33):
                     filter_key = f'filter_{i}'
                     if self.config.has_option('Filters', filter_key):
                         filter_value = self.config.get('Filters', filter_key)
                         if filter_value:
-                            logger.info(f"[CONFIG SAVE]   filter_{i} = '{filter_value}'")
+                            debug_logger.info(f"[CONFIG SAVE]   filter_{i} = '{filter_value}'")
             
             # 🔑 脏数据检测：只有在配置真正改变时才写入文件
             if not force:
@@ -237,9 +238,9 @@ class ConfigManager:
                     # 配置未改变，跳过保存
                     if DEBUG_CONFIG_SAVE:
                         import logging
-                        logger = logging.getLogger(__name__)
-                        logger.info("[CONFIG SAVE] ⏭️ 配置未改变，跳过保存")
-                        logger.info("🔵" * 40)
+                        debug_logger = logging.getLogger(__name__)
+                        debug_logger.info("[CONFIG SAVE] ⏭️ 配置未改变，跳过保存")
+                        debug_logger.info("🔵" * 40)
                     return False
             
             # 配置已改变或强制保存，写入文件
@@ -252,13 +253,13 @@ class ConfigManager:
             
             if DEBUG_CONFIG_SAVE:
                 import logging
-                logger = logging.getLogger(__name__)
-                logger.info(f"[CONFIG SAVE] ✅ 配置保存成功: {self.config_file}")
-                logger.info("🔵" * 40)
-            logger.debug(f"配置保存成功: {self.config_file}")
+                debug_logger = logging.getLogger(__name__)
+                debug_logger.info(f"[CONFIG SAVE] ✅ 配置保存成功: {self.config_file}")
+                debug_logger.info("🔵" * 40)
+            
             return True
         except Exception as e:
-            logger.debug(f"配置保存失败: {e}")
+            logger.error(f"配置保存失败: {e}")
             return False
 
     # ===========================================
@@ -293,6 +294,14 @@ class ConfigManager:
             self.config.set('Restart', 'method', m)
         except Exception:
             pass
+    
+    def get_format_ram_on_restart(self) -> bool:
+        """获取重启前是否格式化RAM设置"""
+        return self._safe_getboolean('Restart', 'format_ram', False)
+    
+    def set_format_ram_on_restart(self, enabled: bool):
+        """设置重启前是否格式化RAM"""
+        self.config.set('Restart', 'format_ram', str(enabled).lower())
     
     # ===========================================
     # 连接设置相关方法

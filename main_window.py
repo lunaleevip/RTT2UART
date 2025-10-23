@@ -373,7 +373,7 @@ class DeviceSelectDialog(QDialog):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
         self.setWindowModality(Qt.ApplicationModal)
         
         # 应用父窗口的主题样式
@@ -879,18 +879,25 @@ class EditableTabBar(QTabBar):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_window = None  # 将在主窗口中设置
+        self.drag_start_pos = None  # 拖动起始位置
+        self.is_dragging = False  # 是否正在拖动
     
     def mousePressEvent(self, event):
         """处理鼠标点击事件，鼠标中键点击清空筛选"""
+        if event.button() == Qt.LeftButton:
+            # 记录左键按下位置，用于拖动检测
+            self.drag_start_pos = event.pos()
+            self.is_dragging = False
+        
         if event.button() == Qt.MiddleButton:
             index = self.tabAt(event.pos())
             if index >= 17:  # 只处理Filters标签
                 # 清空该标签页
                 if self.main_window:
-                    logger.info("🔴" * 40)
-                    logger.info(f"[MIDDLE-CLICK] 用户中键点击清空TAB {index}")
+                    # logger.info("🔴" * 40)
+                    # logger.info(f"[MIDDLE-CLICK] 用户中键点击清空TAB {index}")
                     old_text = self.tabText(index)
-                    logger.info(f"[MIDDLE-CLICK] 原文本: '{old_text}'")
+                    # logger.info(f"[MIDDLE-CLICK] 原文本: '{old_text}'")
                     
                     # 保存当前标签页索引
                     current_index = self.main_window.ui.tem_switch.currentIndex()
@@ -918,11 +925,40 @@ class EditableTabBar(QTabBar):
                     if current_index != index:
                         self.main_window.ui.tem_switch.setCurrentIndex(current_index)
                     
-                    logger.info(f"[MIDDLE-CLICK] Cleared filter TAB {index}")
-                    logger.info("🔴" * 40)
+                    # logger.info(f"[MIDDLE-CLICK] Cleared filter TAB {index}")
+                    # logger.info("🔴" * 40)
                 event.accept()
                 return
         super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """处理鼠标移动事件，实现拖动切换标签"""
+        if event.buttons() & Qt.LeftButton and self.drag_start_pos is not None:
+            # 检测是否开始拖动
+            if not self.is_dragging:
+                # 计算移动距离
+                delta = event.pos() - self.drag_start_pos
+                if abs(delta.x()) > 5 or abs(delta.y()) > 5:  # 移动超过5像素才算拖动
+                    self.is_dragging = True
+            
+            if self.is_dragging:
+                # 获取当前鼠标位置下的标签索引
+                index = self.tabAt(event.pos())
+                if index >= 0:
+                    # 切换到该标签
+                    if self.parent():
+                        self.parent().setCurrentIndex(index)
+                event.accept()
+                return
+        
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """处理鼠标释放事件"""
+        if event.button() == Qt.LeftButton:
+            self.drag_start_pos = None
+            self.is_dragging = False
+        super().mouseReleaseEvent(event)
     
     # 移除 tabSizeHint 重写，恢复原来的自适应行为
     # def tabSizeHint(self, index):
@@ -968,28 +1004,28 @@ class EditableTabBar(QTabBar):
                 
                 # 保存过滤器设置和正则表达式状态
                 if self.main_window and self.main_window.connection_dialog:
-                    logger.info("🟡" * 40)
-                    logger.info(f"[FILTER EDIT] 用户双击编辑TAB {index}")
-                    logger.info(f"[FILTER EDIT] 原文本: '{old_text}'")
-                    logger.info(f"[FILTER EDIT] 新文本: '{new_text}'")
-                    logger.info(f"[FILTER EDIT] 正则: {regex_enabled}")
+                    # logger.info("🟡" * 40)
+                    # logger.info(f"[FILTER EDIT] 用户双击编辑TAB {index}")
+                    # logger.info(f"[FILTER EDIT] 原文本: '{old_text}'")
+                    # logger.info(f"[FILTER EDIT] 新文本: '{new_text}'")
+                    # logger.info(f"[FILTER EDIT] 正则: {regex_enabled}")
                     
                     # 🔑 架构改进：config对象在UI初始化时已包含所有筛选值
                     # 只需要更新当前TAB的值即可
-                    if new_text:
-                        self.main_window.connection_dialog.config.set_filter(index, new_text)
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '{new_text}'")
-                    else:
-                        self.main_window.connection_dialog.config.set_filter(index, "")
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '' (用户清空)")
+                    # if new_text:
+                    #     self.main_window.connection_dialog.config.set_filter(index, new_text)
+                    #     logger.info(f"[FILTER EDIT] Set filter[{index}] = '{new_text}'")
+                    # else:
+                    #     self.main_window.connection_dialog.config.set_filter(index, "")
+                    #     logger.info(f"[FILTER EDIT] Set filter[{index}] = '' (用户清空)")
                     
                     # 🔧 修改：为单个TAB保存正则表达式状态
                     self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
                     
-                    logger.info(f"[FILTER EDIT] 准备调用 save_config()")
+                    # logger.info(f"[FILTER EDIT] 准备调用 save_config()")
                     self.main_window.connection_dialog.config.save_config()
-                    logger.info(f"[FILTER EDIT] save_config() 调用完成")
-                    logger.info("🟡" * 40)
+                    # logger.info(f"[FILTER EDIT] save_config() 调用完成")
+                    # logger.info("🟡" * 40)
                     
                     logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
@@ -1026,7 +1062,7 @@ class RTTMainWindow(QMainWindow):
         
         # 设置主窗口属性
         self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
-        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
         
         # 根据DPI调整窗口大小
         base_width, base_height = 1200, 800
@@ -1044,8 +1080,8 @@ class RTTMainWindow(QMainWindow):
         self.compact_mode = False
         
         # 添加右键菜单支持紧凑模式
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
+        #self.setContextMenuPolicy(Qt.CustomContextMenu)
+        #self.customContextMenuRequested.connect(self._show_context_menu)
         
         # 创建中心部件
         self.central_widget = QWidget()
@@ -1072,6 +1108,13 @@ class RTTMainWindow(QMainWindow):
         self.connection_dialog = ConnectionDialog(self)
         # 连接成功信号
         self.connection_dialog.connection_established.connect(self.on_connection_established)
+        
+        # 从配置恢复格式化RAM设置（在 connection_dialog 创建后）
+        try:
+            format_ram_enabled = self.connection_dialog.config.get_format_ram_on_restart()
+            self.action_format_ram.setChecked(format_ram_enabled)
+        except Exception as e:
+            logger.debug(f"Failed to load format_ram config: {e}")
         
         # 命令历史导航
         self.command_history_index = -1  # 当前历史命令索引，-1表示未选择历史命令
@@ -1348,6 +1391,26 @@ class RTTMainWindow(QMainWindow):
         if hasattr(self.ui, 'restart_app_button'):
             self.ui.restart_app_button.clicked.connect(self.restart_app_execute)
         
+        # 连接新建窗口按钮 (F10)
+        if hasattr(self.ui, 'new_window_button'):
+            self.ui.new_window_button.clicked.connect(self._new_window)
+            # 创建F10快捷键
+            self.action10 = QAction(self)
+            self.action10.setShortcut(QKeySequence("F10"))
+            self.action10.triggered.connect(self._new_window)
+            self.addAction(self.action10)
+        
+        # 连接紧缩模式复选框 (F11)
+        if hasattr(self.ui, 'compact_mode_checkbox'):
+            self.ui.compact_mode_checkbox.stateChanged.connect(self._on_compact_mode_checkbox_changed)
+            # 创建F11快捷键
+            self.action11 = QAction(self)
+            self.action11.setShortcut(QKeySequence("F11"))
+            self.action11.triggered.connect(self._toggle_compact_mode_via_f11)
+            self.addAction(self.action11)
+            # 同步初始状态
+            self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
+        
         # 创建F8快捷键用于切换自动重连
         self.action8 = QAction(self)
         self.action8.setShortcut(QKeySequence("F8"))
@@ -1466,6 +1529,19 @@ class RTTMainWindow(QMainWindow):
         self.action_restart_pin.setChecked(default_method == 'RESET_PIN')
         restart_menu.addAction(self.action_restart_sfr)
         restart_menu.addAction(self.action_restart_pin)
+        
+        # 添加分隔符
+        restart_menu.addSeparator()
+        
+        # 格式化RAM选项
+        self.action_format_ram = QAction(QCoreApplication.translate("main_window", "Format RAM before restart"), self)
+        self.action_format_ram.setCheckable(True)
+        # 注意：初始状态将在 connection_dialog 创建后设置
+        self.action_format_ram.setChecked(False)  # 默认不勾选
+        # 连接信号保存配置
+        self.action_format_ram.toggled.connect(self._on_format_ram_toggled)
+        restart_menu.addAction(self.action_format_ram)
+        
         # F9 触发执行由全局 action9 负责（避免重复快捷键冲突）
         
         # 样式切换动作
@@ -1491,7 +1567,7 @@ class RTTMainWindow(QMainWindow):
         # tools_menu.addAction(self.turbo_mode_action)
         
         # Language 菜单（固定不翻译）
-        self.language_menu = menubar.addMenu("Language")
+        self.language_menu = menubar.addMenu("Language(&L)")
         
         # 创建语言动作组（用于单选）
         self.language_action_group = QActionGroup(self)
@@ -1588,9 +1664,33 @@ class RTTMainWindow(QMainWindow):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
     
-    def _toggle_compact_mode(self):
-        """切换紧凑模式"""
+    def _on_compact_mode_checkbox_changed(self, state):
+        """复选框状态改变时的处理"""
+        # Qt.Checked = 2, Qt.Unchecked = 0
+        should_enable = (state == 2)  # Qt.Checked
+        logger.info(f"[COMPACT MODE] Checkbox changed: state={state}, should_enable={should_enable}, current={self.compact_mode}")
+        # 只有当状态真正不同时才切换
+        if self.compact_mode != should_enable:
+            # 直接设置为目标状态
+            self.compact_mode = should_enable
+            logger.info(f"[COMPACT MODE] Setting compact_mode to: {self.compact_mode}")
+            self._apply_compact_mode_state()
+        else:
+            logger.info(f"[COMPACT MODE] State unchanged, skipping (both are {self.compact_mode})")
+    
+    def _toggle_compact_mode_via_f11(self):
+        """通过F11快捷键切换紧缩模式"""
         self.compact_mode = not self.compact_mode
+        self._apply_compact_mode_state()
+    
+    def _toggle_compact_mode(self):
+        """切换紧凑模式（菜单和其他地方调用）"""
+        self.compact_mode = not self.compact_mode
+        self._apply_compact_mode_state()
+    
+    def _apply_compact_mode_state(self):
+        """应用紧凑模式状态到UI"""
+        logger.info(f"[COMPACT MODE] Applying state: compact_mode={self.compact_mode}")
         
         if self.compact_mode:
             # 进入紧凑模式
@@ -1684,9 +1784,18 @@ class RTTMainWindow(QMainWindow):
                 compact_mode_text = QCoreApplication.translate("main_window", " - Compact Mode")
                 self.setWindowTitle(current_title.replace(compact_mode_text, ""))
         
-        # 更新菜单项状态
+        # 同步所有UI元素状态（阻止信号循环）
+        # 1. 更新菜单项
         if hasattr(self, 'compact_mode_action'):
+            self.compact_mode_action.blockSignals(True)
             self.compact_mode_action.setChecked(self.compact_mode)
+            self.compact_mode_action.blockSignals(False)
+        
+        # 2. 更新UI复选框
+        if hasattr(self.ui, 'compact_mode_checkbox'):
+            self.ui.compact_mode_checkbox.blockSignals(True)
+            self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
+            self.ui.compact_mode_checkbox.blockSignals(False)
     
     def _show_context_menu(self, position):
         """显示右键菜单"""
@@ -1794,29 +1903,55 @@ class RTTMainWindow(QMainWindow):
         Args:
             language: 语言代码 ('en_US', 'zh_CN', 'zh_TW')
         """
-        # 保存语言设置（使用全局 config_manager）
-        config_manager.set_language(language)
-        config_manager.save_config()
+        # 获取当前语言
+        current_language = config_manager.get_language()
         
-        # 显示重启提示
+        # 语言名称映射
         language_names = {
             'en_US': 'English',
             'zh_CN': '中文（简体）',
             'zh_TW': '中文（繁體）'
         }
         
+        # 如果语言没有变化，显示提示后返回
+        if current_language == language:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Information)
+            
+            # 根据当前语言显示不同的标题和提示文本
+            if language == 'en_US':
+                msg.setWindowTitle("Language")
+                msg.setText(f"Current language is already {language_names[language]}")
+            elif language == 'zh_CN':
+                msg.setWindowTitle("语言")
+                msg.setText(f"当前语言已经是{language_names[language]}")
+            else:  # zh_TW
+                msg.setWindowTitle("語言")
+                msg.setText(f"目前語言已經是{language_names[language]}")
+            
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec()
+            return
+        
+        # 保存语言设置（使用全局 config_manager）
+        config_manager.set_language(language)
+        config_manager.save_config()
+        
+        # 显示重启提示
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Information)
-        msg.setWindowTitle("Language")
         
-        # 根据目标语言显示不同的提示文本
+        # 根据目标语言显示不同的标题和提示文本
         if language == 'en_US':
+            msg.setWindowTitle("Language")
             msg.setText(f"Language changed to {language_names[language]}")
             msg.setInformativeText("Please restart the application for the changes to take effect.")
         elif language == 'zh_CN':
+            msg.setWindowTitle("语言")
             msg.setText(f"语言已切换到{language_names[language]}")
             msg.setInformativeText("请重启应用程序使更改生效。")
         else:  # zh_TW
+            msg.setWindowTitle("語言")
             msg.setText(f"語言已切換到{language_names[language]}")
             msg.setInformativeText("請重啟應用程式使更改生效。")
         
@@ -3150,11 +3285,11 @@ class RTTMainWindow(QMainWindow):
             # 3. F4清空不应该修改配置文件
             # F4只是临时清空UI显示和数据缓存，用户可能之后还想恢复筛选值
             # 只有中键清空或双击编辑才会修改配置文件
-            if current_index >= 17:
-                logger.info("🟣" * 40)
-                logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
-                logger.info(f"[F4 CLEAR] 只清空UI显示和数据缓存，不修改配置文件中的筛选值")
-                logger.info("🟣" * 40)
+            # if current_index >= 17:
+            #     logger.info("🟣" * 40)
+            #     logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
+            #     logger.info(f"[F4 CLEAR] 只清空UI显示和数据缓存，不修改配置文件中的筛选值")
+            #     logger.info("🟣" * 40)
             
             # 4. 标记页面为干净状态
             if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
@@ -3851,76 +3986,6 @@ class RTTMainWindow(QMainWindow):
         
         self.jlink_log_text.setStyleSheet(jlink_log_style)
     
-    def _update_ui_translations(self):
-        """更新UI元素的翻译文本"""
-        # 更新窗口标题
-        self.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - RTT Debug Main Window"))
-        
-        # 更新菜单项
-        if hasattr(self, 'connection_menu'):
-            self.connection_menu.setTitle(QCoreApplication.translate("main_window", "Connection(&C)"))
-        if hasattr(self, 'window_menu'):
-            self.window_menu.setTitle(QCoreApplication.translate("main_window", "Window(&W)"))
-        if hasattr(self, 'tools_menu'):
-            self.tools_menu.setTitle(QCoreApplication.translate("main_window", "Tools(&T)"))
-        if hasattr(self, 'help_menu'):
-            self.help_menu.setTitle(QCoreApplication.translate("main_window", "Help(&H)"))
-        
-        # 更新菜单动作
-        if hasattr(self, 'reconnect_action'):
-            self.reconnect_action.setText(QCoreApplication.translate("main_window", "Reconnect(&R)"))
-        if hasattr(self, 'disconnect_action'):
-            self.disconnect_action.setText(QCoreApplication.translate("main_window", "Disconnect(&D)"))
-        if hasattr(self, 'connection_settings_action'):
-            self.connection_settings_action.setText(QCoreApplication.translate("main_window", "Connection Settings(&S)..."))
-        if hasattr(self, 'new_window_action'):
-            self.new_window_action.setText(QCoreApplication.translate("main_window", "New Window(&N)"))
-        if hasattr(self, 'compact_mode_action'):
-            self.compact_mode_action.setText(QCoreApplication.translate("main_window", "Compact Mode(&M)"))
-        if hasattr(self, 'clear_current_page_action'):
-            self.clear_current_page_action.setText(QCoreApplication.translate("main_window", "Clear Current Page(&C)"))
-        if hasattr(self, 'open_log_folder_action'):
-            self.open_log_folder_action.setText(QCoreApplication.translate("main_window", "Open Log Folder(&O)"))
-        if hasattr(self, 'open_config_folder_action'):
-            self.open_config_folder_action.setText(QCoreApplication.translate("main_window", "Open Config Folder(&F)"))
-        if hasattr(self, 'encoding_menu'):
-            self.encoding_menu.setTitle(QCoreApplication.translate("main_window", "Encoding(&E)"))
-        if hasattr(self, 'restart_app_action'):
-            self.restart_app_action.setText(QCoreApplication.translate("main_window", "Restart APP F9(&A)"))
-        if hasattr(self, 'theme_menu'):
-            self.theme_menu.setTitle(QCoreApplication.translate("main_window", "Switch Theme(&T)"))
-        if hasattr(self, 'about_action'):
-            self.about_action.setText(QCoreApplication.translate("main_window", "About(&A)..."))
-        
-        # 更新状态栏
-        if hasattr(self, 'connection_status_label'):
-            current_text = self.connection_status_label.text()
-            if "Connected" in current_text or QCoreApplication.translate("main_window", "Connected") in current_text:
-                # 尝试从当前文本中提取设备信息
-                match = re.search(r'(USB_\d+(_\w+)?)$', current_text)
-                device_info = match.group(1) if match else ""
-                if device_info:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
-                else:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
-            else:
-                self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
-        
-        # 更新JLink日志区域的文本
-        if hasattr(self, 'jlink_log_widget'):
-            title_label = self.jlink_log_widget.findChild(QLabel)
-            if title_label:
-                title_label.setText(QCoreApplication.translate("main_window", "JLink Debug Log"))
-            
-            if hasattr(self, 'clear_jlink_log_btn'):
-                self.clear_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Clear Log"))
-            
-            if hasattr(self, 'toggle_jlink_log_btn'):
-                if self.toggle_jlink_log_btn.isChecked():
-                    self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Disable Verbose Log"))
-                else:
-                    self.toggle_jlink_log_btn.setText(QCoreApplication.translate("main_window", "Enable Verbose Log"))
-        
     def on_cmd_buffer_activated(self, index):
         text = self.ui.cmd_buffer.currentText()
         if text:  # 如果文本不为空
@@ -3965,9 +4030,9 @@ class RTTMainWindow(QMainWindow):
         # 1. 连接状态和设备信息
         if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
             device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            title_parts.append(QCoreApplication.translate("main_window", "已连接 %s") % device_info)
+            title_parts.append(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
         else:
-            title_parts.append(QCoreApplication.translate("main_window", "未连接"))
+            title_parts.append(QCoreApplication.translate("main_window", "Disconnected"))
         
         # 2. 读写字节统计
         readed = 0
@@ -3976,8 +4041,8 @@ class RTTMainWindow(QMainWindow):
             readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
             writed = self.connection_dialog.rtt2uart.write_bytes0
         
-        title_parts.append(QCoreApplication.translate("main_window", "读取 %10d字节") % readed)
-        title_parts.append(QCoreApplication.translate("main_window", "写入 %4d字节") % writed)
+        title_parts.append(QCoreApplication.translate("main_window", "Read: %10d bytes") % readed)
+        title_parts.append(QCoreApplication.translate("main_window", "Write: %4d bytes") % writed)
 
         # 3. 当前标签页名称
         if hasattr(self, 'ui') and hasattr(self.ui, 'tem_switch'):
@@ -4076,6 +4141,162 @@ class RTTMainWindow(QMainWindow):
         # 与 F9 行为保持一致：根据子菜单选择执行重启
         self.restart_app_execute()
 
+    def _on_format_ram_toggled(self, checked):
+        """格式化RAM选项切换时保存配置"""
+        try:
+            if self.connection_dialog:
+                self.connection_dialog.config.set_format_ram_on_restart(checked)
+                self.connection_dialog.config.save_config()
+        except Exception as e:
+            logger.error(f"Failed to save format RAM config: {e}")
+    
+    def _get_device_ram_info(self):
+        """从JLink设备配置中获取RAM地址和大小
+        
+        Returns:
+            tuple: (ram_start_addr, ram_size) 或 (None, None) 如果获取失败
+        """
+        try:
+            # 从ConnectionDialog获取当前选中的设备名称
+            if not self.connection_dialog:
+                return None, None
+            
+            device_name = self.connection_dialog.target_device
+            if not device_name:
+                # 尝试从comboBox获取
+                try:
+                    device_name = self.connection_dialog.ui.comboBox_Device.currentText()
+                except:
+                    pass
+            
+            if not device_name:
+                logger.warning("No device name available for RAM info lookup")
+                return None, None
+            
+            logger.info(f"Looking up RAM info for device: {device_name}")
+            
+            # 解析JLink设备数据库文件
+            import xml.etree.ElementTree as ET
+            xml_path = 'JLinkDevicesBuildIn.xml'
+            
+            try:
+                with open(xml_path, 'r', encoding='utf-8') as f:
+                    tree = ET.ElementTree(file=f)
+            except UnicodeDecodeError:
+                with open(xml_path, 'r', encoding='iso-8859-1') as f:
+                    tree = ET.ElementTree(file=f)
+            
+            # 查找设备信息
+            for VendorInfo in tree.findall('VendorInfo'):
+                for DeviceInfo in VendorInfo.findall('DeviceInfo'):
+                    if DeviceInfo.attrib.get('Name') == device_name:
+                        # 获取RAM起始地址和大小
+                        ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
+                        ram_size = DeviceInfo.attrib.get('WorkRAMSize')
+                        
+                        if ram_start and ram_size:
+                            # 转换为整数
+                            ram_start_addr = int(ram_start, 16)
+                            ram_size_bytes = int(ram_size, 16)
+                            logger.info(f"Found RAM info for {device_name}: addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
+                            return ram_start_addr, ram_size_bytes
+                        else:
+                            logger.warning(f"Device {device_name} found but no RAM info (WorkRAMStartAddr={ram_start}, WorkRAMSize={ram_size})")
+                            return None, None
+                    
+                    # 检查别名
+                    for AliasInfo in DeviceInfo.findall('AliasInfo'):
+                        if AliasInfo.attrib.get('Name') == device_name:
+                            ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
+                            ram_size = DeviceInfo.attrib.get('WorkRAMSize')
+                            
+                            if ram_start and ram_size:
+                                ram_start_addr = int(ram_start, 16)
+                                ram_size_bytes = int(ram_size, 16)
+                                logger.info(f"Found RAM info for {device_name} (via alias): addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
+                                return ram_start_addr, ram_size_bytes
+                            else:
+                                logger.warning(f"Device {device_name} found via alias but no RAM info")
+                                return None, None
+            
+            logger.warning(f"Device {device_name} not found in JLink device database")
+            return None, None
+            
+        except Exception as e:
+            logger.error(f"Failed to get device RAM info: {e}")
+            return None, None
+    
+    def _format_ram(self):
+        """格式化RAM（清零）
+        
+        Returns:
+            bool: 成功返回True，失败返回False
+        """
+        try:
+            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+                return False
+            
+            jlink = self.connection_dialog.rtt2uart.jlink
+            
+            # 获取设备名称用于日志显示
+            device_name = self.connection_dialog.target_device if self.connection_dialog else "Unknown"
+            if not device_name:
+                try:
+                    device_name = self.connection_dialog.ui.comboBox_Device.currentText()
+                except:
+                    device_name = "Unknown"
+            
+            # 获取RAM信息
+            ram_start, ram_size = self._get_device_ram_info()
+            
+            if ram_start is None or ram_size is None:
+                self.append_jlink_log(QCoreApplication.translate("main_window", "⚠ Cannot get RAM info for device '%s', skipping RAM format") % device_name)
+                return False
+            
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Starting RAM format: 0x%08X, size: %d bytes") % (ram_start, ram_size))
+            
+            # 分块清除RAM（每次4KB）
+            block_size = 4096
+            total_blocks = (ram_size + block_size - 1) // block_size
+            cleared_size = 0
+            
+            try:
+                jlink.halt()
+            except Exception:
+                pass
+            
+            for i in range(total_blocks):
+                offset = i * block_size
+                current_addr = ram_start + offset
+                current_size = min(block_size, ram_size - offset)
+                
+                try:
+                    # 创建全零数据块
+                    zero_data = [0] * (current_size // 4)  # memory_write32需要32位数据
+                    jlink.memory_write32(current_addr, zero_data)
+                    cleared_size += current_size
+                    
+                    # 每清除1/4进度输出一次日志
+                    if (i + 1) % (max(1, total_blocks // 4)) == 0 or i == total_blocks - 1:
+                        progress = (cleared_size * 100) // ram_size
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "RAM format progress: %d%%") % progress)
+                    
+                except Exception as e:
+                    # 遇到错误时显示警告并完成操作
+                    error_msg = QCoreApplication.translate("main_window", "⚠ RAM format failed at 0x%08X: %s\nCleared %d/%d bytes") % (current_addr, str(e), cleared_size, ram_size)
+                    self.append_jlink_log(error_msg)
+                    logger.warning(f"RAM format failed at 0x{current_addr:08X}: {e}")
+                    return cleared_size > 0  # 如果清除了部分内存，仍然返回True
+            
+            self.append_jlink_log(QCoreApplication.translate("main_window", "✓ RAM format completed: %d bytes cleared") % cleared_size)
+            return True
+            
+        except Exception as e:
+            error_msg = QCoreApplication.translate("main_window", "RAM format error: %s") % str(e)
+            self.append_jlink_log(error_msg)
+            logger.error(f"RAM format error: {e}")
+            return False
+    
     def restart_app_via_sfr(self):
         """通过SFR访问触发固件重启（需保持连接）"""
         try:
@@ -4146,6 +4367,14 @@ class RTTMainWindow(QMainWindow):
                     self.connection_dialog.config.save_config()
             except Exception:
                 pass
+            
+            # 检查是否需要格式化RAM
+            format_ram_enabled = hasattr(self, 'action_format_ram') and self.action_format_ram.isChecked()
+            if format_ram_enabled:
+                self.append_jlink_log(QCoreApplication.translate("main_window", "--- Format RAM before restart ---"))
+                self._format_ram()
+            
+            # 执行重启
             if selected_sfr:
                 self.restart_app_via_sfr()
             else:
@@ -4265,6 +4494,7 @@ class FindDialog(QDialog):
         self.find_next_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find Next"))
         self.find_prev_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find Previous"))
         self.find_all_btn = QPushButton(QCoreApplication.translate("FindDialog", "Find All"))
+        self.count_btn = QPushButton(QCoreApplication.translate("FindDialog", "Count"))
         self.highlight_all_btn = QPushButton(QCoreApplication.translate("FindDialog", "Highlight All"))
         self.clear_highlight_btn = QPushButton(QCoreApplication.translate("FindDialog", "Clear Highlight"))
         self.close_btn = QPushButton(QCoreApplication.translate("FindDialog", "Close"))
@@ -4272,11 +4502,20 @@ class FindDialog(QDialog):
         button_layout.addWidget(self.find_next_btn)
         button_layout.addWidget(self.find_prev_btn)
         button_layout.addWidget(self.find_all_btn)
+        button_layout.addWidget(self.count_btn)
         button_layout.addWidget(self.highlight_all_btn)
         button_layout.addWidget(self.clear_highlight_btn)
         button_layout.addStretch()
         button_layout.addWidget(self.close_btn)
         layout.addLayout(button_layout)
+        
+        # Count result label (bottom left)
+        count_layout = QHBoxLayout()
+        self.count_label = QLabel("")
+        self.count_label.setStyleSheet("color: #0066cc; font-weight: bold;")
+        count_layout.addWidget(self.count_label)
+        count_layout.addStretch()
+        layout.addLayout(count_layout)
         
     def setup_connections(self):
         """Setup signal connections"""
@@ -4285,6 +4524,7 @@ class FindDialog(QDialog):
         self.find_next_btn.clicked.connect(self.find_next)
         self.find_prev_btn.clicked.connect(self.find_previous)
         self.find_all_btn.clicked.connect(self.find_all)
+        self.count_btn.clicked.connect(self.count_matches)
         self.highlight_all_btn.clicked.connect(self.highlight_all)
         self.clear_highlight_btn.clicked.connect(self.clear_highlights)
         self.close_btn.clicked.connect(self.close)
@@ -4544,6 +4784,54 @@ class FindDialog(QDialog):
         if self.text_edit:
             self.text_edit.setExtraSelections([])
         self.highlights = []
+    
+    def count_matches(self):
+        """统计匹配数量并显示在左下角"""
+        if not self.text_edit:
+            return
+            
+        search_text = self.search_input.currentText()
+        if not search_text:
+            self.count_label.setText(QCoreApplication.translate("FindDialog", "Please enter search text"))
+            return
+        
+        # Build search flags
+        from PySide6.QtGui import QTextDocument
+        from PySide6.QtCore import QRegularExpression
+        flags = QTextDocument.FindFlag(0)
+        if self.case_sensitive.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if self.whole_word.isChecked():
+            flags |= QTextDocument.FindFlag.FindWholeWords
+        
+        # Count matches
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        
+        count = 0
+        while True:
+            if self.regex_mode.isChecked():
+                # Regex search
+                pattern_options = QRegularExpression.PatternOption.NoPatternOption
+                if not self.case_sensitive.isChecked():
+                    pattern_options = QRegularExpression.PatternOption.CaseInsensitiveOption
+                regex = QRegularExpression(search_text, pattern_options)
+                cursor = self.text_edit.document().find(regex, cursor, flags)
+            else:
+                # Plain text search
+                cursor = self.text_edit.document().find(search_text, cursor, flags)
+            
+            if cursor.isNull():
+                break
+            count += 1
+        
+        # Display result
+        if count == 0:
+            self.count_label.setText(QCoreApplication.translate("FindDialog", "No matches found"))
+        elif count == 1:
+            self.count_label.setText(QCoreApplication.translate("FindDialog", "Found 1 match"))
+        else:
+            self.count_label.setText(QCoreApplication.translate("FindDialog", "Found %n matches", "", count))
         
     def showEvent(self, event):
         """Handle dialog show event"""
@@ -4705,7 +4993,7 @@ class ConnectionDialog(QDialog):
         self.ui = Ui_ConnectionDialog()
         self.ui.setupUi(self)
 
-        self.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
         self.setWindowTitle(QCoreApplication.translate("main_window", "Connection Configuration"))
         self.setWindowModality(Qt.ApplicationModal)
         
@@ -6297,7 +6585,7 @@ class ConnectionDialog(QDialog):
         """创建JLINK设备选择对话框"""
         dialog = QDialog(self)
         dialog.setWindowTitle(QCoreApplication.translate("main_window", "Select J-Link Device"))
-        dialog.setWindowIcon(QIcon(":/Jlink_ICON.ico"))
+        dialog.setWindowIcon(QIcon(":/xexunrtt.ico"))
         dialog.setModal(True)
         dialog.resize(500, 350)
         
@@ -6488,12 +6776,12 @@ class ConnectionDialog(QDialog):
     def _refresh_jlink_devices(self):
         """刷新JLINK设备列表"""
         #logger.info("🔄" * 40)
-        logger.info("[REFRESH JLINK] 用户点击刷新按钮")
+        # logger.info("[REFRESH JLINK] 用户点击刷新按钮")
         try:
             # 检查ComboBox是否存在
             if not hasattr(self.ui, 'comboBox_serialno'):
                 logger.warning("ComboBox未找到，跳过设备列表刷新")
-                logger.info("🔄" * 40)
+                # logger.info("🔄" * 40)
                 return
             
             # 重新检测设备
@@ -7777,23 +8065,50 @@ class Worker(QObject):
             self.refresh_count = 0
             self.last_log_time = current_time
 
-    def _highlight_filter_text(self, line, search_word):
-        """为筛选文本添加高亮显示"""
+    def _highlight_filter_text(self, line, search_word, compiled_pattern=None, is_regex=False):
+        """为筛选文本添加高亮显示
+        
+        Args:
+            line: 要处理的文本行
+            search_word: 搜索词（用于普通匹配）
+            compiled_pattern: 预编译的正则表达式模式（用于正则匹配）
+            is_regex: 是否使用正则表达式匹配
+        """
         try:
-            if not search_word or search_word.lower() not in line.lower():
-                return line
-            
             # 🎨 使用明亮黄色背景 + 黑色文字高亮筛选关键词 - 增强对比度
             highlight_start = '\x1B[43;30m'  # 明亮黄色背景 + 黑色文字
             highlight_end = '\x1B[0m'        # 重置所有格式
             
-            # 🎨 大小写不敏感匹配和替换
-            import re
-            # 使用正则表达式进行大小写不敏感的替换，保持原文本的大小写
-            pattern = re.escape(search_word)
-            highlighted_line = re.sub(pattern, f"{highlight_start}\\g<0>{highlight_end}", line, flags=re.IGNORECASE)
-            
-            return highlighted_line
+            if is_regex and compiled_pattern is not None:
+                # 正则表达式高亮：找到所有匹配并高亮
+                matches = list(compiled_pattern.finditer(line))
+                if not matches:
+                    return line
+                
+                # 从后往前替换，避免索引偏移问题
+                highlighted_line = line
+                for match in reversed(matches):
+                    start, end = match.span()
+                    matched_text = highlighted_line[start:end]
+                    highlighted_line = (
+                        highlighted_line[:start] + 
+                        f"{highlight_start}{matched_text}{highlight_end}" + 
+                        highlighted_line[end:]
+                    )
+                
+                return highlighted_line
+            else:
+                # 普通字符串高亮：大小写不敏感匹配
+                if not search_word or search_word.lower() not in line.lower():
+                    return line
+                
+                # 使用正则表达式进行大小写不敏感的替换，保持原文本的大小写
+                import re
+                pattern = re.escape(search_word)
+                highlighted_line = re.sub(pattern, f"{highlight_start}\\g<0>{highlight_end}", line, flags=re.IGNORECASE)
+                
+                return highlighted_line
+                
         except Exception:
             # 如果高亮失败，返回原始行
             return line
@@ -7861,8 +8176,8 @@ class Worker(QObject):
                         
                         # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
                         if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
-                            # 创建带高亮的彩色数据
-                            highlighted_line = self._highlight_filter_text(line, search_word)
+                            # 创建带高亮的彩色数据（传递正则表达式参数）
+                            highlighted_line = self._highlight_filter_text(line, search_word, compiled_pattern, is_regex)
                             highlighted_data = highlighted_line + '\n'
                             self._append_to_colored_buffer(i, highlighted_data)
                         
@@ -7886,6 +8201,7 @@ class Worker(QObject):
                         continue
                     
                     # 根据是否有编译的正则模式决定匹配方式
+                    is_regex = compiled_pattern is not None
                     if compiled_pattern is not None:
                         # 正则表达式匹配
                         match_found = compiled_pattern.search(line) is not None
@@ -7903,8 +8219,8 @@ class Worker(QObject):
                         
                         # 🎨 处理彩色筛选数据 - 保持ANSI颜色格式
                         if hasattr(self, 'colored_buffers') and len(self.colored_buffers) > i:
-                            # 创建带高亮的彩色数据
-                            highlighted_line = self._highlight_filter_text(line, search_word)
+                            # 创建带高亮的彩色数据（传递正则表达式参数）
+                            highlighted_line = self._highlight_filter_text(line, search_word, compiled_pattern, is_regex)
                             highlighted_data = highlighted_line + '\n'
                             self._append_to_colored_buffer(i, highlighted_data)
                         

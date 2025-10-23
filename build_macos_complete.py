@@ -269,7 +269,7 @@ def create_complete_package(source_dir, output_dir):
     create_info_plist(app_path)
     
     # 3. 处理图标
-    convert_icon_to_icns("Jlink_ICON.ico", app_path)
+    convert_icon_to_icns("xexunrtt.ico", app_path)
     
     # 4. 创建启动脚本
     create_macos_launch_script(app_path)

@@ -76,9 +76,12 @@ echo "🔧 设置可执行权限..."
 chmod +x "$APP_DIR/Contents/MacOS/XexunRTT"
 
 # 复制图标（如果存在）
-if [ -f "Jlink_ICON.ico" ]; then
+if [ -f "XexunRTT.icns" ]; then
+    echo "🎨 复制图标..."
+    cp "XexunRTT.icns" "$APP_DIR/Contents/Resources/XexunRTT.icns"
+elif [ -f "xexunrtt.ico" ]; then
     echo "🎨 转换并复制图标..."
-    sips -s format icns Jlink_ICON.ico --out "$APP_DIR/Contents/Resources/XexunRTT.icns" 2>/dev/null || echo "⚠️ 图标转换失败，使用默认图标"
+    sips -s format icns xexunrtt.ico --out "$APP_DIR/Contents/Resources/XexunRTT.icns" 2>/dev/null || echo "⚠️ 图标转换失败，使用默认图标"
 fi
 
 echo "✅ 应用程序包创建完成：$APP_DIR"

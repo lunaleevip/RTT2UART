@@ -335,6 +335,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='Jlink_ICON.ico',
+    icon='xexunrtt.ico',
     version=f'version_info_v{VERSION}.txt'
 )
