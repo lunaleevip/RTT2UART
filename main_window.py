@@ -1231,13 +1231,9 @@ class RTTMainWindow(QMainWindow):
         # 初始化时禁用RTT相关功能，直到连接成功
         self._set_rtt_controls_enabled(False)
         
-        # 先设置原有的UI（不包含TAB区域，TAB区域将在独立窗口中显示）
+        # 设置原有的UI
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self.central_widget)
-        
-        # 隐藏主窗口的TAB控件（TAB将在独立窗口中显示）
-        if hasattr(self.ui, 'tem_switch'):
-            self.ui.tem_switch.setVisible(False)
         
         # 自动重连相关变量
         self.manual_disconnect = False  # 是否为手动断开
@@ -2631,9 +2627,6 @@ class RTTMainWindow(QMainWindow):
                     
             # 应用样式
             self.set_style()
-            
-            # 创建默认的第一个TAB窗口
-            self._create_default_tab_window()
         except Exception as e:
             logger.warning(f'Failed to apply saved settings: {e}')
     
