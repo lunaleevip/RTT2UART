@@ -2771,6 +2771,9 @@ class RTTMainWindow(QMainWindow):
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
+        # 🔒 强制设置应用程序退出标志
+        QApplication.instance().setQuitOnLastWindowClosed(True)
+        
         # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
         if self.compact_mode:
             try:
@@ -2885,19 +2888,30 @@ class RTTMainWindow(QMainWindow):
             time.sleep(0.5)
             
             # 检查并强制终止仍在运行的线程
+            active_threads = []
             for thread in threading.enumerate():
                 if thread != threading.current_thread() and thread.is_alive():
                     if not is_dummy_thread(thread):
-                        logger.warning(f"Force terminating thread: {thread.name}")
-                        try:
-                            # 尝试优雅地停止线程
-                            thread.join(timeout=2.0)
-                            if thread.is_alive():
-                                logger.warning(f"Thread {thread.name} failed to stop gracefully, will be force terminated")
-                                # 对于Python线程，我们无法直接杀死，但可以标记为daemon
-                                thread.daemon = True
-                        except Exception as e:
-                            logger.error(f"Error terminating thread {thread.name}: {e}")
+                        active_threads.append(thread)
+                        logger.warning(f"Active thread found: {thread.name} (daemon={thread.daemon})")
+            
+            if active_threads:
+                logger.warning(f"Found {len(active_threads)} active thread(s), attempting to terminate...")
+                
+                for thread in active_threads:
+                    try:
+                        # 先标记为daemon，确保主线程退出时不会阻塞
+                        thread.daemon = True
+                        
+                        # 尝试优雅地停止线程
+                        thread.join(timeout=2.0)
+                        
+                        if thread.is_alive():
+                            logger.warning(f"Thread {thread.name} failed to stop gracefully (marked as daemon)")
+                        else:
+                            logger.info(f"Thread {thread.name} stopped successfully")
+                    except Exception as e:
+                        logger.error(f"Error terminating thread {thread.name}: {e}")
             
             logger.info("Thread cleanup completed")
         except Exception as e:
@@ -2971,21 +2985,44 @@ class RTTMainWindow(QMainWindow):
     
     
     def _force_quit_application(self):
-        """强制退出应用程序"""
+        """强制退出应用程序 - 确保进程完全终止"""
         try:
-            # 获取应用程序实例
+            logger.info("Force quitting application...")
+            
+            # 1. 先尝试终止所有子进程
+            try:
+                current_process = psutil.Process()
+                children = current_process.children(recursive=True)
+                for child in children:
+                    try:
+                        child.terminate()
+                    except:
+                        pass
+            except:
+                pass
+            
+            # 2. 获取应用程序实例并退出
             app = QApplication.instance()
             if app:
-                logger.info("Force quitting application...")
+                # 处理所有待处理事件
+                app.processEvents()
+                
                 # 设置退出代码并立即退出
                 app.quit()
-                # 如果quit()不起作用，使用更强制的方法
-                QTimer.singleShot(1000, lambda: os._exit(0))
+                
+                # 如果quit()不起作用，延迟强制退出
+                QTimer.singleShot(2000, lambda: os._exit(0))
+            else:
+                # 没有应用实例，直接退出
+                os._exit(0)
             
         except Exception as e:
             logger.error(f"Error force quitting application: {e}")
             # 最后的手段：直接退出进程
-            os._exit(0)
+            try:
+                os._exit(0)
+            except:
+                sys.exit(0)
 
     @Slot(int)
     def switchPage(self, index):
@@ -8343,8 +8380,71 @@ def is_dummy_thread(thread):
     return thread.name.startswith('Dummy')
 
 if __name__ == "__main__":
-    # 🔑 注册全局退出处理器，确保异常退出时也能清理JLink连接
+    # 🔑 单实例机制 - 确保只有一个程序实例运行
+    import socket
     import atexit
+    
+    # 使用socket实现单实例锁（比QLocalServer更可靠）
+    LOCK_SOCKET = None
+    LOCK_PORT = 59768  # 使用固定端口号作为锁
+    
+    def acquire_instance_lock():
+        """获取单实例锁"""
+        global LOCK_SOCKET
+        try:
+            LOCK_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            LOCK_SOCKET.bind(('127.0.0.1', LOCK_PORT))
+            logger.info(f"✅ Single instance lock acquired on port {LOCK_PORT}")
+            return True
+        except OSError:
+            logger.warning(f"⚠️ Another instance is already running (port {LOCK_PORT} in use)")
+            return False
+    
+    def release_instance_lock():
+        """释放单实例锁"""
+        global LOCK_SOCKET
+        if LOCK_SOCKET:
+            try:
+                LOCK_SOCKET.close()
+                logger.info("✅ Single instance lock released")
+            except:
+                pass
+            LOCK_SOCKET = None
+    
+    def cleanup_zombie_processes():
+        """清理僵尸进程 - 查找并终止可能遗留的XexunRTT进程"""
+        try:
+            current_pid = os.getpid()
+            exe_name = os.path.basename(sys.executable if getattr(sys, 'frozen', False) else sys.argv[0])
+            
+            # 查找所有XexunRTT相关进程
+            killed_count = 0
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    # 跳过当前进程
+                    if proc.pid == current_pid:
+                        continue
+                    
+                    # 检查进程名称
+                    proc_name = proc.info.get('name', '')
+                    proc_exe = proc.info.get('exe', '')
+                    
+                    # 匹配XexunRTT进程
+                    if ('XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or
+                        (proc_exe and 'XexunRTT' in proc_exe)):
+                        logger.warning(f"🔍 Found zombie process: PID={proc.pid}, Name={proc_name}")
+                        proc.terminate()  # 先尝试优雅终止
+                        proc.wait(timeout=3)  # 等待最多3秒
+                        killed_count += 1
+                        logger.info(f"✅ Terminated zombie process: PID={proc.pid}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    pass
+            
+            if killed_count > 0:
+                logger.info(f"✅ Cleaned up {killed_count} zombie process(es)")
+                time.sleep(1)  # 等待进程完全退出
+        except Exception as e:
+            logger.error(f"❌ Failed to cleanup zombie processes: {e}")
     
     def emergency_cleanup():
         """紧急清理函数 - 在程序异常退出时强制关闭JLink"""
@@ -8360,9 +8460,40 @@ if __name__ == "__main__":
                 pass
         except:
             pass
+        
+        # 释放单实例锁
+        release_instance_lock()
     
     # 注册退出处理器
     atexit.register(emergency_cleanup)
+    
+    # 1. 先清理可能的僵尸进程
+    cleanup_zombie_processes()
+    
+    # 2. 尝试获取单实例锁
+    if not acquire_instance_lock():
+        # 如果无法获取锁，说明有其他实例在运行
+        # 显示错误对话框并退出
+        try:
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication(sys.argv)
+            
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Warning)
+            msg.setWindowTitle("XexunRTT - Already Running")
+            msg.setText("XexunRTT is already running!")
+            msg.setInformativeText(
+                "Another instance of XexunRTT is currently running.\n\n"
+                "If you don't see the window, there might be a zombie process.\n"
+                "Please check Task Manager and terminate any XexunRTT processes manually."
+            )
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.exec()
+        except:
+            pass
+        
+        sys.exit(1)
     
     # 获取DPI设置并应用环境变量
     manual_dpi = config_manager.get_dpi_scale()
