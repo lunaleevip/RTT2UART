@@ -1550,6 +1550,29 @@ class RTTMainWindow(QMainWindow):
         
         self.window_menu.addSeparator()
         
+        # 实例管理子菜单
+        self.instances_menu = self.window_menu.addMenu(QCoreApplication.translate("main_window", "Instances(&I)"))
+        self._update_instances_menu()
+        
+        # 分割布局子菜单
+        self.split_menu = self.window_menu.addMenu(QCoreApplication.translate("main_window", "Split Layout(&S)"))
+        
+        split_horizontal_action = QAction(QCoreApplication.translate("main_window", "Split Horizontal"), self)
+        split_horizontal_action.triggered.connect(lambda: self._split_layout('horizontal'))
+        self.split_menu.addAction(split_horizontal_action)
+        
+        split_vertical_action = QAction(QCoreApplication.translate("main_window", "Split Vertical"), self)
+        split_vertical_action.triggered.connect(lambda: self._split_layout('vertical'))
+        self.split_menu.addAction(split_vertical_action)
+        
+        self.split_menu.addSeparator()
+        
+        unsplit_action = QAction(QCoreApplication.translate("main_window", "Remove Split"), self)
+        unsplit_action.triggered.connect(self._remove_split)
+        self.split_menu.addAction(unsplit_action)
+        
+        self.window_menu.addSeparator()
+        
         # 紧凑模式切换动作
         self.compact_mode_action = QAction(QCoreApplication.translate("main_window", "Compact Mode(&M)"), self)
         self.compact_mode_action.setCheckable(True)
@@ -1764,8 +1787,203 @@ class RTTMainWindow(QMainWindow):
     
     def _update_instance_tabs(self):
         """更新实例TAB栏"""
-        # TODO: 实现TAB栏更新逻辑
-        pass
+        # 更新窗口菜单中的实例列表
+        self._update_instances_menu()
+    
+    def _update_instances_menu(self):
+        """更新实例菜单"""
+        if not hasattr(self, 'instances_menu'):
+            return
+        
+        # 清空现有菜单
+        self.instances_menu.clear()
+        
+        # 获取所有实例
+        all_instances = instance_manager.get_all_instances()
+        
+        if not all_instances:
+            no_instances_action = QAction(QCoreApplication.translate("main_window", "No instances"), self)
+            no_instances_action.setEnabled(False)
+            self.instances_menu.addAction(no_instances_action)
+            return
+        
+        # 为每个实例创建菜单项
+        for idx, instance in enumerate(all_instances, 1):
+            # 获取实例信息
+            instance_type = "Main" if instance_manager.is_main_instance(instance) else "Child"
+            device_info = "Disconnected"
+            
+            # 尝试获取连接信息
+            if instance.connection_dialog and instance.connection_dialog.rtt2uart:
+                device_info = getattr(instance.connection_dialog.rtt2uart, 'device_info', 'Unknown')
+            
+            # 创建菜单项
+            action_text = f"{idx}. [{instance_type}] {device_info[:20]}"
+            action = QAction(action_text, self)
+            
+            # 当前实例加粗显示
+            if instance == self:
+                font = action.font()
+                font.setBold(True)
+                action.setFont(font)
+            
+            # 连接信号：点击切换到该实例
+            action.triggered.connect(lambda checked, inst=instance: self._focus_instance(inst))
+            self.instances_menu.addAction(action)
+    
+    def _focus_instance(self, instance):
+        """聚焦到指定实例"""
+        try:
+            instance.raise_()
+            instance.activateWindow()
+            logger.info(f"Focused on instance: {instance.window_id}")
+        except Exception as e:
+            logger.error(f"Failed to focus instance: {e}")
+    
+    def _split_layout(self, orientation):
+        """分割布局显示多个实例
+        
+        Args:
+            orientation: 'horizontal' 或 'vertical'
+        """
+        try:
+            all_instances = instance_manager.get_all_instances()
+            
+            if len(all_instances) < 2:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(self,
+                    QCoreApplication.translate("main_window", "Split Layout"),
+                    QCoreApplication.translate("main_window", 
+                        "Need at least 2 instances to split.\n\nPlease create a new window first (F10)."))
+                return
+            
+            # 创建分割窗口
+            split_window = QMainWindow()
+            split_window.setWindowTitle(QCoreApplication.translate("main_window", "Split View"))
+            split_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+            
+            # 创建中心部件和分割器
+            central_widget = QWidget()
+            split_window.setCentralWidget(central_widget)
+            layout = QVBoxLayout(central_widget)
+            layout.setContentsMargins(0, 0, 0, 0)
+            
+            # 创建分割器
+            if orientation == 'horizontal':
+                splitter = QSplitter(Qt.Horizontal)
+            else:
+                splitter = QSplitter(Qt.Vertical)
+            
+            # 为每个实例创建紧缩视图
+            for instance in all_instances[:4]:  # 最多显示4个实例
+                compact_view = self._create_compact_view_for_instance(instance)
+                splitter.addWidget(compact_view)
+            
+            layout.addWidget(splitter)
+            
+            # 设置窗口大小和显示
+            if orientation == 'horizontal':
+                split_window.resize(1600, 600)
+            else:
+                split_window.resize(800, 1200)
+            
+            split_window.show()
+            
+            # 保存分割窗口引用
+            if not hasattr(self, 'split_windows'):
+                self.split_windows = []
+            self.split_windows.append(split_window)
+            
+            logger.info(f"Created {orientation} split layout with {len(all_instances[:4])} instances")
+            
+        except Exception as e:
+            logger.error(f"Failed to create split layout: {e}")
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self,
+                QCoreApplication.translate("main_window", "Error"),
+                QCoreApplication.translate("main_window", "Failed to create split layout:\n{}").format(e))
+    
+    def _create_compact_view_for_instance(self, instance):
+        """为实例创建紧缩视图
+        
+        Args:
+            instance: RTTMainWindow实例
+            
+        Returns:
+            QWidget: 紧缩视图部件
+        """
+        from PySide6.QtWidgets import QVBoxLayout, QLabel, QTextEdit, QPushButton
+        
+        view = QWidget()
+        layout = QVBoxLayout(view)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # 标题标签
+        instance_type = "Main" if instance_manager.is_main_instance(instance) else "Child"
+        title_label = QLabel(f"[{instance_type}] {instance.window_id[:12]}")
+        title_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
+        layout.addWidget(title_label)
+        
+        # 连接状态标签
+        status_label = QLabel("Disconnected")
+        if instance.connection_dialog and instance.connection_dialog.rtt2uart:
+            device_info = getattr(instance.connection_dialog.rtt2uart, 'device_info', 'Unknown')
+            status_label.setText(f"Connected: {device_info}")
+            status_label.setStyleSheet("color: green;")
+        else:
+            status_label.setStyleSheet("color: red;")
+        layout.addWidget(status_label)
+        
+        # 日志预览（只读）
+        log_preview = QTextEdit()
+        log_preview.setReadOnly(True)
+        log_preview.setMaximumHeight(200)
+        
+        # 尝试获取当前TAB的内容
+        try:
+            if hasattr(instance.ui, 'tem_switch'):
+                current_index = instance.ui.tem_switch.currentIndex()
+                current_tab = instance.ui.tem_switch.widget(current_index)
+                if hasattr(current_tab, 'toPlainText'):
+                    content = current_tab.toPlainText()
+                    # 只显示最后100行
+                    lines = content.split('\n')[-100:]
+                    log_preview.setPlainText('\n'.join(lines))
+        except Exception as e:
+            log_preview.setPlainText(f"Failed to load log: {e}")
+        
+        layout.addWidget(log_preview)
+        
+        # 操作按钮
+        button_layout = QHBoxLayout()
+        
+        focus_btn = QPushButton(QCoreApplication.translate("main_window", "Focus"))
+        focus_btn.clicked.connect(lambda: self._focus_instance(instance))
+        button_layout.addWidget(focus_btn)
+        
+        close_btn = QPushButton(QCoreApplication.translate("main_window", "Close"))
+        close_btn.clicked.connect(lambda: instance.close())
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        return view
+    
+    def _remove_split(self):
+        """移除所有分割窗口"""
+        if hasattr(self, 'split_windows'):
+            for window in self.split_windows:
+                try:
+                    window.close()
+                except:
+                    pass
+            self.split_windows.clear()
+            logger.info("Removed all split windows")
+        else:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.information(self,
+                QCoreApplication.translate("main_window", "Remove Split"),
+                QCoreApplication.translate("main_window", "No split windows to remove."))
     
     def _on_compact_mode_checkbox_changed(self, state):
         """复选框状态改变时的处理"""
