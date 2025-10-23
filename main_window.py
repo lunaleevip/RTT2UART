@@ -52,6 +52,34 @@ logger.info(f"Frozen: {getattr(sys, 'frozen', False)}")
 logger.info("=" * 70)
 # ==================== 日志配置完成 ====================
 
+# 第三方库导入（在类定义之前）
+import serial
+import serial.tools.list_ports
+import pylink
+import psutil
+import qdarkstyle
+
+# PySide6导入
+from PySide6.QtCore import (
+    Qt, QObject, QTimer, QThread, Signal, QCoreApplication,
+    QTranslator, QLocale, QRegularExpression, QSettings, QSize, QPoint,
+    QRect, Slot, QSortFilterProxyModel, QAbstractItemModel, QModelIndex
+)
+from PySide6 import QtCore
+from PySide6.QtGui import (
+    QFont, QIcon, QAction, QTextCharFormat, QColor, QTextCursor,
+    QSyntaxHighlighter, QPalette, QKeySequence, QActionGroup, QTextOption
+)
+from PySide6.QtWidgets import (
+    QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
+    QHBoxLayout, QTextEdit, QPushButton, QLabel, QLineEdit,
+    QComboBox, QCheckBox, QMessageBox, QFileDialog, QTabWidget,
+    QSplitter, QFrame, QMenu, QHeaderView, QAbstractItemView,
+    QSizePolicy, QButtonGroup, QListWidget, QListWidgetItem, QTabBar,
+    QPlainTextEdit
+)
+from PySide6.QtNetwork import QLocalSocket, QLocalServer
+
 # ========== 全局实例管理器 ==========
 class LogTabWindow(QMainWindow):
     """日志TAB子窗口 - 只包含TAB区域用于显示日志"""
@@ -82,14 +110,11 @@ class LogTabWindow(QMainWindow):
         layout = QVBoxLayout(central_widget)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # 创建TAB控件（复用主窗口的TAB逻辑）
-        from ui_xexunrtt import Ui_MainWindow
-        self.ui = Ui_MainWindow()
-        
-        # 只创建TAB部分
+        # 创建TAB控件
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(False)
         self.tab_widget.setMovable(True)
+        self.tab_widget.setDocumentMode(True)  # 更现代的外观
         
         # 创建32个TAB（与主窗口一致）
         self.log_tabs = []
@@ -97,6 +122,7 @@ class LogTabWindow(QMainWindow):
             tab = QPlainTextEdit()
             tab.setReadOnly(True)
             tab.setMaximumBlockCount(10000)
+            tab.setLineWrapMode(QPlainTextEdit.NoWrap)  # 不自动换行
             self.tab_widget.addTab(tab, f"CH{i}")
             self.log_tabs.append(tab)
         
@@ -190,33 +216,6 @@ class InstanceManager:
 
 # 全局实例管理器
 instance_manager = InstanceManager()
-
-# 第三方库导入
-import serial
-import serial.tools.list_ports
-import pylink
-import psutil
-import qdarkstyle
-
-# PySide6导入
-from PySide6.QtCore import (
-    Qt, QObject, QTimer, QThread, Signal, QCoreApplication,
-    QTranslator, QLocale, QRegularExpression, QSettings, QSize, QPoint,
-    QRect, Slot, QSortFilterProxyModel, QAbstractItemModel, QModelIndex
-)
-from PySide6 import QtCore
-from PySide6.QtGui import (
-    QFont, QIcon, QAction, QTextCharFormat, QColor, QTextCursor,
-    QSyntaxHighlighter, QPalette, QKeySequence, QActionGroup, QTextOption
-)
-from PySide6.QtWidgets import (
-    QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QTextEdit, QPushButton, QLabel, QLineEdit,
-    QComboBox, QCheckBox, QMessageBox, QFileDialog, QTabWidget,
-    QSplitter, QFrame, QMenu, QHeaderView, QAbstractItemView,
-    QSizePolicy, QButtonGroup, QListWidget, QListWidgetItem, QTabBar
-)
-from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
 # 项目模块导入
 from ui_rtt2uart_updated import Ui_ConnectionDialog
