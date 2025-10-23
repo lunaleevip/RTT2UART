@@ -53,8 +53,77 @@ logger.info("=" * 70)
 # ==================== 日志配置完成 ====================
 
 # ========== 全局实例管理器 ==========
+class LogTabWindow(QMainWindow):
+    """日志TAB子窗口 - 只包含TAB区域用于显示日志"""
+    
+    def __init__(self, parent_main_window, window_id=None):
+        super().__init__()
+        
+        # 生成窗口ID
+        if window_id is None:
+            import uuid
+            import time
+            timestamp = str(int(time.time() * 1000000))[-8:]
+            uuid_part = str(uuid.uuid4())[:4]
+            self.window_id = f"tab_{uuid_part}{timestamp[-4:]}"
+        else:
+            self.window_id = window_id
+        
+        # 保存主窗口引用
+        self.main_window = parent_main_window
+        
+        # 设置窗口属性
+        self.setWindowTitle(f"Log Window - {self.window_id[:12]}")
+        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
+        
+        # 创建中心部件
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建TAB控件（复用主窗口的TAB逻辑）
+        from ui_xexunrtt import Ui_MainWindow
+        self.ui = Ui_MainWindow()
+        
+        # 只创建TAB部分
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabsClosable(False)
+        self.tab_widget.setMovable(True)
+        
+        # 创建32个TAB（与主窗口一致）
+        self.log_tabs = []
+        for i in range(32):
+            tab = QPlainTextEdit()
+            tab.setReadOnly(True)
+            tab.setMaximumBlockCount(10000)
+            self.tab_widget.addTab(tab, f"CH{i}")
+            self.log_tabs.append(tab)
+        
+        layout.addWidget(self.tab_widget)
+        
+        # 设置默认大小
+        self.resize(800, 600)
+        
+        logger.info(f"LogTabWindow created: {self.window_id}")
+    
+    def closeEvent(self, event):
+        """关闭事件"""
+        # 从主窗口的子窗口列表中移除
+        if hasattr(self.main_window, 'tab_windows'):
+            if self in self.main_window.tab_windows:
+                self.main_window.tab_windows.remove(self)
+        
+        # 更新主窗口的实例菜单
+        if hasattr(self.main_window, '_update_instances_menu'):
+            self.main_window._update_instances_menu()
+        
+        logger.info(f"LogTabWindow closed: {self.window_id}")
+        event.accept()
+
+
 class InstanceManager:
-    """全局实例管理器 - 管理所有窗口实例"""
+    """全局实例管理器 - 管理主窗口和所有TAB子窗口"""
     _instance = None
     _lock = threading.Lock()
     
@@ -70,48 +139,54 @@ class InstanceManager:
         if self._initialized:
             return
         self._initialized = True
-        self.instances = []  # 所有窗口实例列表
-        self.main_instance = None  # 主实例（持有socket锁）
+        self.main_window = None  # 主窗口（只有一个）
+        self.tab_windows = []  # TAB子窗口列表
+        self.active_tab_window = None  # 当前激活的TAB窗口
         self.instance_lock = threading.Lock()
     
-    def register_main_instance(self, instance):
-        """注册主实例"""
+    def register_main_window(self, window):
+        """注册主窗口"""
         with self.instance_lock:
-            self.main_instance = instance
-            if instance not in self.instances:
-                self.instances.append(instance)
-            logger.info(f"✅ Main instance registered: {instance.window_id}")
+            self.main_window = window
+            logger.info(f"✅ Main window registered")
     
-    def register_child_instance(self, instance):
-        """注册子实例"""
+    def register_tab_window(self, window):
+        """注册TAB子窗口"""
         with self.instance_lock:
-            if instance not in self.instances:
-                self.instances.append(instance)
-            logger.info(f"✅ Child instance registered: {instance.window_id}")
+            if window not in self.tab_windows:
+                self.tab_windows.append(window)
+            logger.info(f"✅ Tab window registered: {window.window_id}")
     
-    def unregister_instance(self, instance):
-        """注销实例"""
+    def unregister_tab_window(self, window):
+        """注销TAB子窗口"""
         with self.instance_lock:
-            if instance in self.instances:
-                self.instances.remove(instance)
-            if instance == self.main_instance:
-                self.main_instance = None
-            logger.info(f"✅ Instance unregistered: {instance.window_id}")
+            if window in self.tab_windows:
+                self.tab_windows.remove(window)
+            if window == self.active_tab_window:
+                # 如果关闭的是当前激活窗口，切换到第一个窗口
+                self.active_tab_window = self.tab_windows[0] if self.tab_windows else None
+            logger.info(f"✅ Tab window unregistered: {window.window_id}")
     
-    def get_all_instances(self):
-        """获取所有实例"""
+    def set_active_tab_window(self, window):
+        """设置当前激活的TAB窗口"""
         with self.instance_lock:
-            return self.instances.copy()
+            self.active_tab_window = window
+            logger.info(f"Active tab window: {window.window_id if window else 'None'}")
     
-    def get_instance_count(self):
-        """获取实例数量"""
+    def get_active_tab_window(self):
+        """获取当前激活的TAB窗口"""
         with self.instance_lock:
-            return len(self.instances)
+            return self.active_tab_window
     
-    def is_main_instance(self, instance):
-        """判断是否为主实例"""
+    def get_all_tab_windows(self):
+        """获取所有TAB子窗口"""
         with self.instance_lock:
-            return instance == self.main_instance
+            return self.tab_windows.copy()
+    
+    def get_tab_window_count(self):
+        """获取TAB子窗口数量"""
+        with self.instance_lock:
+            return len(self.tab_windows)
 
 # 全局实例管理器
 instance_manager = InstanceManager()
@@ -1094,30 +1169,17 @@ class EditableTabBar(QTabBar):
                     logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
-    def __init__(self, is_child_instance=False):
+    def __init__(self):
         super(RTTMainWindow, self).__init__()
         
-        # 实例类型标识
-        self.is_child_instance = is_child_instance
+        # 注册到全局实例管理器（主窗口）
+        instance_manager.register_main_window(self)
         
-        # 为每个窗口生成唯一标识符，确保日志文件夹不冲突
-        import uuid
-        import time
-        import threading
+        # TAB子窗口列表
+        self.tab_windows = []
         
-        # 使用UUID + 时间戳 + 线程ID确保绝对唯一性
-        timestamp = str(int(time.time() * 1000000))[-8:]  # 微秒时间戳后8位
-        thread_id = str(threading.get_ident())[-4:]  # 线程ID后4位
-        uuid_part = str(uuid.uuid4())[:4]  # UUID前4位
-        self.window_id = f"{uuid_part}{timestamp[-4:]}{thread_id}"
-        
-        # 注册到全局实例管理器
-        if is_child_instance:
-            instance_manager.register_child_instance(self)
-            logger.info(f"Child window initialized with ID: {self.window_id}")
-        else:
-            instance_manager.register_main_instance(self)
-            logger.info(f"Main window initialized with ID: {self.window_id}")
+        # 创建默认的第一个TAB窗口
+        self.default_tab_window = None
         
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
@@ -1167,9 +1229,13 @@ class RTTMainWindow(QMainWindow):
         # 初始化时禁用RTT相关功能，直到连接成功
         self._set_rtt_controls_enabled(False)
         
-        # 先设置原有的UI
+        # 先设置原有的UI（不包含TAB区域，TAB区域将在独立窗口中显示）
         self.ui = Ui_xexun_rtt()
         self.ui.setupUi(self.central_widget)
+        
+        # 隐藏主窗口的TAB控件（TAB将在独立窗口中显示）
+        if hasattr(self.ui, 'tem_switch'):
+            self.ui.tem_switch.setVisible(False)
         
         # 自动重连相关变量
         self.manual_disconnect = False  # 是否为手动断开
@@ -1733,23 +1799,23 @@ class RTTMainWindow(QMainWindow):
         self.show_connection_dialog()
     
     def _new_window(self):
-        """新建窗口 - 在同一进程中创建子实例"""
+        """新建TAB窗口 - 创建新的日志显示窗口"""
         try:
             # 检查USB设备数量
             usb_device_count = self._count_jlink_usb_devices()
-            current_instance_count = instance_manager.get_instance_count()
+            current_tab_count = instance_manager.get_tab_window_count()
             
-            logger.info(f"[NEW WINDOW] USB devices: {usb_device_count}, Current instances: {current_instance_count}")
+            logger.info(f"[NEW WINDOW] USB devices: {usb_device_count}, Current tab windows: {current_tab_count}")
             
-            # 如果只有一个USB设备且已有实例，提示用户
-            if usb_device_count <= 1 and current_instance_count >= 1:
+            # 如果只有一个USB设备且已有TAB窗口，提示用户
+            if usb_device_count <= 1 and current_tab_count >= 1:
                 from PySide6.QtWidgets import QMessageBox
                 msg = QMessageBox(self)
                 msg.setIcon(QMessageBox.Warning)
                 msg.setWindowTitle(QCoreApplication.translate("main_window", "New Window"))
                 msg.setText(QCoreApplication.translate("main_window", "Only 1 USB device detected"))
                 msg.setInformativeText(QCoreApplication.translate("main_window", 
-                    "Creating multiple instances with only one device may not be useful.\n\n"
+                    "Creating multiple windows with only one device may not be useful.\n\n"
                     "Do you still want to create a new window?"))
                 msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
                 msg.setDefaultButton(QMessageBox.No)
@@ -1758,17 +1824,28 @@ class RTTMainWindow(QMainWindow):
                     logger.info("[NEW WINDOW] User cancelled (only 1 USB device)")
                     return
             
-            # 在同一进程中创建子窗口实例
-            child_window = RTTMainWindow(is_child_instance=True)
-            child_window.show()
+            # 创建新的TAB子窗口
+            tab_window = LogTabWindow(self)
+            tab_window.show()
             
-            # 更新所有实例的TAB栏
-            self._update_instance_tabs()
+            # 添加到主窗口的子窗口列表
+            self.tab_windows.append(tab_window)
             
-            logger.info(f"[NEW WINDOW] Child window created: {child_window.window_id}")
+            # 注册到实例管理器
+            instance_manager.register_tab_window(tab_window)
+            
+            # 设置为当前激活窗口
+            instance_manager.set_active_tab_window(tab_window)
+            
+            # 更新实例菜单
+            self._update_instances_menu()
+            
+            logger.info(f"[NEW WINDOW] Tab window created: {tab_window.window_id}")
             
         except Exception as e:
             logger.error(f"[ERROR] Failed to create new window: {e}")
+            import traceback
+            traceback.print_exc()
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, 
                 QCoreApplication.translate("main_window", "Error"), 
@@ -1798,63 +1875,66 @@ class RTTMainWindow(QMainWindow):
         # 清空现有菜单
         self.instances_menu.clear()
         
-        # 获取所有实例
-        all_instances = instance_manager.get_all_instances()
+        # 获取所有TAB窗口
+        all_tab_windows = instance_manager.get_all_tab_windows()
+        active_window = instance_manager.get_active_tab_window()
         
-        if not all_instances:
-            no_instances_action = QAction(QCoreApplication.translate("main_window", "No instances"), self)
-            no_instances_action.setEnabled(False)
-            self.instances_menu.addAction(no_instances_action)
+        if not all_tab_windows:
+            no_windows_action = QAction(QCoreApplication.translate("main_window", "No windows"), self)
+            no_windows_action.setEnabled(False)
+            self.instances_menu.addAction(no_windows_action)
             return
         
-        # 为每个实例创建菜单项
-        for idx, instance in enumerate(all_instances, 1):
-            # 获取实例信息
-            instance_type = "Main" if instance_manager.is_main_instance(instance) else "Child"
-            device_info = "Disconnected"
-            
-            # 尝试获取连接信息
-            if instance.connection_dialog and instance.connection_dialog.rtt2uart:
-                device_info = getattr(instance.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            
+        # 为每个TAB窗口创建菜单项
+        for idx, tab_window in enumerate(all_tab_windows, 1):
             # 创建菜单项
-            action_text = f"{idx}. [{instance_type}] {device_info[:20]}"
+            window_title = tab_window.windowTitle()
+            action_text = f"{idx}. {window_title}"
             action = QAction(action_text, self)
             
-            # 当前实例加粗显示
-            if instance == self:
+            # 当前激活窗口加粗显示
+            if tab_window == active_window:
                 font = action.font()
                 font.setBold(True)
                 action.setFont(font)
+                action_text = f"● {action_text}"  # 添加圆点标记
+                action.setText(action_text)
             
-            # 连接信号：点击切换到该实例
-            action.triggered.connect(lambda checked, inst=instance: self._focus_instance(inst))
+            # 连接信号：点击切换到该窗口
+            action.triggered.connect(lambda checked, win=tab_window: self._focus_tab_window(win))
             self.instances_menu.addAction(action)
     
-    def _focus_instance(self, instance):
-        """聚焦到指定实例"""
+    def _focus_tab_window(self, tab_window):
+        """聚焦到指定TAB窗口"""
         try:
-            instance.raise_()
-            instance.activateWindow()
-            logger.info(f"Focused on instance: {instance.window_id}")
+            tab_window.raise_()
+            tab_window.activateWindow()
+            
+            # 设置为当前激活窗口
+            instance_manager.set_active_tab_window(tab_window)
+            
+            # 更新菜单显示
+            self._update_instances_menu()
+            
+            logger.info(f"Focused on tab window: {tab_window.window_id}")
         except Exception as e:
-            logger.error(f"Failed to focus instance: {e}")
+            logger.error(f"Failed to focus tab window: {e}")
     
     def _split_layout(self, orientation):
-        """分割布局显示多个实例
+        """分割布局显示多个TAB窗口
         
         Args:
             orientation: 'horizontal' 或 'vertical'
         """
         try:
-            all_instances = instance_manager.get_all_instances()
+            all_tab_windows = instance_manager.get_all_tab_windows()
             
-            if len(all_instances) < 2:
+            if len(all_tab_windows) < 2:
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.information(self,
                     QCoreApplication.translate("main_window", "Split Layout"),
                     QCoreApplication.translate("main_window", 
-                        "Need at least 2 instances to split.\n\nPlease create a new window first (F10)."))
+                        "Need at least 2 windows to split.\n\nPlease create a new window first (F10)."))
                 return
             
             # 创建分割窗口
@@ -1874,10 +1954,28 @@ class RTTMainWindow(QMainWindow):
             else:
                 splitter = QSplitter(Qt.Vertical)
             
-            # 为每个实例创建紧缩视图
-            for instance in all_instances[:4]:  # 最多显示4个实例
-                compact_view = self._create_compact_view_for_instance(instance)
-                splitter.addWidget(compact_view)
+            # 将所有TAB窗口嵌入到分割器中（最多4个）
+            for tab_window in all_tab_windows[:4]:
+                # 创建容器widget来嵌入TAB窗口的内容
+                container = QWidget()
+                container_layout = QVBoxLayout(container)
+                container_layout.setContentsMargins(2, 2, 2, 2)
+                
+                # 添加标题标签
+                title_label = QLabel(tab_window.windowTitle())
+                title_label.setStyleSheet("font-weight: bold; padding: 5px; background-color: #2d2d30; color: white;")
+                container_layout.addWidget(title_label)
+                
+                # 创建TAB widget的克隆视图（只读）
+                tab_clone = QTabWidget()
+                for i, original_tab in enumerate(tab_window.log_tabs):
+                    clone_tab = QPlainTextEdit()
+                    clone_tab.setReadOnly(True)
+                    clone_tab.setPlainText(original_tab.toPlainText())
+                    tab_clone.addTab(clone_tab, f"CH{i}")
+                
+                container_layout.addWidget(tab_clone)
+                splitter.addWidget(container)
             
             layout.addWidget(splitter)
             
@@ -1894,10 +1992,12 @@ class RTTMainWindow(QMainWindow):
                 self.split_windows = []
             self.split_windows.append(split_window)
             
-            logger.info(f"Created {orientation} split layout with {len(all_instances[:4])} instances")
+            logger.info(f"Created {orientation} split layout with {len(all_tab_windows[:4])} windows")
             
         except Exception as e:
             logger.error(f"Failed to create split layout: {e}")
+            import traceback
+            traceback.print_exc()
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self,
                 QCoreApplication.translate("main_window", "Error"),
@@ -2595,8 +2695,34 @@ class RTTMainWindow(QMainWindow):
                     
             # 应用样式
             self.set_style()
+            
+            # 创建默认的第一个TAB窗口
+            self._create_default_tab_window()
         except Exception as e:
             logger.warning(f'Failed to apply saved settings: {e}')
+    
+    def _create_default_tab_window(self):
+        """创建默认的第一个TAB窗口"""
+        try:
+            # 创建默认TAB窗口
+            self.default_tab_window = LogTabWindow(self, window_id="default")
+            self.default_tab_window.setWindowTitle(QCoreApplication.translate("main_window", "Log Window - Default"))
+            self.default_tab_window.show()
+            
+            # 添加到子窗口列表
+            self.tab_windows.append(self.default_tab_window)
+            
+            # 注册到实例管理器
+            instance_manager.register_tab_window(self.default_tab_window)
+            
+            # 设置为当前激活窗口
+            instance_manager.set_active_tab_window(self.default_tab_window)
+            
+            logger.info("✅ Default tab window created")
+        except Exception as e:
+            logger.error(f"❌ Failed to create default tab window: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _create_jlink_log_area(self):
         """创建JLink日志显示区域"""
@@ -3089,18 +3215,15 @@ class RTTMainWindow(QMainWindow):
         """程序关闭事件处理 - 确保所有资源被正确清理"""
         logger.info("Starting program shutdown process...")
         
-        # 从实例管理器中注销
-        instance_manager.unregister_instance(self)
-        
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
-        # 🔒 如果是最后一个窗口，强制退出应用
-        if instance_manager.get_instance_count() == 0:
-            QApplication.instance().setQuitOnLastWindowClosed(True)
-        else:
-            # 如果还有其他窗口，不退出应用
-            QApplication.instance().setQuitOnLastWindowClosed(False)
+        # 关闭所有TAB子窗口
+        for tab_window in self.tab_windows[:]:  # 使用切片复制列表，避免在迭代时修改
+            try:
+                tab_window.close()
+            except Exception as ex:
+                logger.warning(f"Error closing tab window: {ex}")
         
         # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
         if self.compact_mode:
