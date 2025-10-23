@@ -44,6 +44,20 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# ==================== 配置全局异常处理器 ====================
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """全局异常处理器 - 将所有未捕获的异常记录到日志"""
+    if issubclass(exc_type, KeyboardInterrupt):
+        # 允许Ctrl+C正常工作
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.critical("Uncaught exception:", exc_info=(exc_type, exc_value, exc_traceback))
+
+# 设置全局异常处理器
+sys.excepthook = global_exception_handler
+
 logger.info("=" * 70)
 logger.info("XexunRTT Starting...")
 logger.info(f"Log file: {log_file}")
@@ -76,80 +90,85 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QMessageBox, QFileDialog, QTabWidget,
     QSplitter, QFrame, QMenu, QHeaderView, QAbstractItemView,
     QSizePolicy, QButtonGroup, QListWidget, QListWidgetItem, QTabBar,
-    QPlainTextEdit
+    QPlainTextEdit, QMdiArea, QMdiSubWindow
 )
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
-# ========== 全局实例管理器 ==========
-class LogTabWindow(QMainWindow):
-    """日志TAB子窗口 - 只包含TAB区域用于显示日志"""
+# ========== 设备会话管理 ==========
+class DeviceSession:
+    """设备会话 - 管理单个设备的连接和数据"""
     
-    def __init__(self, parent_main_window, window_id=None):
-        super().__init__()
+    def __init__(self, device_info, session_id=None):
+        """
+        初始化设备会话
         
-        # 生成窗口ID
-        if window_id is None:
+        Args:
+            device_info: 设备信息字典 {'serial': '...', 'product_name': '...', 'connection': 'USB'}
+            session_id: 会话ID（可选）
+        """
+        if session_id is None:
             import uuid
-            import time
-            timestamp = str(int(time.time() * 1000000))[-8:]
-            uuid_part = str(uuid.uuid4())[:4]
-            self.window_id = f"tab_{uuid_part}{timestamp[-4:]}"
+            self.session_id = str(uuid.uuid4())[:8]
         else:
-            self.window_id = window_id
+            self.session_id = session_id
         
-        # 保存主窗口引用
-        self.main_window = parent_main_window
+        self.device_info = device_info
+        self.device_serial = device_info.get('serial', 'Unknown')
+        self.device_name = device_info.get('product_name', b'Unknown').decode() if isinstance(device_info.get('product_name'), bytes) else device_info.get('product_name', 'Unknown')
         
-        # 设置窗口属性
-        self.setWindowTitle(f"Log Window - {self.window_id[:12]}")
-        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
+        # 连接相关
+        self.connection_dialog = None  # 连接对话框实例
+        self.rtt2uart = None  # RTT连接实例
+        self.is_connected = False
         
-        # 创建中心部件
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # MDI子窗口
+        self.mdi_window = None
         
-        # 创建TAB控件
-        self.tab_widget = QTabWidget()
-        self.tab_widget.setTabsClosable(False)
-        self.tab_widget.setMovable(True)
-        self.tab_widget.setDocumentMode(True)  # 更现代的外观
+        # 日志缓冲区（32个通道）
+        self.log_buffers = [[] for _ in range(32)]
+        self.log_buffer_locks = [threading.Lock() for _ in range(32)]
         
-        # 创建32个TAB（与主窗口一致）
-        self.log_tabs = []
-        for i in range(32):
-            tab = QPlainTextEdit()
-            tab.setReadOnly(True)
-            tab.setMaximumBlockCount(10000)
-            tab.setLineWrapMode(QPlainTextEdit.NoWrap)  # 不自动换行
-            self.tab_widget.addTab(tab, f"CH{i}")
-            self.log_tabs.append(tab)
+        # 筛选器设置（17-31通道）
+        self.filters = {}
         
-        layout.addWidget(self.tab_widget)
-        
-        # 设置默认大小
-        self.resize(800, 600)
-        
-        logger.info(f"LogTabWindow created: {self.window_id}")
+        logger.info(f"DeviceSession created: {self.session_id} for device {self.device_serial}")
     
-    def closeEvent(self, event):
-        """关闭事件"""
-        # 从主窗口的子窗口列表中移除
-        if hasattr(self.main_window, 'tab_windows'):
-            if self in self.main_window.tab_windows:
-                self.main_window.tab_windows.remove(self)
+    def get_display_name(self):
+        """获取显示名称"""
+        # 只显示设备序列号后6位
+        return f"{self.device_serial[-6:]}"
+    
+    def connect(self):
+        """连接设备"""
+        # 连接逻辑将在后续实现
+        pass
+    
+    def disconnect(self):
+        """断开设备连接"""
+        if self.rtt2uart:
+            try:
+                self.rtt2uart.stop()
+            except Exception as e:
+                logger.error(f"Failed to stop RTT: {e}")
+        self.is_connected = False
+    
+    def cleanup(self):
+        """清理资源"""
+        self.disconnect()
         
-        # 更新主窗口的实例菜单
-        if hasattr(self.main_window, '_update_instances_menu'):
-            self.main_window._update_instances_menu()
+        # 关闭MDI窗口
+        if self.mdi_window:
+            try:
+                self.mdi_window.close()
+                self.mdi_window = None
+            except Exception as e:
+                logger.error(f"Failed to close MDI window: {e}")
         
-        logger.info(f"LogTabWindow closed: {self.window_id}")
-        event.accept()
+        logger.info(f"DeviceSession cleaned up: {self.session_id}")
 
 
-class InstanceManager:
-    """全局实例管理器 - 管理主窗口和所有TAB子窗口"""
+class DeviceSessionManager:
+    """设备会话管理器 - 管理所有设备会话"""
     _instance = None
     _lock = threading.Lock()
     
@@ -165,57 +184,61 @@ class InstanceManager:
         if self._initialized:
             return
         self._initialized = True
-        self.main_window = None  # 主窗口（只有一个）
-        self.tab_windows = []  # TAB子窗口列表
-        self.active_tab_window = None  # 当前激活的TAB窗口
-        self.instance_lock = threading.Lock()
+        self.sessions = []  # 所有设备会话列表
+        self.active_session = None  # 当前激活的会话
+        self.session_lock = threading.Lock()
+        logger.info("DeviceSessionManager initialized")
     
-    def register_main_window(self, window):
-        """注册主窗口"""
-        with self.instance_lock:
-            self.main_window = window
-            logger.info(f"✅ Main window registered")
+    def add_session(self, session):
+        """添加设备会话"""
+        with self.session_lock:
+            if session not in self.sessions:
+                self.sessions.append(session)
+                logger.info(f"✅ Session added: {session.session_id}")
     
-    def register_tab_window(self, window):
-        """注册TAB子窗口"""
-        with self.instance_lock:
-            if window not in self.tab_windows:
-                self.tab_windows.append(window)
-            logger.info(f"✅ Tab window registered: {window.window_id}")
+    def remove_session(self, session):
+        """移除设备会话"""
+        with self.session_lock:
+            if session in self.sessions:
+                session.cleanup()
+                self.sessions.remove(session)
+                if session == self.active_session:
+                    # 如果移除的是当前激活会话，切换到第一个会话
+                    self.active_session = self.sessions[0] if self.sessions else None
+                logger.info(f"✅ Session removed: {session.session_id}")
     
-    def unregister_tab_window(self, window):
-        """注销TAB子窗口"""
-        with self.instance_lock:
-            if window in self.tab_windows:
-                self.tab_windows.remove(window)
-            if window == self.active_tab_window:
-                # 如果关闭的是当前激活窗口，切换到第一个窗口
-                self.active_tab_window = self.tab_windows[0] if self.tab_windows else None
-            logger.info(f"✅ Tab window unregistered: {window.window_id}")
+    def set_active_session(self, session):
+        """设置当前激活的会话"""
+        with self.session_lock:
+            self.active_session = session
+            logger.info(f"Active session: {session.session_id if session else 'None'}")
     
-    def set_active_tab_window(self, window):
-        """设置当前激活的TAB窗口"""
-        with self.instance_lock:
-            self.active_tab_window = window
-            logger.info(f"Active tab window: {window.window_id if window else 'None'}")
+    def get_active_session(self):
+        """获取当前激活的会话"""
+        with self.session_lock:
+            return self.active_session
     
-    def get_active_tab_window(self):
-        """获取当前激活的TAB窗口"""
-        with self.instance_lock:
-            return self.active_tab_window
+    def get_all_sessions(self):
+        """获取所有会话"""
+        with self.session_lock:
+            return self.sessions.copy()
     
-    def get_all_tab_windows(self):
-        """获取所有TAB子窗口"""
-        with self.instance_lock:
-            return self.tab_windows.copy()
+    def get_session_count(self):
+        """获取会话数量"""
+        with self.session_lock:
+            return len(self.sessions)
     
-    def get_tab_window_count(self):
-        """获取TAB子窗口数量"""
-        with self.instance_lock:
-            return len(self.tab_windows)
+    def cleanup_all(self):
+        """清理所有会话"""
+        with self.session_lock:
+            for session in self.sessions[:]:
+                session.cleanup()
+            self.sessions.clear()
+            self.active_session = None
+            logger.info("All sessions cleaned up")
 
-# 全局实例管理器
-instance_manager = InstanceManager()
+# 全局设备会话管理器
+session_manager = DeviceSessionManager()
 
 # 项目模块导入
 from ui_rtt2uart_updated import Ui_ConnectionDialog
@@ -1167,21 +1190,255 @@ class EditableTabBar(QTabBar):
                     
                     logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
+class DeviceMdiWindow(QMdiSubWindow):
+    """设备MDI子窗口 - 每个设备有自己的32个日志TAB"""
+    def __init__(self, device_session, parent=None):
+        super(DeviceMdiWindow, self).__init__(parent)
+        
+        self.device_session = device_session
+        self.main_window = parent  # 保存主窗口引用以访问配置
+        
+        # 设置窗口标题和图标
+        self.setWindowTitle(f"{device_session.get_display_name()}")
+        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
+        
+        # 创建中心部件
+        self.central_widget = QWidget()
+        self.setWidget(self.central_widget)
+        
+        # 创建布局
+        layout = QVBoxLayout(self.central_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 创建32个日志TAB
+        from PySide6.QtWidgets import QTabWidget
+        from ansi_terminal_widget import FastAnsiTextEdit
+        
+        self.tab_widget = QTabWidget()
+        
+        # 使用可编辑的TAB栏
+        editable_tab_bar = EditableTabBar()
+        editable_tab_bar.main_window = parent  # 设置主窗口引用
+        self.tab_widget.setTabBar(editable_tab_bar)
+        
+        # 初始化32个TAB - 使用FastAnsiTextEdit支持ANSI颜色
+        # TAB标签: ALL, 0-15, +筛选(17-31)
+        self.text_edits = []  # 保存所有text_edit引用
+        for i in range(MAX_TAB_SIZE):
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            
+            # 使用FastAnsiTextEdit代替普通QTextEdit
+            text_edit = FastAnsiTextEdit()
+            text_edit.setReadOnly(True)
+            text_edit.setLineWrapMode(QTextEdit.NoWrap)
+            
+            # 应用主窗口的字体设置
+            if parent and hasattr(parent, 'ui'):
+                try:
+                    if hasattr(parent.ui, 'font_combo'):
+                        font_name = parent.ui.font_combo.currentText()
+                    else:
+                        font_name = "Consolas"
+                    font_size = parent.ui.fontsize_box.value() if hasattr(parent.ui, 'fontsize_box') else 10
+                    
+                    font = QFont(font_name, font_size)
+                    font.setFixedPitch(True)
+                    font.setStyleHint(QFont.TypeWriter)
+                    text_edit.setFont(font)
+                except:
+                    pass
+            
+            page_layout.addWidget(text_edit)
+            
+            # 设置TAB标签名称
+            if i == 0:
+                tab_name = "ALL"
+            elif i <= 16:
+                tab_name = str(i - 1)  # 1-16显示为0-15
+            else:
+                tab_name = f"+{i - 16}"  # 17-31显示为+1到+15
+            
+            self.tab_widget.addTab(page, tab_name)
+            self.text_edits.append(text_edit)
+        
+        layout.addWidget(self.tab_widget)
+        
+        # 创建定时器定期从Worker缓冲区更新UI
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self._update_from_worker)
+        self.update_timer.start(100)  # 每100ms更新一次
+        
+        # 记录上次显示的长度，用于增量更新
+        self.last_display_lengths = [0] * MAX_TAB_SIZE
+        
+        # 智能滚动条锁定状态
+        # 水平滚动条：始终锁定位置
+        # 垂直滚动条：自动检测，在底部时自动滚动，不在底部时锁定位置
+        self.vertical_scroll_locked = [False] * MAX_TAB_SIZE  # 每个TAB独立的垂直锁定状态
+        
+        # 为每个text_edit的垂直滚动条安装事件监听
+        logger.info(f"🎯 Installing scroll listeners for {MAX_TAB_SIZE} channels...")
+        for i, text_edit in enumerate(self.text_edits):
+            scrollbar = text_edit.verticalScrollBar()
+            # 使用lambda捕获当前索引
+            scrollbar.valueChanged.connect(lambda value, idx=i: self._on_vertical_scroll_changed(idx, value))
+            logger.debug(f"  ✓ Channel {i} scroll listener installed")
+        
+        # 设置窗口大小
+        self.resize(800, 600)
+        
+        logger.info(f"✅ DeviceMdiWindow created for session: {device_session.session_id} with smart scroll lock")
+    
+    def _on_vertical_scroll_changed(self, channel_idx, value):
+        """垂直滚动条位置变化时的处理 - 智能锁定"""
+        try:
+            if channel_idx >= len(self.text_edits):
+                return
+            
+            text_edit = self.text_edits[channel_idx]
+            scrollbar = text_edit.verticalScrollBar()
+            
+            # 检查是否在底部（允许2像素的误差，因为滚动可能不精确）
+            at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
+            
+            # 更新锁定状态：在底部时解锁（自动滚动），不在底部时锁定
+            old_state = self.vertical_scroll_locked[channel_idx]
+            self.vertical_scroll_locked[channel_idx] = not at_bottom
+            
+            # 记录状态变化（使用info级别以便更容易看到）
+            if old_state != self.vertical_scroll_locked[channel_idx]:
+                logger.info(f"🔒 Channel {channel_idx} scroll lock changed: LOCKED={self.vertical_scroll_locked[channel_idx]} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
+            
+        except Exception as e:
+            logger.error(f"Error in scroll changed handler: {e}", exc_info=True)
+    
+    def _update_from_worker(self):
+        """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
+        try:
+            if not self.device_session.connection_dialog:
+                return
+            
+            worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            if not worker:
+                return
+            
+            # 遍历所有通道，检查是否有新数据
+            for channel in range(MAX_TAB_SIZE):
+                # 获取彩色缓冲区的当前长度
+                current_length = worker.colored_buffer_lengths[channel]
+                last_length = self.last_display_lengths[channel]
+                
+                if current_length > last_length:
+                    # 有新数据，提取增量部分
+                    colored_data = ''.join(worker.colored_buffers[channel])
+                    new_data = colored_data[last_length:]
+                    
+                    if new_data and channel < len(self.text_edits):
+                        text_edit = self.text_edits[channel]
+                        
+                        # 在添加数据前，先检查并更新滚动条状态
+                        v_scrollbar = text_edit.verticalScrollBar()
+                        h_scrollbar = text_edit.horizontalScrollBar()
+                        
+                        # 检查垂直滚动条是否在底部（添加数据前检查）
+                        v_at_bottom = (v_scrollbar.value() >= v_scrollbar.maximum() - 2)
+                        
+                        # 保存当前滚动条位置
+                        old_v_value = v_scrollbar.value()
+                        old_h_value = h_scrollbar.value()
+                        
+                        # 根据当前位置更新锁定状态
+                        # 如果不在底部，立即锁定；如果在底部，保持解锁状态
+                        should_lock = not v_at_bottom
+                        if self.vertical_scroll_locked[channel] != should_lock:
+                            self.vertical_scroll_locked[channel] = should_lock
+                            logger.info(f"📍 Channel {channel} lock updated BEFORE append: LOCKED={should_lock} (v_value={old_v_value}, v_max={v_scrollbar.maximum()}, at_bottom={v_at_bottom})")
+                        
+                        # 临时阻塞滚动条信号，避免在添加文本时触发valueChanged
+                        v_scrollbar.blockSignals(True)
+                        h_scrollbar.blockSignals(True)
+                        
+                        # 保存文本编辑器的自动滚动状态并禁用
+                        # 这样append操作不会自动滚动
+                        old_cursor = text_edit.textCursor()
+                        
+                        # 使用FastAnsiTextEdit的append_ansi_text方法追加ANSI文本
+                        if hasattr(text_edit, 'append_ansi_text'):
+                            text_edit.append_ansi_text(new_data)
+                        else:
+                            # 降级处理：使用普通追加
+                            text_edit.moveCursor(QTextCursor.End)
+                            text_edit.insertPlainText(new_data)
+                        
+                        # 立即强制设置滚动条位置，不等待Qt事件循环
+                        # 水平滚动条：始终锁定，保持原位置
+                        h_scrollbar.setValue(old_h_value)
+                        
+                        # 垂直滚动条：根据锁定状态决定
+                        if self.vertical_scroll_locked[channel]:
+                            # 锁定状态：保持原位置（用户正在查看历史）
+                            v_scrollbar.setValue(old_v_value)
+                            logger.info(f"🔒 Channel {channel} V-scroll LOCKED: set {old_v_value}, actual={v_scrollbar.value()}, max={v_scrollbar.maximum()}")
+                        else:
+                            # 未锁定状态：滚动到底部（用户在查看最新数据）
+                            v_scrollbar.setValue(v_scrollbar.maximum())
+                            logger.info(f"🔓 Channel {channel} V-scroll UNLOCKED: set {v_scrollbar.maximum()}, actual={v_scrollbar.value()}")
+                        
+                        # 恢复滚动条信号
+                        v_scrollbar.blockSignals(False)
+                        h_scrollbar.blockSignals(False)
+                        
+                        # 强制处理待处理的事件，确保滚动条位置生效
+                        from PySide6.QtCore import QCoreApplication
+                        QCoreApplication.processEvents()
+                        
+                        # 更新已显示长度
+                        self.last_display_lengths[channel] = current_length
+        except Exception as e:
+            logger.error(f"Failed to update from worker: {e}", exc_info=True)
+    
+    def closeEvent(self, event):
+        """窗口关闭事件 - 断开设备并注销对象"""
+        logger.info(f"DeviceMdiWindow closing for session: {self.device_session.session_id}")
+        
+        # 停止更新定时器
+        if hasattr(self, 'update_timer'):
+            self.update_timer.stop()
+        
+        # 断开设备连接
+        try:
+            if self.device_session.is_connected:
+                logger.info(f"Disconnecting device: {self.device_session.device_serial}")
+                self.device_session.disconnect()
+        except Exception as e:
+            logger.error(f"Failed to disconnect device: {e}", exc_info=True)
+        
+        # 通知主窗口关闭此设备会话并注销对象
+        # 注意：MDI子窗口的parent是QMdiArea，需要通过mdiArea获取主窗口
+        mdi_area = self.mdiArea()
+        if mdi_area:
+            main_window = mdi_area.parent()
+            while main_window and not isinstance(main_window, RTTMainWindow):
+                main_window = main_window.parent()
+            if main_window and hasattr(main_window, '_on_mdi_window_closed'):
+                main_window._on_mdi_window_closed(self.device_session)
+        
+        event.accept()
+
+
 class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
         
-        # 注册到全局实例管理器（主窗口）
-        instance_manager.register_main_window(self)
-        
         # 主窗口标识（用于日志文件夹等）
         self.window_id = "main"
         
-        # TAB子窗口列表
-        self.tab_windows = []
-        
-        # 创建默认的第一个TAB窗口
-        self.default_tab_window = None
+        # 设备会话管理
+        self.device_sessions = []  # 所有设备会话列表
+        self.current_session = None  # 当前激活的设备会话
         
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
@@ -1224,6 +1481,83 @@ class RTTMainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         
+        # 设置原有的UI（用于按钮区、命令输入区等公用部分）
+        self.ui = Ui_xexun_rtt()
+        self.ui.setupUi(self.central_widget)
+        
+        # 保存原有的layoutWidget并重新设置其父级
+        original_layout_widget = self.ui.layoutWidget
+        original_layout_widget.setParent(None)  # 从原有父级移除
+        
+        # 隐藏原有的32个TAB（因为现在每个设备有自己的MDI子窗口）
+        self.ui.tem_switch.setVisible(False)
+        
+        # 创建新的主布局
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 创建垂直分割器（MDI区域 + 按钮区/命令区 + JLink日志区）
+        self.main_splitter = QSplitter(Qt.Vertical)
+        self.main_splitter.setChildrenCollapsible(True)  # 允许子部件折叠
+        
+        # 设置分割条宽度为2px（更窄，减少空间占用）
+        self.main_splitter.setHandleWidth(2)
+        
+        # 设置分割条样式（可选：添加颜色以便识别）
+        self.main_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #555555;
+            }
+            QSplitter::handle:hover {
+                background-color: #777777;
+            }
+        """)
+        
+        # 创建MDI区域（用于显示多个设备窗口）
+        from PySide6.QtWidgets import QMdiArea, QSizePolicy
+        self.mdi_area = QMdiArea()
+        self.mdi_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.mdi_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.mdi_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.main_splitter.addWidget(self.mdi_area)
+        
+        # 创建底部容器（按钮区 + JLink日志区）
+        bottom_container = QWidget()
+        bottom_layout = QVBoxLayout(bottom_container)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(0)
+        
+        # 将原有的layoutWidget（按钮区+命令输入区）添加到底部容器
+        original_layout_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        original_layout_widget.setFixedHeight(70)  # 设置按钮区固定高度
+        bottom_layout.addWidget(original_layout_widget)
+        
+        # 创建JLink日志区域并添加到底部容器
+        self._create_jlink_log_area()
+        bottom_layout.addWidget(self.jlink_log_widget)
+        
+        # 将底部容器添加到主分割器
+        self.main_splitter.addWidget(bottom_container)
+        
+        # 设置分割比例 (MDI区域占据剩余空间，底部容器可变)
+        self.main_splitter.setStretchFactor(0, 1)  # MDI区域可拉伸
+        self.main_splitter.setStretchFactor(1, 0)  # 底部容器可变大小
+        
+        # 设置可折叠性：MDI不可折叠，底部容器不可折叠（内部JLink区可隐藏）
+        self.main_splitter.setCollapsible(0, False)  # MDI区域不可折叠
+        self.main_splitter.setCollapsible(1, False)  # 底部容器不可折叠
+        
+        # 监听分割器大小变化，自动隐藏/显示JLink日志区
+        self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
+        
+        # 设置中心部件的布局
+        main_layout.addWidget(self.main_splitter)
+        self.central_widget.setLayout(main_layout)
+        
+        # 初始化JLink日志区的初始大小（延迟设置，等待窗口显示后）
+        QTimer.singleShot(100, self._init_splitter_sizes)
+        
         # 创建菜单栏和状态栏
         self._create_menu_bar()
         self._create_status_bar()
@@ -1231,9 +1565,9 @@ class RTTMainWindow(QMainWindow):
         # 初始化时禁用RTT相关功能，直到连接成功
         self._set_rtt_controls_enabled(False)
         
-        # 设置原有的UI
-        self.ui = Ui_xexun_rtt()
-        self.ui.setupUi(self.central_widget)
+        # 不再创建原有的UI，改为动态创建设备窗口
+        # self.ui = Ui_xexun_rtt()
+        # self.ui.setupUi(self.central_widget)
         
         # 自动重连相关变量
         self.manual_disconnect = False  # 是否为手动断开
@@ -1243,6 +1577,7 @@ class RTTMainWindow(QMainWindow):
         
         # 立即创建连接对话框以便加载配置
         self.connection_dialog = ConnectionDialog(self)
+        self._main_connection_dialog = self.connection_dialog  # 保存主连接对话框引用
         # 连接成功信号
         self.connection_dialog.connection_established.connect(self.on_connection_established)
         
@@ -1264,37 +1599,6 @@ class RTTMainWindow(QMainWindow):
         
         # 串口转发设置已移动到连接对话框中
         
-        # 保存原有的layoutWidget并重新设置其父级
-        original_layout_widget = self.ui.layoutWidget
-        original_layout_widget.setParent(None)  # 从原有父级移除
-        
-        # 创建新的主布局
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # 创建分割器
-        splitter = QSplitter(Qt.Vertical)
-        splitter.setChildrenCollapsible(False)  # 防止子部件被完全折叠
-        
-        # 将原有的layoutWidget添加到分割器，并确保它能够扩展
-        from PySide6.QtWidgets import QSizePolicy
-        original_layout_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        splitter.addWidget(original_layout_widget)
-        
-        # 创建JLink日志区域
-        self._create_jlink_log_area()
-        splitter.addWidget(self.jlink_log_widget)
-        
-        # 设置分割比例 (RTT区域占85%，JLink日志占15%)
-        splitter.setSizes([850, 150])
-        splitter.setStretchFactor(0, 1)  # RTT区域可拉伸
-        splitter.setStretchFactor(1, 0)  # JLink日志区域固定大小
-        
-        # 设置中心部件的布局
-        main_layout.addWidget(splitter)
-        self.central_widget.setLayout(main_layout)
-        
         # QMainWindow默认就有最大化按钮，不需要额外设置
         # 向 tabWidget 中添加页面并连接信号
 
@@ -1311,11 +1615,12 @@ class RTTMainWindow(QMainWindow):
         self.action4 = QAction(self)
         self.action4.setShortcut(QKeySequence("F4"))
 
-        self.action5 = QAction(self)
-        self.action5.setShortcut(QKeySequence("F5"))
-        
-        self.action6 = QAction(self)
-        self.action6.setShortcut(QKeySequence("F6"))
+        # F5和F6快捷键已移除（滚动条锁定改为智能自动控制）
+        # self.action5 = QAction(self)
+        # self.action5.setShortcut(QKeySequence("F5"))
+        # 
+        # self.action6 = QAction(self)
+        # self.action6.setShortcut(QKeySequence("F6"))
 
         self.action7 = QAction(self)
         self.action7.setShortcut(QKeySequence("F7"))
@@ -1344,8 +1649,8 @@ class RTTMainWindow(QMainWindow):
         self.addAction(self.action2)
         self.addAction(self.action3)
         self.addAction(self.action4)
-        self.addAction(self.action5)
-        self.addAction(self.action6)
+        # self.addAction(self.action5)  # F5已移除
+        # self.addAction(self.action6)  # F6已移除
         self.addAction(self.action7)
 
         self.addAction(self.action9)
@@ -1358,14 +1663,15 @@ class RTTMainWindow(QMainWindow):
         self.action2.triggered.connect(self.on_re_connect_clicked)
         self.action3.triggered.connect(self.on_dis_connect_clicked)
         self.action4.triggered.connect(self.on_clear_clicked)
-        self.action5.triggered.connect(self.toggle_lock_v_checkbox)
-        self.action6.triggered.connect(self.toggle_lock_h_checkbox)
+        # self.action5.triggered.connect(self.toggle_lock_v_checkbox)  # F5已移除
+        # self.action6.triggered.connect(self.toggle_lock_h_checkbox)  # F6已移除
         self.action7.triggered.connect(self.toggle_style_checkbox)
 
         # 重定向 F9 到统一的执行逻辑（根据子菜单选择）
         self.action9.triggered.connect(self.restart_app_execute)
         #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
+        # 初始化主窗口的UI组件
         self.ui.tem_switch.clear()
         editable_tab_bar = EditableTabBar()
         editable_tab_bar.main_window = self  # 设置主窗口引用
@@ -1528,25 +1834,30 @@ class RTTMainWindow(QMainWindow):
         if hasattr(self.ui, 'restart_app_button'):
             self.ui.restart_app_button.clicked.connect(self.restart_app_execute)
         
-        # 连接新建窗口按钮 (F10)
+        # 隐藏新建窗口按钮（已被设备TAB栏的"+"按钮替代）
         if hasattr(self.ui, 'new_window_button'):
-            self.ui.new_window_button.clicked.connect(self._new_window)
-            # 创建F10快捷键
-            self.action10 = QAction(self)
-            self.action10.setShortcut(QKeySequence("F10"))
-            self.action10.triggered.connect(self._new_window)
-            self.addAction(self.action10)
+            self.ui.new_window_button.hide()
         
-        # 连接紧缩模式复选框 (F11)
+        # 隐藏紧缩模式复选框（功能已废弃）
         if hasattr(self.ui, 'compact_mode_checkbox'):
-            self.ui.compact_mode_checkbox.stateChanged.connect(self._on_compact_mode_checkbox_changed)
-            # 创建F11快捷键
-            self.action11 = QAction(self)
-            self.action11.setShortcut(QKeySequence("F11"))
-            self.action11.triggered.connect(self._toggle_compact_mode_via_f11)
-            self.addAction(self.action11)
-            # 同步初始状态
-            self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
+            self.ui.compact_mode_checkbox.hide()
+        
+        # 隐藏水平和垂直滚动条锁定复选框（改为智能自动锁定）
+        if hasattr(self.ui, 'LockH_checkBox'):
+            self.ui.LockH_checkBox.hide()
+        if hasattr(self.ui, 'LockV_checkBox'):
+            self.ui.LockV_checkBox.hide()
+        
+        # 连接紧缩模式复选框 (F11) - 已屏蔽
+        # if hasattr(self.ui, 'compact_mode_checkbox'):
+        #     self.ui.compact_mode_checkbox.stateChanged.connect(self._on_compact_mode_checkbox_changed)
+        #     # 创建F11快捷键
+        #     self.action11 = QAction(self)
+        #     self.action11.setShortcut(QKeySequence("F11"))
+        #     self.action11.triggered.connect(self._toggle_compact_mode_via_f11)
+        #     self.addAction(self.action11)
+        #     # 同步初始状态
+        #     self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
         
         # 创建F8快捷键用于切换自动重连
         self.action8 = QAction(self)
@@ -1605,46 +1916,33 @@ class RTTMainWindow(QMainWindow):
         # 窗口菜单
         self.window_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Window(&W)"))
         
-        # 新建窗口动作
-        new_window_action = QAction(QCoreApplication.translate("main_window", "New Window(&N)"), self)
-        new_window_action.setShortcut(QKeySequence("Ctrl+N"))
-        new_window_action.setStatusTip(QCoreApplication.translate("main_window", "Open a new window"))
-        new_window_action.triggered.connect(self._new_window)
-        self.window_menu.addAction(new_window_action)
-        
-        self.window_menu.addSeparator()
-        
-        # 实例管理子菜单
-        self.instances_menu = self.window_menu.addMenu(QCoreApplication.translate("main_window", "Instances(&I)"))
-        self._update_instances_menu()
-        
-        # 分割布局子菜单
-        self.split_menu = self.window_menu.addMenu(QCoreApplication.translate("main_window", "Split Layout(&S)"))
-        
+        # 水平分割窗口
         split_horizontal_action = QAction(QCoreApplication.translate("main_window", "Split Horizontal"), self)
         split_horizontal_action.triggered.connect(lambda: self._split_layout('horizontal'))
-        self.split_menu.addAction(split_horizontal_action)
+        self.window_menu.addAction(split_horizontal_action)
         
+        # 垂直分割窗口
         split_vertical_action = QAction(QCoreApplication.translate("main_window", "Split Vertical"), self)
         split_vertical_action.triggered.connect(lambda: self._split_layout('vertical'))
-        self.split_menu.addAction(split_vertical_action)
-        
-        self.split_menu.addSeparator()
-        
-        unsplit_action = QAction(QCoreApplication.translate("main_window", "Remove Split"), self)
-        unsplit_action.triggered.connect(self._remove_split)
-        self.split_menu.addAction(unsplit_action)
+        self.window_menu.addAction(split_vertical_action)
         
         self.window_menu.addSeparator()
         
         # 紧凑模式切换动作
-        self.compact_mode_action = QAction(QCoreApplication.translate("main_window", "Compact Mode(&M)"), self)
-        self.compact_mode_action.setCheckable(True)
-        self.compact_mode_action.setChecked(False)
-        self.compact_mode_action.setShortcut(QKeySequence("Ctrl+M"))
-        self.compact_mode_action.setStatusTip(QCoreApplication.translate("main_window", "Toggle compact mode for multi-device usage"))
-        self.compact_mode_action.triggered.connect(self._toggle_compact_mode)
-        self.window_menu.addAction(self.compact_mode_action)
+        # 紧缩模式 - 已屏蔽
+        # self.compact_mode_action = QAction(QCoreApplication.translate("main_window", "Compact Mode(&M)"), self)
+        # self.compact_mode_action.setCheckable(True)
+        # self.compact_mode_action.setChecked(False)
+        # self.compact_mode_action.setShortcut(QKeySequence("Ctrl+M"))
+        # self.compact_mode_action.setStatusTip(QCoreApplication.translate("main_window", "Toggle compact mode for multi-device usage"))
+        # self.compact_mode_action.triggered.connect(self._toggle_compact_mode)
+        # self.window_menu.addAction(self.compact_mode_action)
+        # 
+        # self.window_menu.addSeparator()
+        
+        # MDI窗口列表将在这里动态添加
+        # 连接窗口菜单的aboutToShow信号以动态更新窗口列表
+        self.window_menu.aboutToShow.connect(self._update_window_menu)
         
         # 工具菜单
         self.tools_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Tools(&T)"))
@@ -1773,6 +2071,390 @@ class RTTMainWindow(QMainWindow):
         about_action = QAction(QCoreApplication.translate("main_window", "About(&A)..."), self)
         about_action.triggered.connect(self._show_about)
         self.help_menu.addAction(about_action)
+        
+        # ========== 在菜单栏右侧添加设备TAB栏 ========== (已完全屏蔽)
+        # self._create_device_tab_bar(menubar)
+    
+    def _create_device_tab_bar(self, menubar):
+        """在菜单栏右侧创建设备TAB栏 - 已完全屏蔽"""
+        pass
+        # # 创建一个容器widget来放置TAB栏，设置主窗口为父对象
+        # self.device_tab_container = QWidget(self)
+        # device_tab_layout = QHBoxLayout(self.device_tab_container)
+        # device_tab_layout.setContentsMargins(5, 0, 5, 0)
+        # device_tab_layout.setSpacing(5)
+        # 
+        # # 创建设备TAB栏，设置容器为父对象
+        # self.device_tab_bar = QTabBar(self.device_tab_container)
+        # self.device_tab_bar.setTabsClosable(True)  # 允许关闭TAB
+        # self.device_tab_bar.setMovable(True)  # 允许拖动TAB
+        # self.device_tab_bar.setExpanding(False)  # 不自动扩展
+        # self.device_tab_bar.setDrawBase(False)  # 不绘制底部线条
+        # 
+        # # 设置TAB栏的大小策略为最小化
+        # self.device_tab_bar.setSizePolicy(
+        #     QSizePolicy.Minimum,  # 水平方向最小化
+        #     QSizePolicy.Fixed     # 垂直方向固定
+        # )
+        # 
+        # # 连接信号
+        # self.device_tab_bar.currentChanged.connect(self._on_device_tab_changed)
+        # self.device_tab_bar.tabCloseRequested.connect(self._on_device_tab_close_requested)
+        # 
+        # # 添加"+"按钮用于新建设备连接，设置容器为父对象
+        # self.add_device_btn = QPushButton("+", self.device_tab_container)
+        # self.add_device_btn.setFixedSize(30, 25)
+        # self.add_device_btn.setToolTip(QCoreApplication.translate("main_window", "Connect New Device"))
+        # self.add_device_btn.clicked.connect(self._connect_new_device)
+        # self.add_device_btn.setStyleSheet("""
+        #     QPushButton {
+        #         font-size: 16px;
+        #         font-weight: bold;
+        #         border: 1px solid #555;
+        #         border-radius: 3px;
+        #         background-color: #2d2d30;
+        #         color: #ffffff;
+        #     }
+        #     QPushButton:hover {
+        #         background-color: #3e3e42;
+        #     }
+        #     QPushButton:pressed {
+        #         background-color: #007acc;
+        #     }
+        # """)
+        # 
+        # device_tab_layout.addWidget(self.device_tab_bar)
+        # device_tab_layout.addWidget(self.add_device_btn)
+        # device_tab_layout.addStretch()  # 添加弹性空间，让TAB栏靠左
+        # 
+        # # 设置容器的大小策略
+        # self.device_tab_container.setSizePolicy(
+        #     QSizePolicy.Minimum,  # 水平方向最小化
+        #     QSizePolicy.Fixed     # 垂直方向固定
+        # )
+        # 
+        # # 将容器添加到菜单栏右侧（暂时隐藏）
+        # menubar.setCornerWidget(self.device_tab_container, Qt.TopRightCorner)
+        # self.device_tab_container.setVisible(False)  # 暂时屏蔽设备TAB栏
+        # 
+        # logger.info(f"Device tab bar created in menu bar (hidden), parent: {self.device_tab_bar.parent()}")
+    
+    def _on_device_tab_changed(self, index):
+        """设备TAB切换事件 - 激活对应的MDI窗口"""
+        if index < 0 or index >= len(self.device_sessions):
+            return
+        
+        # 获取对应的设备会话
+        session = self.device_sessions[index]
+        self.current_session = session
+        session_manager.set_active_session(session)
+        
+        # 切换主窗口的connection_dialog引用到该设备的dialog
+        if session.connection_dialog:
+            self.connection_dialog = session.connection_dialog
+        
+        # 激活对应的MDI窗口
+        if session.mdi_window:
+            self.mdi_area.setActiveSubWindow(session.mdi_window)
+        
+        logger.info(f"Switched to device session: {session.session_id}")
+    
+    def _on_device_tab_close_requested(self, index):
+        """设备TAB关闭请求"""
+        if index < 0 or index >= len(self.device_sessions):
+            return
+        
+        session = self.device_sessions[index]
+        
+        # 确认关闭
+        reply = QMessageBox.question(
+            self,
+            QCoreApplication.translate("main_window", "Close Device"),
+            QCoreApplication.translate("main_window", 
+                "Are you sure you want to close device {}?\n\nAll unsaved data will be lost.").format(session.get_display_name()),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self._close_device_session(index)
+    
+    def _on_mdi_window_closed(self, device_session):
+        """MDI窗口关闭事件"""
+        try:
+            # 找到对应的会话索引
+            for i, session in enumerate(self.device_sessions):
+                if session.session_id == device_session.session_id:
+                    self._close_device_session(i)
+                    break
+        except Exception as e:
+            logger.error(f"Failed to handle MDI window close: {e}", exc_info=True)
+    
+    def _connect_new_device(self):
+        """连接新设备"""
+        try:
+            # 创建新的连接对话框用于选择设备
+            from main_window import ConnectionDialog
+            
+            # 创建临时连接对话框
+            temp_dialog = ConnectionDialog(self)
+            temp_dialog.setWindowTitle(QCoreApplication.translate("main_window", "Connect New Device"))
+            
+            # 连接信号，当连接成功时创建新的设备会话
+            def on_new_device_connected():
+                try:
+                    if not temp_dialog.rtt2uart:
+                        return
+                    
+                    # 获取设备信息
+                    rtt = temp_dialog.rtt2uart
+                    device_serial = getattr(rtt, '_connect_para', 'Unknown')
+                    
+                    # 检查是否已经存在该设备的会话
+                    for session in self.device_sessions:
+                        if session.device_serial == device_serial:
+                            QMessageBox.information(
+                                self,
+                                QCoreApplication.translate("main_window", "Device Already Connected"),
+                                QCoreApplication.translate("main_window", 
+                                    "This device is already connected.\n\nDevice: {}").format(device_serial)
+                            )
+                            return
+                    
+                    # 创建新的设备会话
+                    device_info = {
+                        'serial': device_serial,
+                        'product_name': getattr(rtt, 'device_info', 'Unknown'),
+                        'connection': 'USB'
+                    }
+                    
+                    session = DeviceSession(device_info)
+                    session.rtt2uart = rtt
+                    session.connection_dialog = temp_dialog
+                    session.is_connected = True
+                    
+                    # 创建MDI子窗口
+                    mdi_window = DeviceMdiWindow(session, self)
+                    session.mdi_window = mdi_window
+                    
+                    # 将MDI窗口添加到MDI区域
+                    self.mdi_area.addSubWindow(mdi_window)
+                    mdi_window.show()
+                    
+                    # 添加到会话列表
+                    self.device_sessions.append(session)
+                    session_manager.add_session(session)
+                    
+                    # 设置为当前会话
+                    self.current_session = session
+                    session_manager.set_active_session(session)
+                    
+                    tab_name = session.get_display_name()
+                    logger.info(f"✅ New device session created with MDI window: {tab_name}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create new device session: {e}", exc_info=True)
+            
+            temp_dialog.connection_established.connect(on_new_device_connected)
+            temp_dialog.show()
+            
+            logger.info("Connect new device requested")
+            
+        except Exception as e:
+            logger.error(f"Failed to connect new device: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                QCoreApplication.translate("main_window", "Error"),
+                QCoreApplication.translate("main_window", "Failed to connect new device: {}").format(str(e))
+            )
+    
+    def _get_active_device_session(self):
+        """获取当前激活的设备会话（基于激活的MDI窗口）"""
+        try:
+            active_mdi = self.mdi_area.activeSubWindow()
+            if active_mdi and isinstance(active_mdi, DeviceMdiWindow):
+                return active_mdi.device_session
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get active device session: {e}")
+            return None
+    
+    def _switch_to_session(self, session):
+        """切换UI到指定的设备会话"""
+        try:
+            if not session:
+                logger.warning("Cannot switch to None session")
+                return
+            
+            logger.info(f"Switching UI to session: {session.session_id} (device: {session.device_serial})")
+            
+            # 1. 切换connection_dialog引用
+            if session.connection_dialog:
+                self.connection_dialog = session.connection_dialog
+                
+                # 2. 切换Worker引用，这样UI会显示对应设备的日志
+                if hasattr(session.connection_dialog, 'worker') and session.connection_dialog.worker:
+                    # 保存当前worker的引用（如果需要）
+                    if hasattr(self, '_current_worker'):
+                        old_worker = self._current_worker
+                    
+                    # 切换到新设备的worker
+                    self._current_worker = session.connection_dialog.worker
+                    
+                    # 刷新UI显示该设备的日志
+                    self._refresh_ui_from_worker(session.connection_dialog.worker)
+            
+            # 3. 更新连接状态显示
+            if session.is_connected:
+                self.connection_status_label.setText(
+                    QCoreApplication.translate("main_window", "Connected: %s") % session.get_display_name()
+                )
+                self._set_rtt_controls_enabled(True)
+            else:
+                self.connection_status_label.setText(
+                    QCoreApplication.translate("main_window", "Disconnected")
+                )
+                self._set_rtt_controls_enabled(False)
+            
+            # 4. 更新状态栏
+            self.update_status_bar()
+            
+            logger.info(f"✅ Switched to session: {session.session_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to switch session: {e}", exc_info=True)
+    
+    def _refresh_ui_from_worker(self, worker):
+        """从Worker刷新UI显示"""
+        try:
+            if not worker:
+                return
+            
+            # 清空当前UI显示
+            for i in range(MAX_TAB_SIZE):
+                current_page_widget = self.ui.tem_switch.widget(i)
+                if isinstance(current_page_widget, QWidget):
+                    text_edit = current_page_widget.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.clear()
+            
+            # 从worker的缓冲区重新加载数据到UI
+            for i in range(MAX_TAB_SIZE):
+                if hasattr(worker, 'buffers') and i < len(worker.buffers):
+                    # 获取该通道的数据
+                    if worker.colored_buffers and i < len(worker.colored_buffers):
+                        # 使用彩色缓冲区
+                        colored_data = ''.join(worker.colored_buffers[i])
+                        if colored_data:
+                            current_page_widget = self.ui.tem_switch.widget(i)
+                            if isinstance(current_page_widget, QWidget):
+                                text_edit = current_page_widget.findChild(QTextEdit)
+                                if text_edit:
+                                    text_edit.setHtml(colored_data)
+                                    # 滚动到底部
+                                    text_edit.moveCursor(QTextCursor.End)
+            
+            logger.debug(f"UI refreshed from worker")
+            
+        except Exception as e:
+            logger.error(f"Failed to refresh UI from worker: {e}", exc_info=True)
+    
+    def _clear_all_logs(self):
+        """清空所有日志显示"""
+        try:
+            for i in range(MAX_TAB_SIZE):
+                current_page_widget = self.ui.tem_switch.widget(i)
+                if isinstance(current_page_widget, QWidget):
+                    text_edit = current_page_widget.findChild(QTextEdit)
+                    if text_edit:
+                        text_edit.clear()
+            logger.debug("All logs cleared")
+        except Exception as e:
+            logger.error(f"Failed to clear logs: {e}", exc_info=True)
+    
+    def _close_device_session(self, index):
+        """关闭设备会话"""
+        if index < 0 or index >= len(self.device_sessions):
+            return
+        
+        session = self.device_sessions[index]
+        
+        # 断开连接并清理
+        session.cleanup()
+        
+        # 关闭该会话的ConnectionDialog
+        if session.connection_dialog:
+            try:
+                session.connection_dialog.close()
+                session.connection_dialog.deleteLater()
+            except Exception as e:
+                logger.error(f"Failed to close connection dialog: {e}")
+        
+        # 从列表中移除
+        self.device_sessions.pop(index)
+        session_manager.remove_session(session)
+        
+        # 如果还有其他会话，切换到第一个
+        if self.device_sessions:
+            self.current_session = self.device_sessions[0]
+            # 激活第一个设备的MDI窗口
+            if self.current_session.mdi_window:
+                self.mdi_area.setActiveSubWindow(self.current_session.mdi_window)
+        else:
+            self.current_session = None
+            # 恢复到主连接对话框
+            if hasattr(self, '_main_connection_dialog'):
+                self.connection_dialog = self._main_connection_dialog
+        
+        logger.info(f"Device session closed: {session.session_id}")
+    
+    def _create_device_session_from_connection(self):
+        """从当前连接创建设备会话、MDI窗口"""
+        try:
+            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
+                logger.warning("No active connection to create session from")
+                return
+            
+            # 获取当前连接的设备信息
+            rtt = self.connection_dialog.rtt2uart
+            device_info = {
+                'serial': getattr(rtt, '_connect_para', 'Unknown'),
+                'product_name': getattr(rtt, 'device_info', 'Unknown'),
+                'connection': 'USB'
+            }
+            
+            # 检查是否已经存在该设备的会话
+            for session in self.device_sessions:
+                if session.device_serial == device_info['serial']:
+                    logger.info(f"Device session already exists: {device_info['serial']}")
+                    return
+            
+            # 创建新的设备会话
+            session = DeviceSession(device_info)
+            session.rtt2uart = rtt
+            session.connection_dialog = self.connection_dialog
+            session.is_connected = True
+            
+            # 创建MDI子窗口
+            mdi_window = DeviceMdiWindow(session, self)
+            session.mdi_window = mdi_window
+            
+            # 将MDI窗口添加到MDI区域
+            self.mdi_area.addSubWindow(mdi_window)
+            mdi_window.show()
+            
+            # 添加到会话列表
+            self.device_sessions.append(session)
+            session_manager.add_session(session)
+            
+            # 设置为当前会话
+            self.current_session = session
+            session_manager.set_active_session(session)
+            
+            logger.info(f"✅ Device session created with MDI window: {session.get_display_name()}")
+            
+        except Exception as e:
+            logger.error(f"Failed to create device session: {e}", exc_info=True)
     
     def _create_status_bar(self):
         """创建状态栏"""
@@ -1796,58 +2478,87 @@ class RTTMainWindow(QMainWindow):
         """显示连接设置对话框"""
         self.show_connection_dialog()
     
-    def _new_window(self):
-        """新建TAB窗口 - 创建新的日志显示窗口"""
+    def _update_window_menu(self):
+        """动态更新窗口菜单中的MDI窗口列表"""
         try:
-            # 检查USB设备数量
-            usb_device_count = self._count_jlink_usb_devices()
-            current_tab_count = instance_manager.get_tab_window_count()
+            # 移除之前动态添加的窗口列表项
+            # 找到最后一个分隔符之后的所有action并移除
+            actions = self.window_menu.actions()
+            last_separator_index = -1
             
-            logger.info(f"[NEW WINDOW] USB devices: {usb_device_count}, Current tab windows: {current_tab_count}")
+            # 找到最后一个分隔符的位置
+            for i, action in enumerate(actions):
+                if action.isSeparator():
+                    last_separator_index = i
             
-            # 如果只有一个USB设备且已有TAB窗口，提示用户
-            if usb_device_count <= 1 and current_tab_count >= 1:
-                from PySide6.QtWidgets import QMessageBox
-                msg = QMessageBox(self)
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle(QCoreApplication.translate("main_window", "New Window"))
-                msg.setText(QCoreApplication.translate("main_window", "Only 1 USB device detected"))
-                msg.setInformativeText(QCoreApplication.translate("main_window", 
-                    "Creating multiple windows with only one device may not be useful.\n\n"
-                    "Do you still want to create a new window?"))
-                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-                msg.setDefaultButton(QMessageBox.No)
+            # 移除最后一个分隔符之后的所有action
+            if last_separator_index >= 0:
+                actions_to_remove = actions[last_separator_index + 1:]
+                for action in actions_to_remove:
+                    self.window_menu.removeAction(action)
+            
+            # 获取所有MDI子窗口
+            sub_windows = self.mdi_area.subWindowList()
+            if sub_windows:
+                # 创建ActionGroup实现单选
+                if not hasattr(self, 'window_action_group'):
+                    self.window_action_group = QActionGroup(self)
+                    self.window_action_group.setExclusive(True)
+                else:
+                    # 清空旧的actions
+                    for action in self.window_action_group.actions():
+                        self.window_action_group.removeAction(action)
                 
-                if msg.exec() != QMessageBox.Yes:
-                    logger.info("[NEW WINDOW] User cancelled (only 1 USB device)")
-                    return
-            
-            # 创建新的TAB子窗口
-            tab_window = LogTabWindow(self)
-            tab_window.show()
-            
-            # 添加到主窗口的子窗口列表
-            self.tab_windows.append(tab_window)
-            
-            # 注册到实例管理器
-            instance_manager.register_tab_window(tab_window)
-            
-            # 设置为当前激活窗口
-            instance_manager.set_active_tab_window(tab_window)
-            
-            # 更新实例菜单
-            self._update_instances_menu()
-            
-            logger.info(f"[NEW WINDOW] Tab window created: {tab_window.window_id}")
+                # 添加窗口列表
+                for i, sub_window in enumerate(sub_windows):
+                    if isinstance(sub_window, DeviceMdiWindow):
+                        # 创建窗口切换动作
+                        window_title = sub_window.windowTitle()
+                        action = QAction(f"{i+1}. {window_title}", self)
+                        action.setCheckable(True)
+                        
+                        # 标记当前激活的窗口
+                        if sub_window == self.mdi_area.activeSubWindow():
+                            action.setChecked(True)
+                        
+                        # 保存窗口引用到action的data中
+                        action.setData(sub_window)
+                        
+                        # 添加到ActionGroup实现单选
+                        self.window_action_group.addAction(action)
+                        
+                        # 连接切换信号
+                        action.triggered.connect(lambda checked, w=sub_window: self._activate_mdi_window(w))
+                        
+                        # 添加到菜单
+                        self.window_menu.addAction(action)
+                        
+                        # 添加快捷键（前9个窗口）
+                        if i < 9:
+                            action.setShortcut(QKeySequence(f"Ctrl+{i+1}"))
             
         except Exception as e:
-            logger.error(f"[ERROR] Failed to create new window: {e}")
-            import traceback
-            traceback.print_exc()
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, 
-                QCoreApplication.translate("main_window", "Error"), 
-                QCoreApplication.translate("main_window", "Failed to create new window:\n{}").format(e))
+            logger.error(f"Failed to update window menu: {e}", exc_info=True)
+    
+    def _activate_mdi_window(self, mdi_window):
+        """激活指定的MDI窗口"""
+        try:
+            if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
+                self.mdi_area.setActiveSubWindow(mdi_window)
+                mdi_window.raise_()
+                mdi_window.activateWindow()
+                
+                # 更新当前会话
+                self.current_session = mdi_window.device_session
+                session_manager.set_active_session(mdi_window.device_session)
+                
+                logger.info(f"Activated MDI window for session: {mdi_window.device_session.session_id}")
+        except Exception as e:
+            logger.error(f"Failed to activate MDI window: {e}", exc_info=True)
+    
+    def _new_window(self):
+        """新建窗口 - 重定向到连接新设备"""
+        self._connect_new_device()
     
     def _count_jlink_usb_devices(self):
         """统计JLink USB设备数量"""
@@ -1860,146 +2571,131 @@ class RTTMainWindow(QMainWindow):
             logger.warning(f"Failed to count JLink devices: {e}")
             return 0
     
-    def _update_instance_tabs(self):
-        """更新实例TAB栏"""
-        # 更新窗口菜单中的实例列表
-        self._update_instances_menu()
-    
-    def _update_instances_menu(self):
-        """更新实例菜单"""
-        if not hasattr(self, 'instances_menu'):
-            return
-        
-        # 清空现有菜单
-        self.instances_menu.clear()
-        
-        # 获取所有TAB窗口
-        all_tab_windows = instance_manager.get_all_tab_windows()
-        active_window = instance_manager.get_active_tab_window()
-        
-        if not all_tab_windows:
-            no_windows_action = QAction(QCoreApplication.translate("main_window", "No windows"), self)
-            no_windows_action.setEnabled(False)
-            self.instances_menu.addAction(no_windows_action)
-            return
-        
-        # 为每个TAB窗口创建菜单项
-        for idx, tab_window in enumerate(all_tab_windows, 1):
-            # 创建菜单项
-            window_title = tab_window.windowTitle()
-            action_text = f"{idx}. {window_title}"
-            action = QAction(action_text, self)
-            
-            # 当前激活窗口加粗显示
-            if tab_window == active_window:
-                font = action.font()
-                font.setBold(True)
-                action.setFont(font)
-                action_text = f"● {action_text}"  # 添加圆点标记
-                action.setText(action_text)
-            
-            # 连接信号：点击切换到该窗口
-            action.triggered.connect(lambda checked, win=tab_window: self._focus_tab_window(win))
-            self.instances_menu.addAction(action)
-    
-    def _focus_tab_window(self, tab_window):
-        """聚焦到指定TAB窗口"""
-        try:
-            tab_window.raise_()
-            tab_window.activateWindow()
-            
-            # 设置为当前激活窗口
-            instance_manager.set_active_tab_window(tab_window)
-            
-            # 更新菜单显示
-            self._update_instances_menu()
-            
-            logger.info(f"Focused on tab window: {tab_window.window_id}")
-        except Exception as e:
-            logger.error(f"Failed to focus tab window: {e}")
+    # ========== 旧的MDI架构方法（已废弃） ==========
+    # def _update_instance_tabs(self):
+    #     """更新实例TAB栏"""
+    #     # 更新窗口菜单中的实例列表
+    #     self._update_instances_menu()
+    # 
+    # def _update_instances_menu(self):
+    #     """更新实例菜单"""
+    #     pass
+    # 
+    # def _focus_tab_window(self, tab_window):
+    #     """聚焦到指定TAB窗口"""
+    #     pass
     
     def _split_layout(self, orientation):
-        """分割布局显示多个TAB窗口
-        
-        Args:
-            orientation: 'horizontal' 或 'vertical'
-        """
+        """分割布局显示多个MDI设备窗口"""
         try:
-            all_tab_windows = instance_manager.get_all_tab_windows()
-            
-            if len(all_tab_windows) < 2:
+            if len(self.device_sessions) < 2:
                 from PySide6.QtWidgets import QMessageBox
                 QMessageBox.information(self,
                     QCoreApplication.translate("main_window", "Split Layout"),
                     QCoreApplication.translate("main_window", 
-                        "Need at least 2 windows to split.\n\nPlease create a new window first (F10)."))
+                        "Need at least 2 connected devices to split.\n\nPlease connect another device first."))
                 return
             
-            # 创建分割窗口
-            split_window = QMainWindow()
-            split_window.setWindowTitle(QCoreApplication.translate("main_window", "Split View"))
-            split_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
-            
-            # 创建中心部件和分割器
-            central_widget = QWidget()
-            split_window.setCentralWidget(central_widget)
-            layout = QVBoxLayout(central_widget)
-            layout.setContentsMargins(0, 0, 0, 0)
-            
-            # 创建分割器
+            # 使用MDI区域的平铺功能
             if orientation == 'horizontal':
-                splitter = QSplitter(Qt.Horizontal)
+                self.mdi_area.tileSubWindows()
+                logger.info("MDI layout: Tiled (Horizontal)")
             else:
-                splitter = QSplitter(Qt.Vertical)
-            
-            # 将所有TAB窗口嵌入到分割器中（最多4个）
-            for tab_window in all_tab_windows[:4]:
-                # 创建容器widget来嵌入TAB窗口的内容
-                container = QWidget()
-                container_layout = QVBoxLayout(container)
-                container_layout.setContentsMargins(2, 2, 2, 2)
+                # 垂直平铺（通过调整窗口位置实现）
+                sub_windows = self.mdi_area.subWindowList()
+                if sub_windows:
+                    mdi_height = self.mdi_area.height()
+                    window_height = mdi_height // len(sub_windows)
+                    mdi_width = self.mdi_area.width()
+                    
+                    for i, window in enumerate(sub_windows):
+                        window.showNormal()
+                        window.setGeometry(0, i * window_height, mdi_width, window_height)
                 
-                # 添加标题标签
-                title_label = QLabel(tab_window.windowTitle())
-                title_label.setStyleSheet("font-weight: bold; padding: 5px; background-color: #2d2d30; color: white;")
-                container_layout.addWidget(title_label)
-                
-                # 创建TAB widget的克隆视图（只读）
-                tab_clone = QTabWidget()
-                for i, original_tab in enumerate(tab_window.log_tabs):
-                    clone_tab = QPlainTextEdit()
-                    clone_tab.setReadOnly(True)
-                    clone_tab.setPlainText(original_tab.toPlainText())
-                    tab_clone.addTab(clone_tab, f"CH{i}")
-                
-                container_layout.addWidget(tab_clone)
-                splitter.addWidget(container)
+                logger.info("MDI layout: Vertical")
             
-            layout.addWidget(splitter)
-            
-            # 设置窗口大小和显示
-            if orientation == 'horizontal':
-                split_window.resize(1600, 600)
-            else:
-                split_window.resize(800, 1200)
-            
-            split_window.show()
-            
-            # 保存分割窗口引用
-            if not hasattr(self, 'split_windows'):
-                self.split_windows = []
-            self.split_windows.append(split_window)
-            
-            logger.info(f"Created {orientation} split layout with {len(all_tab_windows[:4])} windows")
+            logger.info(f"Split layout applied: {orientation}, {len(self.device_sessions)} devices")
             
         except Exception as e:
-            logger.error(f"Failed to create split layout: {e}")
-            import traceback
-            traceback.print_exc()
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self,
-                QCoreApplication.translate("main_window", "Error"),
-                QCoreApplication.translate("main_window", "Failed to create split layout:\n{}").format(e))
+            logger.error(f"Failed to apply split layout: {e}", exc_info=True)
+        
+        # # 旧代码（已禁用）
+        # try:
+        #     all_tab_windows = []  # instance_manager.get_all_tab_windows()
+            
+        #     if len(all_tab_windows) < 2:
+        #         from PySide6.QtWidgets import QMessageBox
+        #         QMessageBox.information(self,
+        #             QCoreApplication.translate("main_window", "Split Layout"),
+        #             QCoreApplication.translate("main_window", 
+        #                 "Need at least 2 windows to split.\n\nPlease create a new window first (F10)."))
+        #         return
+            
+        #     # 创建分割窗口
+        #     split_window = QMainWindow()
+        #     split_window.setWindowTitle(QCoreApplication.translate("main_window", "Split View"))
+        #     split_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+            
+        #     # 创建中心部件和分割器
+        #     central_widget = QWidget()
+        #     split_window.setCentralWidget(central_widget)
+        #     layout = QVBoxLayout(central_widget)
+        #     layout.setContentsMargins(0, 0, 0, 0)
+            
+        #     # 创建分割器
+        #     if orientation == 'horizontal':
+        #         splitter = QSplitter(Qt.Horizontal)
+        #     else:
+        #         splitter = QSplitter(Qt.Vertical)
+            
+        #     # 将所有TAB窗口嵌入到分割器中（最多4个）
+        #     for tab_window in all_tab_windows[:4]:
+        #         # 创建容器widget来嵌入TAB窗口的内容
+        #         container = QWidget()
+        #         container_layout = QVBoxLayout(container)
+        #         container_layout.setContentsMargins(2, 2, 2, 2)
+                
+        #         # 添加标题标签
+        #         title_label = QLabel(tab_window.windowTitle())
+        #         title_label.setStyleSheet("font-weight: bold; padding: 5px; background-color: #2d2d30; color: white;")
+        #         container_layout.addWidget(title_label)
+                
+        #         # 创建TAB widget的克隆视图（只读）
+        #         tab_clone = QTabWidget()
+        #         for i, original_tab in enumerate(tab_window.log_tabs):
+        #             clone_tab = QPlainTextEdit()
+        #             clone_tab.setReadOnly(True)
+        #             clone_tab.setPlainText(original_tab.toPlainText())
+        #             tab_clone.addTab(clone_tab, f"CH{i}")
+                
+        #         container_layout.addWidget(tab_clone)
+        #         splitter.addWidget(container)
+            
+        #     layout.addWidget(splitter)
+            
+        #     # 设置窗口大小和显示
+        #     if orientation == 'horizontal':
+        #         split_window.resize(1600, 600)
+        #     else:
+        #         split_window.resize(800, 1200)
+            
+        #     split_window.show()
+            
+        #     # 保存分割窗口引用
+        #     if not hasattr(self, 'split_windows'):
+        #         self.split_windows = []
+        #     self.split_windows.append(split_window)
+            
+        #     logger.info(f"Created {orientation} split layout with {len(all_tab_windows[:4])} windows")
+            
+        # except Exception as e:
+        #     logger.error(f"Failed to create split layout: {e}")
+        #     import traceback
+        #     traceback.print_exc()
+        #     from PySide6.QtWidgets import QMessageBox
+        #     QMessageBox.warning(self,
+        #         QCoreApplication.translate("main_window", "Error"),
+        #         QCoreApplication.translate("main_window", "Failed to create split layout:\n{}").format(e))
     
     def _remove_split(self):
         """移除所有分割窗口"""
@@ -2139,86 +2835,86 @@ class RTTMainWindow(QMainWindow):
         
         # 同步所有UI元素状态（阻止信号循环）
         # 1. 更新菜单项
-        if hasattr(self, 'compact_mode_action'):
-            self.compact_mode_action.blockSignals(True)
-            self.compact_mode_action.setChecked(self.compact_mode)
-            self.compact_mode_action.blockSignals(False)
+        # if hasattr(self, 'compact_mode_action'):
+        #     self.compact_mode_action.blockSignals(True)
+        #     self.compact_mode_action.setChecked(self.compact_mode)
+        #     self.compact_mode_action.blockSignals(False)
         
-        # 2. 更新UI复选框
-        if hasattr(self.ui, 'compact_mode_checkbox'):
-            self.ui.compact_mode_checkbox.blockSignals(True)
-            self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
-            self.ui.compact_mode_checkbox.blockSignals(False)
+        # 2. 更新UI复选框 - 已屏蔽
+        # if hasattr(self.ui, 'compact_mode_checkbox'):
+        #     self.ui.compact_mode_checkbox.blockSignals(True)
+        #     self.ui.compact_mode_checkbox.setChecked(self.compact_mode)
+        #     self.ui.compact_mode_checkbox.blockSignals(False)
     
-    def _show_context_menu(self, position):
-        """显示右键菜单"""
-        context_menu = QMenu(self)
+    # def _show_context_menu(self, position):
+    #     """显示右键菜单"""
+    #     context_menu = QMenu(self)
         
-        # 紧凑模式选项 - 根据当前状态显示不同文本
-        if self.compact_mode:
-            compact_action = context_menu.addAction("🔍 恢复正常模式 (Ctrl+M)")
-            compact_action.setToolTip("退出紧凑模式，恢复完整界面")
-        else:
-            compact_action = context_menu.addAction("📱 切换到紧凑模式 (Ctrl+M)")
-            compact_action.setToolTip("进入紧凑模式，适合多窗口使用")
+    #     # 紧凑模式选项 - 根据当前状态显示不同文本
+    #     if self.compact_mode:
+    #         compact_action = context_menu.addAction("🔍 恢复正常模式 (Ctrl+M)")
+    #         compact_action.setToolTip("退出紧凑模式，恢复完整界面")
+    #     else:
+    #         compact_action = context_menu.addAction("📱 切换到紧凑模式 (Ctrl+M)")
+    #         compact_action.setToolTip("进入紧凑模式，适合多窗口使用")
         
-        compact_action.triggered.connect(self._toggle_compact_mode)
+    #     compact_action.triggered.connect(self._toggle_compact_mode)
         
-        context_menu.addSeparator()
+    #     context_menu.addSeparator()
         
-        # 窗口管理
-        window_menu = context_menu.addMenu("🪟 窗口管理")
+    #     # 窗口管理
+    #     window_menu = context_menu.addMenu("🪟 窗口管理")
         
-        # 新建窗口
-        new_window_action = window_menu.addAction("新建窗口 (Ctrl+N)")
-        new_window_action.triggered.connect(self._new_window)
+    #     # 新建窗口
+    #     new_window_action = window_menu.addAction("新建窗口 (Ctrl+N)")
+    #     new_window_action.triggered.connect(self._new_window)
         
-        # 最小化窗口
-        minimize_action = window_menu.addAction("最小化窗口")
-        minimize_action.triggered.connect(self.showMinimized)
+    #     # 最小化窗口
+    #     minimize_action = window_menu.addAction("最小化窗口")
+    #     minimize_action.triggered.connect(self.showMinimized)
         
-        # 最大化/还原
-        if self.isMaximized():
-            maximize_action = window_menu.addAction("还原窗口")
-            maximize_action.triggered.connect(self.showNormal)
-        else:
-            maximize_action = window_menu.addAction("最大化窗口")
-            maximize_action.triggered.connect(self.showMaximized)
+    #     # 最大化/还原
+    #     if self.isMaximized():
+    #         maximize_action = window_menu.addAction("还原窗口")
+    #         maximize_action.triggered.connect(self.showNormal)
+    #     else:
+    #         maximize_action = window_menu.addAction("最大化窗口")
+    #         maximize_action.triggered.connect(self.showMaximized)
         
-        context_menu.addSeparator()
+    #     context_menu.addSeparator()
         
-        # 连接管理
-        connection_menu = context_menu.addMenu("🔗 连接管理")
+    #     # 连接管理
+    #     connection_menu = context_menu.addMenu("🔗 连接管理")
         
-        # 连接设置
-        settings_action = connection_menu.addAction("连接设置...")
-        settings_action.triggered.connect(self._show_connection_settings)
+    #     # 连接设置
+    #     settings_action = connection_menu.addAction("连接设置...")
+    #     settings_action.triggered.connect(self._show_connection_settings)
         
-        # 重新连接
-        if hasattr(self, 'connection_dialog') and self.connection_dialog:
-            if self.connection_dialog.start_state:
-                reconnect_action = connection_menu.addAction("断开连接")
-                reconnect_action.triggered.connect(self.on_dis_connect_clicked)
-            else:
-                reconnect_action = connection_menu.addAction("重新连接")
-                reconnect_action.triggered.connect(self.on_re_connect_clicked)
+    #     # 重新连接
+    #     if hasattr(self, 'connection_dialog') and self.connection_dialog:
+    #         if self.connection_dialog.start_state:
+    #             reconnect_action = connection_menu.addAction("断开连接")
+    #             reconnect_action.triggered.connect(self.on_dis_connect_clicked)
+    #         else:
+    #             reconnect_action = connection_menu.addAction("重新连接")
+    #             reconnect_action.triggered.connect(self.on_re_connect_clicked)
         
-        context_menu.addSeparator()
+    #     context_menu.addSeparator()
         
-        # 程序控制
-        program_menu = context_menu.addMenu("⚙️ 程序控制")
+    #     # 程序控制
+    #     program_menu = context_menu.addMenu("⚙️ 程序控制")
         
-        # 正常退出
-        quit_action = program_menu.addAction("退出程序")
-        quit_action.triggered.connect(self.close)
+    #     # 正常退出
+    #     quit_action = program_menu.addAction("退出程序")
+    #     quit_action.triggered.connect(self.close)
         
-        # 强制退出
-        force_quit_action = program_menu.addAction("强制退出 (Ctrl+Alt+Q)")
-        force_quit_action.triggered.connect(self._force_quit)
-        force_quit_action.setToolTip("用于程序无响应时的紧急退出")
+    #     # 强制退出
+    #     force_quit_action = program_menu.addAction("强制退出 (Ctrl+Alt+Q)")
+    #     force_quit_action.triggered.connect(self._force_quit)
+    #     force_quit_action.setToolTip("用于程序无响应时的紧急退出")
         
-        # 显示菜单
-        context_menu.exec(self.mapToGlobal(position))
+    #     # 显示菜单
+    #     context_menu.exec(self.mapToGlobal(position))
     
     def _force_quit(self):
         """强制退出程序 - 用于紧急情况"""
@@ -2495,6 +3191,9 @@ class RTTMainWindow(QMainWindow):
             self.data_check_timer.start(5000)  # 每5秒检查一次
             logger.info("Auto reconnect monitoring started")
         
+        # 创建设备会话并添加TAB
+        self._create_device_session_from_connection()
+        
         # 更新连接状态显示，包含设备信息
         if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
             device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
@@ -2631,35 +3330,67 @@ class RTTMainWindow(QMainWindow):
             logger.warning(f'Failed to apply saved settings: {e}')
     
     def _create_default_tab_window(self):
-        """创建默认的第一个TAB窗口"""
+        """创建默认的第一个TAB窗口（已废弃，新架构不需要）"""
+        pass
+    
+    def _init_splitter_sizes(self):
+        """初始化分割器大小"""
         try:
-            # 创建默认TAB窗口
-            self.default_tab_window = LogTabWindow(self, window_id="default")
-            self.default_tab_window.setWindowTitle(QCoreApplication.translate("main_window", "Log Window - Default"))
-            self.default_tab_window.show()
+            # 获取窗口总高度
+            total_height = self.height()
             
-            # 添加到子窗口列表
-            self.tab_windows.append(self.default_tab_window)
+            # 计算各部分的初始高度
+            # MDI区域：占据大部分空间
+            # 底部容器：按钮区70px + JLink日志区150px = 220px
+            button_height = 70
+            jlink_log_height = 150
+            bottom_height = button_height + jlink_log_height  # 220px
+            # 减去菜单栏、状态栏、分割条等额外空间（约100px）
+            mdi_height = total_height - bottom_height - 100
             
-            # 注册到实例管理器
-            instance_manager.register_tab_window(self.default_tab_window)
+            # 设置分割器大小（只有2个部件：MDI区域和底部容器）
+            self.main_splitter.setSizes([mdi_height, bottom_height])
             
-            # 设置为当前激活窗口
-            instance_manager.set_active_tab_window(self.default_tab_window)
-            
-            logger.info("✅ Default tab window created")
+            logger.info(f"Splitter initialized: MDI={mdi_height}px, Bottom={bottom_height}px (Button={button_height}px + JLink={jlink_log_height}px)")
         except Exception as e:
-            logger.error(f"❌ Failed to create default tab window: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Failed to initialize splitter sizes: {e}", exc_info=True)
+    
+    def _on_splitter_moved(self, pos, index):
+        """分割器移动事件 - 自动隐藏/显示JLink日志区"""
+        try:
+            # 获取底部容器的当前高度
+            sizes = self.main_splitter.sizes()
+            if len(sizes) >= 2:
+                bottom_height = sizes[1]  # 底部容器高度（按钮区70px + JLink日志区）
+                
+                # 计算JLink日志区的实际高度（底部容器高度 - 按钮区高度）
+                button_height = 70
+                jlink_height = bottom_height - button_height
+                
+                # 如果JLink区域小于最小高度（80px），自动隐藏
+                if jlink_height < self.jlink_log_min_height:
+                    if self.jlink_log_widget.isVisible():
+                        self.jlink_log_widget.setVisible(False)
+                        logger.info(f"JLink log hidden (height={jlink_height}px < {self.jlink_log_min_height}px)")
+                else:
+                    # 确保显示
+                    if not self.jlink_log_widget.isVisible():
+                        self.jlink_log_widget.setVisible(True)
+                        logger.info(f"JLink log shown (height={jlink_height}px)")
+        except Exception as e:
+            logger.error(f"Failed to handle splitter move: {e}", exc_info=True)
     
     def _create_jlink_log_area(self):
         """创建JLink日志显示区域"""
         # 创建JLink日志widget
         self.jlink_log_widget = QWidget()
-        self.jlink_log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.jlink_log_widget.setMinimumHeight(150)
-        self.jlink_log_widget.setMaximumHeight(300)
+        self.jlink_log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        
+        # 设置高度限制：最小4行数据（约80px），最大400px
+        self.jlink_log_min_height = 80   # 最小高度80px（约4行数据），低于此值自动隐藏
+        self.jlink_log_max_height = 400  # 最大高度400px
+        self.jlink_log_widget.setMinimumHeight(self.jlink_log_min_height)  # 设置最小高度
+        self.jlink_log_widget.setMaximumHeight(self.jlink_log_max_height)
         
         layout = QVBoxLayout(self.jlink_log_widget)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -3141,18 +3872,39 @@ class RTTMainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, e):
-        """程序关闭事件处理 - 确保所有资源被正确清理"""
+        """程序关闭事件处理 - 断开所有设备并确保所有资源被正确清理"""
         logger.info("Starting program shutdown process...")
         
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
-        # 关闭所有TAB子窗口
-        for tab_window in self.tab_windows[:]:  # 使用切片复制列表，避免在迭代时修改
-            try:
-                tab_window.close()
-            except Exception as ex:
-                logger.warning(f"Error closing tab window: {ex}")
+        # 断开所有设备并清理所有MDI窗口
+        try:
+            # 获取所有MDI子窗口
+            sub_windows = self.mdi_area.subWindowList()
+            for sub_window in sub_windows:
+                if isinstance(sub_window, DeviceMdiWindow):
+                    try:
+                        # 断开设备连接
+                        if sub_window.device_session.is_connected:
+                            logger.info(f"Disconnecting device: {sub_window.device_session.device_serial}")
+                            sub_window.device_session.disconnect()
+                        
+                        # 关闭MDI窗口
+                        sub_window.close()
+                    except Exception as mdi_e:
+                        logger.error(f"Failed to close MDI window: {mdi_e}", exc_info=True)
+            
+            logger.info(f"Closed {len(sub_windows)} MDI window(s)")
+        except Exception as ex:
+            logger.error(f"Error closing MDI windows: {ex}", exc_info=True)
+        
+        # 清理所有设备会话
+        try:
+            session_manager.cleanup_all()
+            logger.info("All device sessions cleaned up")
+        except Exception as ex:
+            logger.error(f"Error cleaning up device sessions: {ex}", exc_info=True)
         
         # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
         if self.compact_mode:
@@ -3494,29 +4246,118 @@ class RTTMainWindow(QMainWindow):
             self.ui.sent.setText(QCoreApplication.translate("main_window", "Send Failed"))
 
     def on_dis_connect_clicked(self):
-        """断开连接，不显示连接对话框"""
-        # 标记为手动断开，禁用自动重连
-        self.manual_disconnect = True
-        self.data_check_timer.stop()
-        
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_dialog.start()  # 这会切换到断开状态
-        # 如果已经断开，则无操作（但快捷键仍然响应）
+        """F3 - 断开当前激活设备的连接"""
+        try:
+            # 获取当前激活的设备会话
+            session = self._get_active_device_session()
+            if not session:
+                logger.warning("No active device session to disconnect")
+                return
+            
+            logger.info(f"Disconnecting device: {session.get_display_name()}")
+            
+            # 标记为手动断开，禁用自动重连
+            self.manual_disconnect = True
+            self.data_check_timer.stop()
+            
+            # 断开该设备的连接
+            if session.connection_dialog and session.connection_dialog.rtt2uart is not None and session.connection_dialog.start_state == True:
+                session.connection_dialog.start()  # 这会切换到断开状态
+                session.is_connected = False
+                logger.info(f"Device disconnected: {session.get_display_name()}")
+            
+        except Exception as e:
+            logger.error(f"Failed to disconnect device: {e}", exc_info=True)
 
     def on_re_connect_clicked(self):
-        """重新连接：先断开现有连接，然后显示连接对话框"""
-        # 重新连接时清除手动断开标记
-        self.manual_disconnect = False
-        
-        # 如果当前有连接，先断开
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            self.connection_dialog.start()  # 这会切换到断开状态
+        """F2 - 多设备管理入口：选择设备进行连接或重新连接"""
+        try:
+            # 重新连接时清除手动断开标记
+            self.manual_disconnect = False
             
-        # 显示连接对话框供用户重新连接
-        if self.connection_dialog and not self._is_closing:
-            self.connection_dialog.show()
-            self.connection_dialog.raise_()
-            self.connection_dialog.activateWindow()
+            # 创建新的连接对话框用于选择设备
+            from main_window import ConnectionDialog
+            
+            # 创建临时连接对话框
+            temp_dialog = ConnectionDialog(self)
+            temp_dialog.setWindowTitle(QCoreApplication.translate("main_window", "Select Device to Connect"))
+            
+            def on_device_selected():
+                try:
+                    if not temp_dialog.rtt2uart:
+                        return
+                    
+                    rtt = temp_dialog.rtt2uart
+                    device_serial = getattr(rtt, '_connect_para', 'Unknown')
+                    
+                    # 检查该设备是否已经存在会话
+                    existing_session = None
+                    for session in self.device_sessions:
+                        if session.device_serial == device_serial:
+                            existing_session = session
+                            break
+                    
+                    if existing_session:
+                        # 设备已存在，重新连接（刷新）
+                        logger.info(f"Device {device_serial} already exists, refreshing connection")
+                        existing_session.rtt2uart = rtt
+                        existing_session.connection_dialog = temp_dialog
+                        existing_session.is_connected = True
+                        
+                        # 激活该设备的MDI窗口
+                        if existing_session.mdi_window:
+                            self.mdi_area.setActiveSubWindow(existing_session.mdi_window)
+                        
+                        # 设置为当前会话
+                        self.current_session = existing_session
+                        session_manager.set_active_session(existing_session)
+                        self.connection_dialog = temp_dialog
+                        
+                        logger.info(f"✅ Device {device_serial} reconnected")
+                    else:
+                        # 新设备，创建新会话和MDI窗口
+                        device_info = {
+                            'serial': device_serial,
+                            'product_name': getattr(rtt, 'device_info', 'Unknown'),
+                            'connection': 'USB'
+                        }
+                        
+                        session = DeviceSession(device_info)
+                        session.rtt2uart = rtt
+                        session.connection_dialog = temp_dialog
+                        session.is_connected = True
+                        
+                        # 创建MDI子窗口
+                        mdi_window = DeviceMdiWindow(session, self)
+                        session.mdi_window = mdi_window
+                        
+                        # 将MDI窗口添加到MDI区域
+                        self.mdi_area.addSubWindow(mdi_window)
+                        mdi_window.show()
+                        
+                        # 添加到会话列表
+                        self.device_sessions.append(session)
+                        session_manager.add_session(session)
+                        
+                        # 设置为当前会话
+                        self.current_session = session
+                        session_manager.set_active_session(session)
+                        self.connection_dialog = temp_dialog
+                        
+                        logger.info(f"✅ New device {device_serial} connected with MDI window")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to handle device selection: {e}", exc_info=True)
+            
+            temp_dialog.connection_established.connect(on_device_selected)
+            temp_dialog.show()
+            temp_dialog.raise_()
+            temp_dialog.activateWindow()
+            
+            logger.info("F2 - Device selection dialog opened")
+            
+        except Exception as e:
+            logger.error(f"Failed to open device selection: {e}", exc_info=True)
     
     def _on_auto_reconnect_changed(self, state):
         """自动重连复选框状态改变"""
@@ -3644,29 +4485,30 @@ class RTTMainWindow(QMainWindow):
         self.last_data_time = current_time
 
     def on_clear_clicked(self):
-        """F4清空当前TAB - 完整的清空逻辑"""
+        """F4清空当前TAB - 操作当前激活的MDI设备窗口"""
         try:
-            current_index = self.ui.tem_switch.currentIndex()
-            logger.debug(f"Clearing TAB {current_index}")
+            # 获取当前激活的设备会话
+            session = self._get_active_device_session()
+            if not session or not session.mdi_window:
+                logger.warning("No active device session to clear")
+                return
+            
+            mdi_window = session.mdi_window
+            current_index = mdi_window.tab_widget.currentIndex()
+            logger.debug(f"Clearing TAB {current_index} for device {session.get_display_name()}")
             
             # 1. 清空UI显示
-            current_page_widget = self.ui.tem_switch.widget(current_index)
-            if isinstance(current_page_widget, QWidget):
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
-                if text_edit:
-                    text_edit.clear()
-                    logger.debug(f"Cleared TAB {current_index} UI display")
-                else:
-                    logger.warning(f"TAB {current_index} text editor not found")
-                    return
+            if current_index < len(mdi_window.text_edits):
+                text_edit = mdi_window.text_edits[current_index]
+                text_edit.clear()
+                logger.debug(f"Cleared TAB {current_index} UI display")
             else:
-                logger.warning(f"TAB {current_index} is not a valid Widget")
+                logger.warning(f"TAB {current_index} text editor not found")
                 return
             
             # 2. 清空数据缓冲区
-            if self.connection_dialog and hasattr(self.connection_dialog, 'worker') and self.connection_dialog.worker:
-                worker = self.connection_dialog.worker
+            if session.connection_dialog and hasattr(session.connection_dialog, 'worker') and session.connection_dialog.worker:
+                worker = session.connection_dialog.worker
                 try:
                     # 清空主缓冲区
                     if current_index < len(worker.buffers):
@@ -3692,6 +4534,10 @@ class RTTMainWindow(QMainWindow):
                     if hasattr(worker, 'display_lengths') and current_index < len(worker.display_lengths):
                         worker.display_lengths[current_index] = 0
                         
+                    # 重置MDI窗口的显示长度
+                    if hasattr(mdi_window, 'last_display_lengths') and current_index < len(mdi_window.last_display_lengths):
+                        mdi_window.last_display_lengths[current_index] = 0
+                        
                     logger.debug(f"Cleared TAB {current_index} data buffer")
                     
                 except Exception as e:
@@ -3699,34 +4545,10 @@ class RTTMainWindow(QMainWindow):
             else:
                 logger.warning("Cannot access Worker, only cleared UI display")
                 
-            # 3. F4清空不应该修改配置文件
-            # F4只是临时清空UI显示和数据缓存，用户可能之后还想恢复筛选值
-            # 只有中键清空或双击编辑才会修改配置文件
-            # if current_index >= 17:
-            #     logger.info("🟣" * 40)
-            #     logger.info(f"[F4 CLEAR] 用户按F4清空TAB {current_index}")
-            #     logger.info(f"[F4 CLEAR] 只清空UI显示和数据缓存，不修改配置文件中的筛选值")
-            #     logger.info("🟣" * 40)
-            
-            # 4. 标记页面为干净状态
-            if hasattr(self, 'page_dirty_flags') and current_index < len(self.page_dirty_flags):
-                self.page_dirty_flags[current_index] = False
-                
-            logger.info(f"TAB {current_index} clear completed")
+            logger.info(f"TAB {current_index} clear completed for device {session.get_display_name()}")
             
         except Exception as e:
-            logger.error(f"Failed to clear TAB: {e}")
-            # 兜底：只清空UI
-            try:
-                current_page_widget = self.ui.tem_switch.widget(self.ui.tem_switch.currentIndex())
-                if isinstance(current_page_widget, QWidget):
-                    from PySide6.QtWidgets import QPlainTextEdit
-                    text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
-                    if text_edit:
-                        text_edit.clear()
-                        logger.warning("Fallback mode: only cleared UI display")
-            except Exception as fallback_e:
-                logger.error(f"Fallback clear also failed: {fallback_e}")
+            logger.error(f"Failed to clear TAB: {e}", exc_info=True)
 
     def on_openfolder_clicked(self):
         """打开日志文件夹 - 复用同一个窗口跳转到新文件夹"""
@@ -4376,7 +5198,8 @@ class RTTMainWindow(QMainWindow):
         if not hasattr(self, 'jlink_log_text'):
             return
             
-        is_light_mode = self.ui.light_checkbox.isChecked()
+        # 主窗口不再有light_checkbox，默认使用深色主题
+        is_light_mode = False
         
         if is_light_mode:
             # 浅色主题样式
@@ -4402,7 +5225,7 @@ class RTTMainWindow(QMainWindow):
             """
         
         self.jlink_log_text.setStyleSheet(jlink_log_style)
-    
+        
     def on_cmd_buffer_activated(self, index):
         text = self.ui.cmd_buffer.currentText()
         if text:  # 如果文本不为空
@@ -4713,7 +5536,7 @@ class RTTMainWindow(QMainWindow):
             self.append_jlink_log(error_msg)
             logger.error(f"RAM format error: {e}")
             return False
-    
+
     def restart_app_via_sfr(self):
         """通过SFR访问触发固件重启（需保持连接）"""
         try:
@@ -4751,25 +5574,31 @@ class RTTMainWindow(QMainWindow):
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), str(e))
 
     def restart_app_execute(self):
-        """F9 执行，根据子菜单当前选择的方式触发重启"""
+        """F9 - 重启当前激活设备的APP"""
         try:
+            # 获取当前激活的设备会话
+            session = self._get_active_device_session()
+            if not session:
+                logger.warning("No active device session to restart")
+                return
+            
             # 若未连接，则先自动连接，待连接成功后再执行
-            if not (self.connection_dialog and self.connection_dialog.start_state):
-                if self.connection_dialog:
+            if not (session.connection_dialog and session.connection_dialog.start_state):
+                if session.connection_dialog:
                     # 连接成功后回调一次，再断开信号
                     def _once():
                         try:
-                            self.connection_dialog.connection_established.disconnect(_once)
+                            session.connection_dialog.connection_established.disconnect(_once)
                         except Exception:
                             pass
                         # 确保在事件循环返回后执行，避免与连接建立时序冲突
                         QTimer.singleShot(0, self.restart_app_execute)
                     try:
-                        self.connection_dialog.connection_established.connect(_once)
+                        session.connection_dialog.connection_established.connect(_once)
                     except Exception:
                         pass
                     # 静默启动连接
-                    self.connection_dialog.start()
+                    session.connection_dialog.start()
                     return
                 else:
                     QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Unable to create connection dialog"))
@@ -4779,9 +5608,9 @@ class RTTMainWindow(QMainWindow):
             selected_sfr = hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked()
             # 保存选择到配置
             try:
-                if self.connection_dialog:
-                    self.connection_dialog.config.set_restart_method('SFR' if selected_sfr else 'RESET_PIN')
-                    self.connection_dialog.config.save_config()
+                if session.connection_dialog:
+                    session.connection_dialog.config.set_restart_method('SFR' if selected_sfr else 'RESET_PIN')
+                    session.connection_dialog.config.save_config()
             except Exception:
                 pass
             
@@ -4796,8 +5625,10 @@ class RTTMainWindow(QMainWindow):
                 self.restart_app_via_sfr()
             else:
                 self.restart_app_via_reset_pin()
-        except Exception:
-            pass
+                
+            logger.info(f"Restart executed for device: {session.get_display_name()}")
+        except Exception as e:
+            logger.error(f"Failed to restart device: {e}", exc_info=True)
 
     def show_find_dialog(self):
         """Show find dialog"""
@@ -6959,9 +7790,14 @@ class ConnectionDialog(QDialog):
                             # 安全地获取设备信息
                             serial_num = getattr(device, 'SerialNumber', None)
                             if serial_num:
+                                # 获取产品名称并确保是字符串类型
+                                product_name = getattr(device, 'acProduct', b'J-Link')
+                                if isinstance(product_name, bytes):
+                                    product_name = product_name.decode('utf-8', errors='ignore')
+                                
                                 device_info = {
                                     'serial': str(serial_num),
-                                    'product_name': getattr(device, 'acProduct', 'J-Link'),
+                                    'product_name': product_name,
                                     'connection': 'USB'
                                 }
                                 self.available_jlinks.append(device_info)
@@ -8519,12 +9355,12 @@ class Worker(QObject):
                 if not search_word or search_word.lower() not in line.lower():
                     return line
                 
-                # 使用正则表达式进行大小写不敏感的替换，保持原文本的大小写
+            # 使用正则表达式进行大小写不敏感的替换，保持原文本的大小写
                 import re
-                pattern = re.escape(search_word)
-                highlighted_line = re.sub(pattern, f"{highlight_start}\\g<0>{highlight_end}", line, flags=re.IGNORECASE)
-                
-                return highlighted_line
+            pattern = re.escape(search_word)
+            highlighted_line = re.sub(pattern, f"{highlight_start}\\g<0>{highlight_end}", line, flags=re.IGNORECASE)
+            
+            return highlighted_line
                 
         except Exception:
             # 如果高亮失败，返回原始行
