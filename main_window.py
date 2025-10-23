@@ -52,6 +52,70 @@ logger.info(f"Frozen: {getattr(sys, 'frozen', False)}")
 logger.info("=" * 70)
 # ==================== 日志配置完成 ====================
 
+# ========== 全局实例管理器 ==========
+class InstanceManager:
+    """全局实例管理器 - 管理所有窗口实例"""
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        self.instances = []  # 所有窗口实例列表
+        self.main_instance = None  # 主实例（持有socket锁）
+        self.instance_lock = threading.Lock()
+    
+    def register_main_instance(self, instance):
+        """注册主实例"""
+        with self.instance_lock:
+            self.main_instance = instance
+            if instance not in self.instances:
+                self.instances.append(instance)
+            logger.info(f"✅ Main instance registered: {instance.window_id}")
+    
+    def register_child_instance(self, instance):
+        """注册子实例"""
+        with self.instance_lock:
+            if instance not in self.instances:
+                self.instances.append(instance)
+            logger.info(f"✅ Child instance registered: {instance.window_id}")
+    
+    def unregister_instance(self, instance):
+        """注销实例"""
+        with self.instance_lock:
+            if instance in self.instances:
+                self.instances.remove(instance)
+            if instance == self.main_instance:
+                self.main_instance = None
+            logger.info(f"✅ Instance unregistered: {instance.window_id}")
+    
+    def get_all_instances(self):
+        """获取所有实例"""
+        with self.instance_lock:
+            return self.instances.copy()
+    
+    def get_instance_count(self):
+        """获取实例数量"""
+        with self.instance_lock:
+            return len(self.instances)
+    
+    def is_main_instance(self, instance):
+        """判断是否为主实例"""
+        with self.instance_lock:
+            return instance == self.main_instance
+
+# 全局实例管理器
+instance_manager = InstanceManager()
+
 # 第三方库导入
 import serial
 import serial.tools.list_ports
@@ -1030,8 +1094,11 @@ class EditableTabBar(QTabBar):
                     logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
 class RTTMainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, is_child_instance=False):
         super(RTTMainWindow, self).__init__()
+        
+        # 实例类型标识
+        self.is_child_instance = is_child_instance
         
         # 为每个窗口生成唯一标识符，确保日志文件夹不冲突
         import uuid
@@ -1044,7 +1111,13 @@ class RTTMainWindow(QMainWindow):
         uuid_part = str(uuid.uuid4())[:4]  # UUID前4位
         self.window_id = f"{uuid_part}{timestamp[-4:]}{thread_id}"
         
-        logger.info(f"Window initialized with ID: {self.window_id}")
+        # 注册到全局实例管理器
+        if is_child_instance:
+            instance_manager.register_child_instance(self)
+            logger.info(f"Child window initialized with ID: {self.window_id}")
+        else:
+            instance_manager.register_main_instance(self)
+            logger.info(f"Main window initialized with ID: {self.window_id}")
         
         self.connection_dialog = None
         self._is_closing = False  # 标记主窗口是否正在关闭
@@ -1637,32 +1710,62 @@ class RTTMainWindow(QMainWindow):
         self.show_connection_dialog()
     
     def _new_window(self):
-        """新建窗口"""
+        """新建窗口 - 在同一进程中创建子实例"""
         try:
-            import subprocess
-            import sys
-            import os
+            # 检查USB设备数量
+            usb_device_count = self._count_jlink_usb_devices()
+            current_instance_count = instance_manager.get_instance_count()
             
-            if getattr(sys, 'frozen', False):
-                # 如果是打包的APP，启动新的APP实例
-                if sys.platform == "darwin":  # macOS
-                    app_path = os.path.dirname(sys.executable)
-                    app_path = os.path.dirname(os.path.dirname(os.path.dirname(app_path)))
-                    app_path = os.path.join(app_path, "XexunRTT.app")
-                    subprocess.Popen(["open", "-n", app_path])
-                else:
-                    # Windows/Linux
-                    subprocess.Popen([sys.executable])
-            else:
-                # 开发环境，启动新的Python进程
-                subprocess.Popen([sys.executable, "main_window.py"])
+            logger.info(f"[NEW WINDOW] USB devices: {usb_device_count}, Current instances: {current_instance_count}")
+            
+            # 如果只有一个USB设备且已有实例，提示用户
+            if usb_device_count <= 1 and current_instance_count >= 1:
+                from PySide6.QtWidgets import QMessageBox
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle(QCoreApplication.translate("main_window", "New Window"))
+                msg.setText(QCoreApplication.translate("main_window", "Only 1 USB device detected"))
+                msg.setInformativeText(QCoreApplication.translate("main_window", 
+                    "Creating multiple instances with only one device may not be useful.\n\n"
+                    "Do you still want to create a new window?"))
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                msg.setDefaultButton(QMessageBox.No)
                 
-            logger.debug("[OK] New window started")
+                if msg.exec() != QMessageBox.Yes:
+                    logger.info("[NEW WINDOW] User cancelled (only 1 USB device)")
+                    return
+            
+            # 在同一进程中创建子窗口实例
+            child_window = RTTMainWindow(is_child_instance=True)
+            child_window.show()
+            
+            # 更新所有实例的TAB栏
+            self._update_instance_tabs()
+            
+            logger.info(f"[NEW WINDOW] Child window created: {child_window.window_id}")
+            
         except Exception as e:
-            logger.debug(f"[ERROR] Failed to start new window: {e}")
-            # 显示错误消息
+            logger.error(f"[ERROR] Failed to create new window: {e}")
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Failed to start new window:\n{}").format(e))
+            QMessageBox.warning(self, 
+                QCoreApplication.translate("main_window", "Error"), 
+                QCoreApplication.translate("main_window", "Failed to create new window:\n{}").format(e))
+    
+    def _count_jlink_usb_devices(self):
+        """统计JLink USB设备数量"""
+        try:
+            import pylink
+            jlink = pylink.JLink()
+            num_devices = jlink.num_connected_emulators()
+            return num_devices
+        except Exception as e:
+            logger.warning(f"Failed to count JLink devices: {e}")
+            return 0
+    
+    def _update_instance_tabs(self):
+        """更新实例TAB栏"""
+        # TODO: 实现TAB栏更新逻辑
+        pass
     
     def _on_compact_mode_checkbox_changed(self, state):
         """复选框状态改变时的处理"""
@@ -2768,11 +2871,18 @@ class RTTMainWindow(QMainWindow):
         """程序关闭事件处理 - 确保所有资源被正确清理"""
         logger.info("Starting program shutdown process...")
         
+        # 从实例管理器中注销
+        instance_manager.unregister_instance(self)
+        
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
-        # 🔒 强制设置应用程序退出标志
-        QApplication.instance().setQuitOnLastWindowClosed(True)
+        # 🔒 如果是最后一个窗口，强制退出应用
+        if instance_manager.get_instance_count() == 0:
+            QApplication.instance().setQuitOnLastWindowClosed(True)
+        else:
+            # 如果还有其他窗口，不退出应用
+            QApplication.instance().setQuitOnLastWindowClosed(False)
         
         # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
         if self.compact_mode:

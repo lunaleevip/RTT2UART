@@ -196,6 +196,25 @@ Search Range example: 0x10000000 0x1000, 0x20000000 0x1000</source>
         <source>Found {0} match(es) for &apos;{1}&apos;</source>
         <translation>找到 {0} 個匹配項：&apos;{1}&apos;</translation>
     </message>
+    <message>
+        <location filename="main_window.py" line="1726"/>
+        <source>New Window</source>
+        <translation>新建視窗</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1727"/>
+        <source>Only 1 USB device detected</source>
+        <translation>只偵測到 1 個 USB 裝置</translation>
+    </message>
+    <message>
+        <location filename="main_window.py" line="1729"/>
+        <source>Creating multiple instances with only one device may not be useful.
+
+Do you still want to create a new window?</source>
+        <translation>只有一個裝置時建立多個實例可能沒有用處。
+
+是否仍要建立新視窗？</translation>
+    </message>
 </context>
 <context>
     <name>FindDialog</name>
