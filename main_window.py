@@ -1789,25 +1789,42 @@ class RTTMainWindow(QMainWindow):
         self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
         
         # 设置按钮区固定高度
-        if hasattr(self.ui, 'layoutWidget'):
-            self.ui.layoutWidget.setFixedHeight(LayoutSize.BUTTON_AREA_HEIGHT)
+        if hasattr(self.ui, 'button_command_area'):
+            self.ui.button_command_area.setFixedHeight(LayoutSize.BUTTON_AREA_HEIGHT)
         
-        # 创建JLink日志区域（需要手动创建并添加到bottom_container）
-        self._create_jlink_log_area()
-        if hasattr(self.ui, 'bottom_container'):
-            # 获取bottom_container的布局，添加JLink日志区
-            bottom_layout = self.ui.bottom_container.layout()
-            if bottom_layout is None:
-                bottom_layout = QVBoxLayout(self.ui.bottom_container)
-                bottom_layout.setContentsMargins(0, 0, 0, 0)
-                bottom_layout.setSpacing(0)
-            bottom_layout.addWidget(self.jlink_log_widget)
+        # 配置JLink日志区域（UI文件中已创建）
+        if hasattr(self.ui, 'jlink_log_area'):
+            self.jlink_log_widget = self.ui.jlink_log_area
+            self.jlink_log_text = self.ui.jlink_log_text
+            
+            # 设置高度限制
+            self.jlink_log_min_height = LayoutSize.JLINK_LOG_MIN_HEIGHT
+            self.jlink_log_max_height = LayoutSize.JLINK_LOG_MAX_HEIGHT
+            self.jlink_log_widget.setMinimumHeight(0)  # 允许完全隐藏
+            self.jlink_log_widget.setMaximumHeight(self.jlink_log_max_height)
+            
+            # 连接UI文件中的按钮信号
+            if hasattr(self.ui, 'clear_jlink_log_btn'):
+                self.clear_jlink_log_btn = self.ui.clear_jlink_log_btn
+                self.clear_jlink_log_btn.clicked.connect(self.clear_jlink_log)
+            
+            if hasattr(self.ui, 'toggle_jlink_log_btn'):
+                self.toggle_jlink_log_btn = self.ui.toggle_jlink_log_btn
+                self.toggle_jlink_log_btn.clicked.connect(self.toggle_jlink_verbose_log)
+            
+            # 初始化JLink日志捕获
+            self.jlink_verbose_logging = False
+            self._setup_jlink_logging()
+            
+            # 设置初始样式
+            QTimer.singleShot(0, self._update_jlink_log_style)
         
         # 初始化JLink日志区的初始大小（延迟设置，等待窗口显示后）
         QTimer.singleShot(TimerInterval.DELAYED_INIT, self._init_splitter_sizes)
         
-        # 创建菜单栏（UI文件已创建menubar和statusbar，只需配置内容）
+        # 创建菜单栏和状态栏（UI文件已创建menubar和statusbar，只需配置内容）
         self._create_menu_bar()
+        self._create_status_bar()
         
         # 隐藏并从布局中移除 tem_switch（MDI 架构中不再使用）
         if hasattr(self.ui, 'tem_switch'):
@@ -2486,6 +2503,19 @@ class RTTMainWindow(QMainWindow):
             return None
         except Exception as e:
             logger.error(f"Failed to get active device session: {e}")
+            return None
+    
+    def _get_active_mdi_window(self):
+        """获取当前激活的 MDI 窗口"""
+        try:
+            active_mdi_sub = self.mdi_area.activeSubWindow()
+            if active_mdi_sub:
+                content_widget = active_mdi_sub.widget()
+                if content_widget and isinstance(content_widget, DeviceMdiWindow):
+                    return content_widget
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get active MDI window: {e}")
             return None
     
     def _switch_to_session(self, session):
@@ -3502,40 +3532,28 @@ class RTTMainWindow(QMainWindow):
             if not self._filters_loaded:
                 # 从配置管理器加载筛选器设置
                 # 🔑 关键改进：确保config对象中始终包含所有筛选值（即使是空值）
-                # 这样save_config()时就不会意外删除任何筛选值
-                logger.info("📥 Loading filters from config and syncing to both UI and config object")
+                # MDI 架构：筛选器在 DeviceMdiWindow 创建时从配置加载
+                # 这里只需要确保 config 对象中有筛选器数据
+                logger.info("📥 Loading filters from config (MDI architecture)")
                 for i in range(17, MAX_TAB_SIZE):
                     # 优先从INI配置加载筛选器
                     filter_content = self.connection_dialog.config.get_filter(i)
-                    if filter_content:
-                        self.ui.tem_switch.setTabText(i, filter_content)
-                        #logger.debug(f"  Filter[{i}] loaded from INI: '{filter_content}'")
-                    elif i - 17 < len(settings['filter']) and settings['filter'][i-17]:
+                    if not filter_content and i - 17 < len(settings['filter']) and settings['filter'][i-17]:
                         # 兼容旧格式：从settings加载，并同步到config对象
                         filter_text = settings['filter'][i-17]
-                        self.ui.tem_switch.setTabText(i, filter_text)
-                        self.connection_dialog.config.set_filter(i, filter_text)  # 🔑 同步到config对象
+                        self.connection_dialog.config.set_filter(i, filter_text)
                         logger.debug(f"  Filter[{i}] loaded from settings and synced: '{filter_text}'")
-                    else:
+                    elif not filter_content:
                         # 没有配置值，确保config对象中有空字符串占位
-                        self.connection_dialog.config.set_filter(i, "")  # 🔑 确保config对象中有该key
-                        #logger.debug(f"  Filter[{i}] initialized as empty")
+                        self.connection_dialog.config.set_filter(i, "")
                 
-                # 🔑 标记：filter已经加载到UI，UI初始化完成，现在可以安全保存配置
+                # 🔑 标记：filter已经加载，UI初始化完成
                 self._filters_loaded = True
                 logger.info("✅ UI initialization completed, all filters synced to config object, config saving is now safe")
             else:
-                # 连接时，只同步UI上当前的筛选值到config对象，不要从配置文件重新加载
-                logger.info("🔄 Reconnecting: syncing current UI filters to config object (not reloading from file)")
-                for i in range(17, MAX_TAB_SIZE):
-                    tab_text = self.ui.tem_switch.tabText(i)
-                    # 如果是默认的"filter"文本，保存为空字符串
-                    if tab_text == QCoreApplication.translate("main_window", "filter"):
-                        self.connection_dialog.config.set_filter(i, "")
-                        logger.debug(f"  Filter[{i}] synced as empty (default text)")
-                    else:
-                        self.connection_dialog.config.set_filter(i, tab_text)
-                        logger.debug(f"  Filter[{i}] synced from UI: '{tab_text}'")
+                # MDI 架构：重连时，筛选器已经在 DeviceMdiWindow 中
+                logger.info("🔄 Reconnecting: filters managed by DeviceMdiWindow (MDI architecture)")
+                self._filters_loaded = True
             
             # 🔑 标记：UI初始化完成，现在可以安全保存配置
             self._ui_initialization_complete = True
@@ -3595,79 +3613,6 @@ class RTTMainWindow(QMainWindow):
                         logger.info(f"JLink log shown (height={jlink_height}px)")
         except Exception as e:
             logger.error(f"Failed to handle splitter move: {e}", exc_info=True)
-    
-    def _create_jlink_log_area(self):
-        """创建JLink日志显示区域"""
-        # 创建JLink日志widget
-        self.jlink_log_widget = QWidget()
-        self.jlink_log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        
-        # 设置高度限制：最小4行数据，最大高度
-        self.jlink_log_min_height = LayoutSize.JLINK_LOG_MIN_HEIGHT
-        self.jlink_log_max_height = LayoutSize.JLINK_LOG_MAX_HEIGHT
-        self.jlink_log_widget.setMinimumHeight(self.jlink_log_min_height)  # 设置最小高度
-        self.jlink_log_widget.setMaximumHeight(self.jlink_log_max_height)
-        
-        layout = QVBoxLayout(self.jlink_log_widget)
-        layout.setContentsMargins(5, 5, 5, 5)
-        
-        # 创建标题和控制按钮
-        header_layout = QHBoxLayout()
-        
-        # JLink日志标题
-        title_label = QLabel(QCoreApplication.translate("main_window", "JLink Debug Log"))
-        title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        header_layout.addWidget(title_label)
-        
-        # 添加弹簧
-        header_layout.addStretch()
-        
-        # 清除日志按钮
-        self.clear_jlink_log_btn = QPushButton(QCoreApplication.translate("main_window", "Clear Log"))
-        self.clear_jlink_log_btn.setMaximumWidth(80)
-        self.clear_jlink_log_btn.clicked.connect(self.clear_jlink_log)
-        header_layout.addWidget(self.clear_jlink_log_btn)
-        
-        # 启用/禁用JLink日志按钮
-        self.toggle_jlink_log_btn = QPushButton(QCoreApplication.translate("main_window", "Enable Verbose Log"))
-        self.toggle_jlink_log_btn.setMaximumWidth(120)
-        self.toggle_jlink_log_btn.setCheckable(True)
-        self.toggle_jlink_log_btn.clicked.connect(self.toggle_jlink_verbose_log)
-        header_layout.addWidget(self.toggle_jlink_log_btn)
-        
-        layout.addLayout(header_layout)
-        
-        # 创建JLink日志文本框（使用QPlainTextEdit提高性能）
-        from PySide6.QtWidgets import QPlainTextEdit
-        self.jlink_log_text = QPlainTextEdit()
-        self.jlink_log_text.setReadOnly(True)
-        self.jlink_log_text.setMinimumHeight(120)
-        self.jlink_log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # 设置等宽字体
-        base_font_size = 9
-        adaptive_font_size = get_adaptive_font_size(base_font_size, self.dpi_scale)
-        
-        if sys.platform == "darwin":  # macOS
-            font = QFont("SF Mono", adaptive_font_size)
-            if not font.exactMatch():
-                font = QFont("Menlo", adaptive_font_size)
-            if not font.exactMatch():
-                font = QFont("Monaco", adaptive_font_size)
-        else:
-            font = QFont("Consolas", adaptive_font_size)
-            if not font.exactMatch():
-                font = QFont("Courier New", adaptive_font_size)
-        self.jlink_log_text.setFont(font)
-        # 不设置固定样式表，让它跟随主题
-        
-        layout.addWidget(self.jlink_log_text)
-        
-        # 初始化JLink日志捕获
-        self.jlink_verbose_logging = False
-        self._setup_jlink_logging()
-        
-        # 设置初始样式（需要在创建完JLink日志文本框后调用）
-        QTimer.singleShot(0, self._update_jlink_log_style)
     
     def _setup_jlink_logging(self):
         """设置JLink日志捕获"""
@@ -3781,10 +3726,12 @@ class RTTMainWindow(QMainWindow):
             # TAB 1对应索引2（索引0是ALL页面，索引1是RTT Channel 0，索引2是RTT Channel 1）
             tab_index = 2
             
-            # 获取TAB 1的widget
-            tab1_widget = self.ui.tem_switch.widget(tab_index)
-            if not tab1_widget:
+            # MDI 架构：从当前活动的 MDI 窗口获取 TAB 1 的内容
+            mdi_window = self._get_active_mdi_window()
+            if not mdi_window or not hasattr(mdi_window, 'text_edits') or len(mdi_window.text_edits) <= tab_index:
                 return ""
+            
+            tab1_widget = mdi_window.text_edits[tab_index].parent()
             
             # 查找文本框
             from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
@@ -4229,13 +4176,8 @@ class RTTMainWindow(QMainWindow):
     def _cleanup_ui_resources(self):
         """清理UI资源"""
         try:
-            # 清理文本编辑器内容
-            for i in range(MAX_TAB_SIZE):
-                current_page_widget = self.ui.tem_switch.widget(i)
-                if isinstance(current_page_widget, QWidget):
-                    text_edit = current_page_widget.findChild(QTextEdit)
-                    if text_edit:
-                        text_edit.clear()
+            # MDI 架构：MDI 窗口在关闭时会自动清理
+            # 这里只需要清理主窗口的资源
             
             # 清理JLink日志
             if hasattr(self, 'jlink_log_text'):
@@ -4348,10 +4290,9 @@ class RTTMainWindow(QMainWindow):
         # 更新数据时间戳（用于自动重连监控）
         self._update_data_timestamp()
         
-        # 获取当前选定的页面索引
-        index = self.ui.tem_switch.currentIndex()
-        # 刷新文本框
-        self.switchPage(index)
+        # MDI 架构：字体更新由 DeviceMdiWindow 处理
+        # 这里不需要刷新，因为字体已经在 _update_all_tabs_font 中更新了
+        pass
         
     def on_pushButton_clicked(self):
         current_text = self.ui.cmd_buffer.currentText()
@@ -4387,13 +4328,12 @@ class RTTMainWindow(QMainWindow):
             sent_msg = QCoreApplication.translate("main_window", "Sent:\t%s") % cmd_text[:len(cmd_text) - 1]
             self.ui.sent.setText(sent_msg)
             
-            #self.ui.tem_switch.setCurrentIndex(2)   #输入指令成功后，自动切换到应答界面
-            current_page_widget = self.ui.tem_switch.widget(2)
-            if isinstance(current_page_widget, QWidget):
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page_widget.findChild(QPlainTextEdit) or current_page_widget.findChild(QTextEdit)
-                if text_edit:
-                    self.highlighter[2].setKeywords([current_text])
+            # MDI 架构：在当前活动的 MDI 窗口中设置高亮
+            mdi_window = self._get_active_mdi_window()
+            if mdi_window and hasattr(mdi_window, 'text_edits') and len(mdi_window.text_edits) > 2:
+                # 在 channel 2 (应答界面) 设置高亮关键字
+                # 注意：MDI 架构中每个设备有自己的高亮器
+                pass  # TODO: 实现 MDI 窗口的高亮功能
                     
             # 📋 新功能：命令发送成功后，将TAB 1的输出内容展示到JLink日志框
             self._display_tab1_content_to_jlink_log(current_text)
@@ -5255,19 +5195,21 @@ class RTTMainWindow(QMainWindow):
             font.setStyleStrategy(QFont.PreferDefault)  # 使用默认策略
             font.setKerning(False)  # 禁用字距调整
             
-            # 遍历所有TAB并更新字体
+            # MDI 架构：遍历所有 MDI 窗口并更新字体
             from PySide6.QtWidgets import QPlainTextEdit
-            tab_count = self.ui.tem_switch.count()
-            current_tab = self.ui.tem_switch.currentIndex()
             updated_count = 0
             
-            for i in range(tab_count):
-                page = self.ui.tem_switch.widget(i)
-                if page:
-                    text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
+            # 遍历所有设备会话的 MDI 窗口
+            for session in session_manager.get_all_sessions():
+                if not session.mdi_window:
+                    continue
+                
+                # 更新该设备的所有标签页
+                current_tab_index = session.mdi_window.tab_widget.currentIndex()
+                for i, text_edit in enumerate(session.mdi_window.text_edits):
                     if text_edit:
                         # 🔑 关键改进：对于不可见的TAB，需要临时切换到该TAB才能触发更新
-                        is_current = (i == current_tab)
+                        is_current = (i == current_tab_index)
                         
                         # 1. 设置控件字体
                         text_edit.setFont(font)
@@ -5341,18 +5283,7 @@ class RTTMainWindow(QMainWindow):
                         
                         updated_count += 1
             
-            logger.info(f"[FONT] Updated font for {updated_count}/{tab_count} TABs to: {font_name} {font_size}pt")
-            
-            # 🔑 关键修复：强制当前TAB立即刷新
-            # 方法：临时切换TAB触发重绘，然后立即切回
-            if tab_count > 1 and current_tab >= 0:
-                # 找一个不同的TAB索引
-                temp_tab = (current_tab + 1) % tab_count
-                self.ui.tem_switch.setCurrentIndex(temp_tab)
-                QApplication.processEvents()  # 处理切换事件
-                self.ui.tem_switch.setCurrentIndex(current_tab)
-                QApplication.processEvents()  # 处理切回事件
-                logger.info(f"[FONT] Force refreshed by switching tabs: {current_tab} -> {temp_tab} -> {current_tab}")
+            logger.info(f"[FONT] Updated font for {updated_count} text edits to: {font_name} {font_size}pt")
             
             # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
             # 同时遍历所有TAB并触发重绘
@@ -5366,26 +5297,25 @@ class RTTMainWindow(QMainWindow):
         self._delayed_font_refresh_all()
     
     def _delayed_font_refresh_all(self):
-        """延迟刷新所有TAB的字体 - 确保不可见TAB也能更新"""
+        """延迟刷新所有TAB的字体 - 确保不可见TAB也能更新（MDI架构）"""
         try:
             from PySide6.QtWidgets import QPlainTextEdit
-            current_tab = self.ui.tem_switch.currentIndex()
             
-            # 遍历所有TAB进行二次刷新
-            for i in range(self.ui.tem_switch.count()):
-                page = self.ui.tem_switch.widget(i)
-                if page:
-                    text_edit = page.findChild(QPlainTextEdit) or page.findChild(QTextEdit)
+            # MDI 架构：遍历所有设备会话的 MDI 窗口
+            for session in session_manager.get_all_sessions():
+                if not session.mdi_window:
+                    continue
+                
+                # 遍历该设备的所有标签页进行二次刷新
+                for text_edit in session.mdi_window.text_edits:
                     if text_edit:
                         # 🔑 关键：强制刷新文档布局
                         doc = text_edit.document()
                         
-                        # 对于不可见的TAB，临时切换过去触发更新
-                        if i != current_tab:
-                            # 方法1：触发文档contentsChanged信号
-                            doc.markContentsDirty(0, doc.characterCount())
+                        # 触发文档contentsChanged信号
+                        doc.markContentsDirty(0, doc.characterCount())
                         
-                        # 方法2：强制viewport完整重绘
+                        # 强制viewport完整重绘
                         text_edit.viewport().repaint()  # 使用repaint而不是update，立即重绘
                         text_edit.update()
             
@@ -5397,13 +5327,16 @@ class RTTMainWindow(QMainWindow):
             logger.debug(f"Delayed font refresh error: {e}")
     
     def _update_current_tab_font(self):
-        """更新当前TAB的字体"""
+        """更新当前TAB的字体（MDI架构）"""
         try:
-            current_index = self.ui.tem_switch.currentIndex()
-            current_page = self.ui.tem_switch.widget(current_index)
-            if current_page:
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page.findChild(QPlainTextEdit) or current_page.findChild(QTextEdit)
+            # MDI 架构：获取当前活动的 MDI 窗口
+            mdi_window = self._get_active_mdi_window()
+            if not mdi_window:
+                return
+            
+            current_index = mdi_window.tab_widget.currentIndex()
+            if current_index < len(mdi_window.text_edits):
+                text_edit = mdi_window.text_edits[current_index]
                 if text_edit:
                     # 获取字体名称
                     if hasattr(self.ui, 'font_combo'):
@@ -8899,8 +8832,11 @@ class ConnectionDialog(QDialog):
             return
             
         # 使用滑动文本块机制，不需要定期清理UI文本
+        
+        # MDI 架构中不再使用 tem_switch，由 DeviceMdiWindow 处理
+        return
             
-        current_index = self.main_window.ui.tem_switch.currentIndex()
+        # current_index = self.main_window.ui.tem_switch.currentIndex()
         
         # 优先更新当前显示的页面
         if self.main_window.page_dirty_flags[current_index]:

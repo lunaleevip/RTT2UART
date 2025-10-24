@@ -16,10 +16,10 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
-    QLabel, QLineEdit, QMainWindow, QMdiArea,
-    QMenuBar, QPlainTextEdit, QPushButton, QRadioButton,
-    QSizePolicy, QSpacerItem, QSpinBox, QSplitter,
-    QStatusBar, QVBoxLayout, QWidget)
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QMdiArea, QMenuBar, QPlainTextEdit, QPushButton,
+    QRadioButton, QSizePolicy, QSpacerItem, QSpinBox,
+    QSplitter, QStatusBar, QVBoxLayout, QWidget)
 
 class Ui_RTTMainWindow(object):
     def setupUi(self, RTTMainWindow):
@@ -192,9 +192,40 @@ class Ui_RTTMainWindow(object):
         self.jlink_log_area.setSizePolicy(sizePolicy4)
         self.jlink_log_area.setMinimumSize(QSize(0, 0))
         self.verticalLayout_jlink = QVBoxLayout(self.jlink_log_area)
-        self.verticalLayout_jlink.setSpacing(0)
+        self.verticalLayout_jlink.setSpacing(5)
         self.verticalLayout_jlink.setObjectName(u"verticalLayout_jlink")
-        self.verticalLayout_jlink.setContentsMargins(0, 0, 0, 0)
+        self.verticalLayout_jlink.setContentsMargins(5, 5, 5, 5)
+        self.jlink_header_layout = QHBoxLayout()
+        self.jlink_header_layout.setObjectName(u"jlink_header_layout")
+        self.jlink_title_label = QLabel(self.jlink_log_area)
+        self.jlink_title_label.setObjectName(u"jlink_title_label")
+        font1 = QFont()
+        font1.setPointSize(10)
+        font1.setBold(True)
+        self.jlink_title_label.setFont(font1)
+
+        self.jlink_header_layout.addWidget(self.jlink_title_label)
+
+        self.jlink_header_spacer = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+
+        self.jlink_header_layout.addItem(self.jlink_header_spacer)
+
+        self.clear_jlink_log_btn = QPushButton(self.jlink_log_area)
+        self.clear_jlink_log_btn.setObjectName(u"clear_jlink_log_btn")
+        self.clear_jlink_log_btn.setMaximumSize(QSize(80, 16777215))
+
+        self.jlink_header_layout.addWidget(self.clear_jlink_log_btn)
+
+        self.toggle_jlink_log_btn = QPushButton(self.jlink_log_area)
+        self.toggle_jlink_log_btn.setObjectName(u"toggle_jlink_log_btn")
+        self.toggle_jlink_log_btn.setMaximumSize(QSize(120, 16777215))
+        self.toggle_jlink_log_btn.setCheckable(True)
+
+        self.jlink_header_layout.addWidget(self.toggle_jlink_log_btn)
+
+
+        self.verticalLayout_jlink.addLayout(self.jlink_header_layout)
+
         self.jlink_log_text = QPlainTextEdit(self.jlink_log_area)
         self.jlink_log_text.setObjectName(u"jlink_log_text")
         sizePolicy5 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -202,10 +233,10 @@ class Ui_RTTMainWindow(object):
         sizePolicy5.setVerticalStretch(0)
         sizePolicy5.setHeightForWidth(self.jlink_log_text.sizePolicy().hasHeightForWidth())
         self.jlink_log_text.setSizePolicy(sizePolicy5)
-        font1 = QFont()
-        font1.setFamilies([u"Consolas"])
-        font1.setPointSize(9)
-        self.jlink_log_text.setFont(font1)
+        font2 = QFont()
+        font2.setFamilies([u"Consolas"])
+        font2.setPointSize(9)
+        self.jlink_log_text.setFont(font2)
         self.jlink_log_text.setReadOnly(True)
 
         self.verticalLayout_jlink.addWidget(self.jlink_log_text)
@@ -275,6 +306,9 @@ class Ui_RTTMainWindow(object):
 #endif // QT_CONFIG(tooltip)
         self.restart_app_button.setText(QCoreApplication.translate("RTTMainWindow", u"Restart APP", None))
         self.sent.setText("")
+        self.jlink_title_label.setText(QCoreApplication.translate("RTTMainWindow", u"JLink Debug Log", None))
+        self.clear_jlink_log_btn.setText(QCoreApplication.translate("RTTMainWindow", u"Clear Log", None))
+        self.toggle_jlink_log_btn.setText(QCoreApplication.translate("RTTMainWindow", u"Enable Verbose Log", None))
         self.jlink_log_text.setPlainText("")
     # retranslateUi
 
