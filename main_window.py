@@ -1945,9 +1945,20 @@ class RTTMainWindow(QMainWindow):
         self.action2.triggered.connect(self.on_re_connect_clicked)
         self.action3.triggered.connect(self.on_dis_connect_clicked)
         self.action4.triggered.connect(self.on_clear_clicked)
-        # self.action5.triggered.connect(self.toggle_lock_v_checkbox)  # F5已移除
+        # self.action5.triggered.connect(self.toggle_lock_v_checkbox)  # F5已移除，现在用于暂停/恢复刷新
         # self.action6.triggered.connect(self.toggle_lock_h_checkbox)  # F6已移除
         self.action7.triggered.connect(self.toggle_style_checkbox)
+        
+        # F5/F6 暂停/恢复刷新（通过UI单选按钮控制，这里只添加快捷键）
+        self.pause_refresh_action = QAction(QCoreApplication.translate("main_window", "Pause Refresh"), self)
+        self.pause_refresh_action.setShortcut(QKeySequence("F5"))
+        self.pause_refresh_action.triggered.connect(self.pause_ui_refresh)
+        self.addAction(self.pause_refresh_action)
+        
+        self.resume_refresh_action = QAction(QCoreApplication.translate("main_window", "Resume Refresh"), self)
+        self.resume_refresh_action.setShortcut(QKeySequence("F6"))
+        self.resume_refresh_action.triggered.connect(self.resume_ui_refresh)
+        self.addAction(self.resume_refresh_action)
 
         # 重定向 F9 到统一的执行逻辑（根据子菜单选择）
         self.action9.triggered.connect(self.restart_app_execute)
@@ -4893,6 +4904,59 @@ class RTTMainWindow(QMainWindow):
             logger.debug(f"[AUTO-RECONNECT] Data timestamp updated: {self.last_data_time:.2f} -> {current_time:.2f}")
         self.last_data_time = current_time
 
+    def pause_ui_refresh(self):
+        """F5 暂停UI刷新 - 在rtt2uart中暂停数据处理"""
+        try:
+            # 获取当前激活的设备会话
+            session = self._get_active_device_session()
+            if not session:
+                logger.warning("No active device session to pause refresh")
+                return
+            
+            # 设置rtt2uart的暂停标志
+            if session.rtt2uart:
+                session.rtt2uart.ui_refresh_paused = True
+                logger.info(f"⏸️ 设备 {session.get_display_name()} UI刷新已暂停")
+                self.statusBar().showMessage(f"⏸️ UI刷新已暂停 - 设备 {session.get_display_name()}", 3000)
+                
+                # 更新UI单选按钮状态
+                if hasattr(self.ui, 'radioButton_pause_refresh'):
+                    self.ui.radioButton_pause_refresh.setChecked(True)
+            else:
+                logger.warning("No RTT connection to pause")
+                
+        except Exception as e:
+            logger.error(f"Failed to pause UI refresh: {e}", exc_info=True)
+    
+    def resume_ui_refresh(self):
+        """F6 恢复UI刷新 - 在rtt2uart中恢复数据处理"""
+        try:
+            # 获取当前激活的设备会话
+            session = self._get_active_device_session()
+            if not session:
+                logger.warning("No active device session to resume refresh")
+                return
+            
+            # 恢复rtt2uart的刷新并处理暂停期间的数据
+            if session.rtt2uart:
+                # 先清除暂停标志，这样flush_paused_data处理的数据会正常发送
+                session.rtt2uart.ui_refresh_paused = False
+                
+                # 一次性处理暂停期间积累的所有数据
+                session.rtt2uart.flush_paused_data()
+                
+                logger.info(f"▶️ 设备 {session.get_display_name()} UI刷新已恢复")
+                self.statusBar().showMessage(f"▶️ UI刷新已恢复 - 设备 {session.get_display_name()}", 3000)
+                
+                # 更新UI单选按钮状态
+                if hasattr(self.ui, 'radioButton_resume_refresh'):
+                    self.ui.radioButton_resume_refresh.setChecked(True)
+            else:
+                logger.warning("No RTT connection to resume")
+                
+        except Exception as e:
+            logger.error(f"Failed to resume UI refresh: {e}", exc_info=True)
+    
     def on_clear_clicked(self):
         """F4清空当前TAB - 操作当前激活的MDI设备窗口"""
         try:

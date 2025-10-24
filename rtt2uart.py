@@ -248,6 +248,11 @@ class rtt_to_serial():
         self.serial_forward_buffer = {}  # 存储各个TAB的数据缓冲
         self.current_tab_index = 0  # 当前显示的标签页索引
         
+        # UI刷新暂停标志（用于暂停/恢复刷新功能）
+        self.ui_refresh_paused = False
+        self.paused_data_buffer = []  # 暂停期间的数据缓冲 [(tem_num, string), ...]
+        self.paused_buffer_lock = threading.Lock()  # 暂停缓冲区锁
+        
         # 设置日志文件名
         log_directory = None
         
@@ -486,6 +491,24 @@ class rtt_to_serial():
     def set_serial_forward_tab(self, tab_index):
         """保持向后兼容的方法"""
         self.set_serial_forward_config(tab_index, 'LOG')
+    
+    def flush_paused_data(self):
+        """恢复刷新时，一次性处理暂停期间的所有数据"""
+        with self.paused_buffer_lock:
+            if not self.paused_data_buffer:
+                logger.info("暂停缓冲区为空，无需处理")
+                return
+            
+            buffer_count = len(self.paused_data_buffer)
+            logger.info(f"🔄 开始处理暂停期间的 {buffer_count} 条数据...")
+            
+            # 一次性处理所有暂停的数据
+            for tem_num, string in self.paused_data_buffer:
+                self.main.addToBuffer(tem_num, string)
+            
+            # 清空暂停缓冲区
+            self.paused_data_buffer.clear()
+            logger.info(f"✅ 暂停数据处理完成，已处理 {buffer_count} 条数据")
     
     def add_tab_data_for_forwarding(self, tab_index, data):
         """为TAB添加数据用于串口转发"""
@@ -1374,8 +1397,14 @@ class rtt_to_serial():
         #     self.serial_forward_tab == 'rtt_channel_1'):
         #     self.add_raw_rtt_data_for_forwarding(1, string)
         
-        
-        self.main.addToBuffer(tem_num, string);
+        # 🔄 检查UI刷新暂停标志
+        if self.ui_refresh_paused:
+            # 暂停时：将数据保存到暂停缓冲区，不发送给Worker
+            with self.paused_buffer_lock:
+                self.paused_data_buffer.append((tem_num, string))
+        else:
+            # 正常时：直接发送给Worker
+            self.main.addToBuffer(tem_num, string)
 
         # if tem == ord('1'):
         #     cursor = self.ui.textEdit.textCursor()
