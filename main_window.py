@@ -4692,7 +4692,8 @@ class RTTMainWindow(QMainWindow):
                                 # 立即触发一次更新
                                 existing_session.mdi_window._update_from_worker()
                             # 激活该设备的MDI窗口
-                            self.mdi_area.setActiveSubWindow(existing_session.mdi_window)
+                            if existing_session.mdi_window and existing_session.mdi_window.mdi_sub_window:
+                                self.mdi_area.setActiveSubWindow(existing_session.mdi_window.mdi_sub_window)
                         
                         # 设置为当前会话
                         self.current_session = existing_session

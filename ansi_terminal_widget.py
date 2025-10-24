@@ -30,6 +30,13 @@ class FastAnsiTextEdit(QTextEdit):
         self.setLineWrapMode(QTextEdit.NoWrap)
         self.setReadOnly(True)
         
+        # 启用文本选择功能（包括ALT块选取）
+        from PySide6.QtCore import Qt
+        self.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse |
+            Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        
         # 🎯 最大化显示设置
         from PySide6.QtWidgets import QSizePolicy
         from PySide6.QtCore import Qt
