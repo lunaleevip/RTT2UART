@@ -2075,6 +2075,12 @@ class RTTMainWindow(QMainWindow):
         self.ui.dis_connect.clicked.connect(self.on_dis_connect_clicked)
         self.ui.re_connect.clicked.connect(self.on_re_connect_clicked)
         self.ui.clear.clicked.connect(self.on_clear_clicked)
+        
+        # 连接暂停/恢复刷新单选按钮
+        if hasattr(self.ui, 'radioButton_pause_refresh'):
+            self.ui.radioButton_pause_refresh.toggled.connect(lambda checked: self.pause_ui_refresh() if checked else None)
+        if hasattr(self.ui, 'radioButton_resume_refresh'):
+            self.ui.radioButton_resume_refresh.toggled.connect(lambda checked: self.resume_ui_refresh() if checked else None)
 
         # JLink 文件日志跟随显示
         self.jlink_log_file_path = None

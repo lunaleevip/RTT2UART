@@ -406,7 +406,7 @@
      </widget>
     </item>
     <item row="2" column="5">
-     <widget class="QCheckBox" name="LockV_checkBox">
+     <widget class="QRadioButton" name="radioButton_pause_refresh">
       <property name="font">
        <font>
         <family>Arial</family>
@@ -416,12 +416,12 @@
        <string>F5</string>
       </property>
       <property name="text">
-       <string>Lock Vertical</string>
+       <string>暂停刷新(F5)</string>
       </property>
      </widget>
     </item>
     <item row="2" column="6">
-     <widget class="QCheckBox" name="LockH_checkBox">
+     <widget class="QRadioButton" name="radioButton_resume_refresh">
       <property name="font">
        <font>
         <family>Arial</family>
@@ -431,7 +431,10 @@
        <string>F6</string>
       </property>
       <property name="text">
-       <string>Lock Horizontal</string>
+       <string>恢复刷新(F6)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
       </property>
      </widget>
     </item>

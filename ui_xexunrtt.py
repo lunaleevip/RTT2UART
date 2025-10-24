@@ -16,8 +16,9 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QGridLayout,
-    QLabel, QLineEdit, QPushButton, QSizePolicy,
-    QSpacerItem, QSpinBox, QTabWidget, QWidget)
+    QLabel, QLineEdit, QPushButton, QRadioButton,
+    QSizePolicy, QSpacerItem, QSpinBox, QTabWidget,
+    QWidget)
 
 class Ui_xexun_rtt(object):
     def setupUi(self, xexun_rtt):
@@ -176,17 +177,18 @@ class Ui_xexun_rtt(object):
 
         self.gridLayout.addWidget(self.re_connect, 2, 2, 1, 1)
 
-        self.LockV_checkBox = QCheckBox(self.layoutWidget)
-        self.LockV_checkBox.setObjectName(u"LockV_checkBox")
-        self.LockV_checkBox.setFont(font)
+        self.radioButton_pause_refresh = QRadioButton(self.layoutWidget)
+        self.radioButton_pause_refresh.setObjectName(u"radioButton_pause_refresh")
+        self.radioButton_pause_refresh.setFont(font)
 
-        self.gridLayout.addWidget(self.LockV_checkBox, 2, 5, 1, 1)
+        self.gridLayout.addWidget(self.radioButton_pause_refresh, 2, 5, 1, 1)
 
-        self.LockH_checkBox = QCheckBox(self.layoutWidget)
-        self.LockH_checkBox.setObjectName(u"LockH_checkBox")
-        self.LockH_checkBox.setFont(font)
+        self.radioButton_resume_refresh = QRadioButton(self.layoutWidget)
+        self.radioButton_resume_refresh.setObjectName(u"radioButton_resume_refresh")
+        self.radioButton_resume_refresh.setFont(font)
+        self.radioButton_resume_refresh.setChecked(True)
 
-        self.gridLayout.addWidget(self.LockH_checkBox, 2, 6, 1, 1)
+        self.gridLayout.addWidget(self.radioButton_resume_refresh, 2, 6, 1, 1)
 
         self.horizontalSpacer_9 = QSpacerItem(13, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
@@ -260,13 +262,13 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.re_connect.setText(QCoreApplication.translate("xexun_rtt", u"Reconnect", None))
 #if QT_CONFIG(tooltip)
-        self.LockV_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
+        self.radioButton_pause_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
 #endif // QT_CONFIG(tooltip)
-        self.LockV_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Vertical", None))
+        self.radioButton_pause_refresh.setText(QCoreApplication.translate("xexun_rtt", u"\u6682\u505c\u5237\u65b0(F5)", None))
 #if QT_CONFIG(tooltip)
-        self.LockH_checkBox.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
+        self.radioButton_resume_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
 #endif // QT_CONFIG(tooltip)
-        self.LockH_checkBox.setText(QCoreApplication.translate("xexun_rtt", u"Lock Horizontal", None))
+        self.radioButton_resume_refresh.setText(QCoreApplication.translate("xexun_rtt", u"\u6062\u590d\u5237\u65b0(F6)", None))
         self.sent.setText("")
     # retranslateUi
 
