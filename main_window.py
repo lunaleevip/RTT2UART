@@ -1054,37 +1054,47 @@ class EditableTabBar(QTabBar):
             index = self.tabAt(event.pos())
             if index >= 17:  # 只处理Filters标签
                 # 清空该标签页
-                if self.main_window:
+                # 找到当前的DeviceMdiWindow实例
+                tab_widget = self.parent()
+                mdi_window = None
+                if tab_widget:
+                    mdi_window = tab_widget.parent()
+                
+                if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
                     # logger.info("🔴" * 40)
                     # logger.info(f"[MIDDLE-CLICK] 用户中键点击清空TAB {index}")
                     old_text = self.tabText(index)
                     # logger.info(f"[MIDDLE-CLICK] 原文本: '{old_text}'")
                     
                     # 保存当前标签页索引
-                    current_index = self.main_window.ui.tem_switch.currentIndex()
+                    current_index = tab_widget.currentIndex()
                     # 切换到目标标签页
-                    self.main_window.ui.tem_switch.setCurrentIndex(index)
-                    # 执行清空操作
-                    self.main_window.on_clear_clicked()
-                    # 重置标签文本为"filter"
-                    self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
+                    tab_widget.setCurrentIndex(index)
+                    # 清空该TAB的文本编辑器
+                    if index < len(mdi_window.text_edits):
+                        mdi_window.text_edits[index].clear()
+                    # 重置标签文本为"+"
+                    self.setTabText(index, "+")
+                    
+                    # 更新筛选TAB显示（隐藏多余的空TAB）
+                    mdi_window.update_filter_tab_display()
                     
                     # 🔑 保存空字符串到配置
-                    if self.main_window.connection_dialog:
-                        logger.info(f"[MIDDLE-CLICK] 准备保存空字符串到配置")
+                    if self.main_window and self.main_window.connection_dialog:
+                        logger.debug(f"[MIDDLE-CLICK] 准备保存空字符串到配置")
                         
                         # 🔑 架构改进：config对象在UI初始化时已包含所有筛选值
                         # 只需要更新当前TAB的值即可
                         self.main_window.connection_dialog.config.set_filter(index, "")
-                        logger.info(f"[MIDDLE-CLICK] Set filter[{index}] = ''")
+                        logger.debug(f"[MIDDLE-CLICK] Set filter[{index}] = ''")
                         
-                        logger.info(f"[MIDDLE-CLICK] 准备调用 save_config()")
+                        logger.debug(f"[MIDDLE-CLICK] 准备调用 save_config()")
                         self.main_window.connection_dialog.config.save_config()
-                        logger.info(f"[MIDDLE-CLICK] save_config() 调用完成")
+                        logger.debug(f"[MIDDLE-CLICK] save_config() 调用完成")
                     
                     # 恢复原来的标签页（如果不是同一个）
                     if current_index != index:
-                        self.main_window.ui.tem_switch.setCurrentIndex(current_index)
+                        tab_widget.setCurrentIndex(current_index)
                     
                     # logger.info(f"[MIDDLE-CLICK] Cleared filter TAB {index}")
                     # logger.info("🔴" * 40)
@@ -1161,7 +1171,23 @@ class EditableTabBar(QTabBar):
                 if new_text:
                     self.setTabText(index, new_text)
                 else:
-                    self.setTabText(index, QCoreApplication.translate("main_window", "filter"))
+                    self.setTabText(index, "+")  # 清空时显示"+"
+                
+                # 找到当前的DeviceMdiWindow实例
+                tab_widget = self.parent()
+                mdi_window = None
+                if tab_widget:
+                    mdi_window = tab_widget.parent()
+                
+                # 如果清空了筛选文本，同时清空该TAB的数据
+                if not new_text and mdi_window and isinstance(mdi_window, DeviceMdiWindow):
+                    if index < len(mdi_window.text_edits):
+                        mdi_window.text_edits[index].clear()
+                        logger.debug(f"Cleared text edit for TAB {index}")
+                
+                # 更新筛选TAB显示（隐藏多余的空TAB）
+                if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
+                    mdi_window.update_filter_tab_display()
                 
                 # 保存过滤器设置和正则表达式状态
                 if self.main_window and self.main_window.connection_dialog:
@@ -1201,6 +1227,13 @@ class DeviceMdiWindow(QMdiSubWindow):
         # 设置窗口标题和图标
         self.setWindowTitle(f"{device_session.get_display_name()}")
         self.setWindowIcon(QIcon(":/xexunrtt.ico"))
+        
+        # 设置窗口选项：允许调整大小、最大化、最小化
+        from PySide6.QtCore import Qt
+        self.setWindowFlags(Qt.SubWindow)
+        # 确保子窗口可以调整大小
+        self.setOption(QMdiSubWindow.RubberBandResize, True)
+        self.setOption(QMdiSubWindow.RubberBandMove, True)
         
         # 创建中心部件
         self.central_widget = QWidget()
@@ -1259,7 +1292,8 @@ class DeviceMdiWindow(QMdiSubWindow):
             elif i <= 16:
                 tab_name = str(i - 1)  # 1-16显示为0-15
             else:
-                tab_name = f"+{i - 16}"  # 17-31显示为+1到+15
+                # 筛选TAB (17-31)：初始只显示一个"+"，有内容时显示内容
+                tab_name = "+"  # 初始都显示为"+"
             
             self.tab_widget.addTab(page, tab_name)
             self.text_edits.append(text_edit)
@@ -1309,6 +1343,17 @@ class DeviceMdiWindow(QMdiSubWindow):
         
         # 设置窗口大小
         self.resize(800, 600)
+        
+        # 从配置加载筛选文本
+        if parent and hasattr(parent, 'connection_dialog') and parent.connection_dialog:
+            for i in range(17, MAX_TAB_SIZE):
+                filter_content = parent.connection_dialog.config.get_filter(i)
+                if filter_content:
+                    self.tab_widget.setTabText(i, filter_content)
+                    logger.debug(f"  Filter[{i}] loaded: '{filter_content}'")
+        
+        # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
+        self.update_filter_tab_display()
         
         logger.info(f"✅ DeviceMdiWindow created for session: {device_session.session_id} with smart scroll lock")
     
@@ -1520,6 +1565,54 @@ class DeviceMdiWindow(QMdiSubWindow):
                         self.last_display_lengths[channel] = current_length
         except Exception as e:
             logger.error(f"Failed to update from worker: {e}", exc_info=True)
+    
+    def update_filter_tab_display(self):
+        """更新筛选TAB的显示
+        规则：
+        - 如果筛选TAB有内容，显示该内容
+        - 动态显示空"+"TAB：
+          * 如果所有可见的筛选TAB都有内容，显示一个新的"+"（未超上限）
+          * 如果有空"+"TAB，只显示一个
+        """
+        try:
+            # 统计有内容的筛选TAB和空TAB
+            tabs_with_content = []
+            empty_tabs = []
+            
+            for i in range(17, MAX_TAB_SIZE):
+                tab_text = self.tab_widget.tabText(i)
+                # 判断是否有内容（不是"+"且不为空）
+                has_content = tab_text and tab_text != "+"
+                
+                if has_content:
+                    tabs_with_content.append(i)
+                else:
+                    empty_tabs.append(i)
+            
+            # 先将所有有内容的TAB设为可见
+            for i in tabs_with_content:
+                self.tab_widget.setTabVisible(i, True)
+            
+            # 决定需要显示多少个空"+"TAB
+            # 规则：始终只显示一个空"+"TAB
+            empty_tab_to_show_count = 1 if empty_tabs else 0
+            
+            # 应用空TAB的显示规则
+            shown_empty_count = 0
+            for i in empty_tabs:
+                if shown_empty_count < empty_tab_to_show_count:
+                    # 显示这个空TAB
+                    self.tab_widget.setTabText(i, "+")
+                    self.tab_widget.setTabVisible(i, True)
+                    shown_empty_count += 1
+                else:
+                    # 隐藏这个空TAB
+                    self.tab_widget.setTabVisible(i, False)
+            
+            logger.debug(f"Filter tabs updated: {len(tabs_with_content)} with content, {shown_empty_count} empty '+' visible")
+            
+        except Exception as e:
+            logger.error(f"Failed to update filter tab display: {e}", exc_info=True)
     
     def closeEvent(self, event):
         """窗口关闭事件 - 断开设备并注销对象"""
