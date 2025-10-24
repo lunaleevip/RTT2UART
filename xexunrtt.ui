@@ -413,7 +413,7 @@
        </font>
       </property>
       <property name="toolTip">
-       <string>Pause Refresh (F5)</string>
+       <string>F5</string>
       </property>
       <property name="text">
        <string>Pause Refresh</string>
@@ -428,7 +428,7 @@
        </font>
       </property>
       <property name="toolTip">
-       <string>Resume Refresh (F6)</string>
+       <string>F6</string>
       </property>
       <property name="text">
        <string>Resume Refresh</string>

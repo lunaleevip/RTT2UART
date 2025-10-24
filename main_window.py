@@ -4889,8 +4889,11 @@ class RTTMainWindow(QMainWindow):
             # 设置rtt2uart的暂停标志
             if session.rtt2uart:
                 session.rtt2uart.ui_refresh_paused = True
-                logger.info(f"⏸️ 设备 {session.get_display_name()} UI刷新已暂停")
-                self.statusBar().showMessage(f"⏸️ UI刷新已暂停 - 设备 {session.get_display_name()}", 3000)
+                logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
+                self.statusBar().showMessage(
+                    QCoreApplication.translate("main_window", "UI refresh paused - Device %s") % session.get_display_name(), 
+                    3000
+                )
                 
                 # 更新UI单选按钮状态
                 if hasattr(self.ui, 'radioButton_pause_refresh'):
@@ -4922,8 +4925,11 @@ class RTTMainWindow(QMainWindow):
                     # 关闭时直接清空，不处理
                     session.rtt2uart.clear_paused_data()
                 
-                logger.info(f"▶️ 设备 {session.get_display_name()} UI刷新已恢复")
-                self.statusBar().showMessage(f"▶️ UI刷新已恢复 - 设备 {session.get_display_name()}", 3000)
+                logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh resumed") % session.get_display_name())
+                self.statusBar().showMessage(
+                    QCoreApplication.translate("main_window", "UI refresh resumed - Device %s") % session.get_display_name(), 
+                    3000
+                )
                 
                 # 更新UI单选按钮状态
                 if hasattr(self.ui, 'radioButton_resume_refresh'):
@@ -5727,11 +5733,15 @@ class RTTMainWindow(QMainWindow):
         title_parts.append(QCoreApplication.translate("main_window", "Read: %10d bytes") % readed)
         title_parts.append(QCoreApplication.translate("main_window", "Write: %4d bytes") % writed)
 
-        # 3. 当前标签页名称
-        if hasattr(self, 'ui') and hasattr(self.ui, 'tem_switch'):
-            current_index = self.ui.tem_switch.currentIndex()
-            current_tab_name = self.ui.tem_switch.tabText(current_index)
-            title_parts.append(current_tab_name)
+        # 3. 当前激活的设备窗口和标签页名称
+        active_session = self._get_active_device_session()
+        if active_session and active_session.mdi_window:
+            # 获取设备名称
+            device_name = active_session.get_display_name()
+            # 获取当前标签页名称
+            current_index = active_session.mdi_window.tab_widget.currentIndex()
+            current_tab_name = active_session.mdi_window.tab_widget.tabText(current_index)
+            title_parts.append(f"{device_name} - {current_tab_name}")
                 
         # 组合标题
         title = " | ".join(title_parts)
@@ -10216,10 +10226,10 @@ if __name__ == "__main__":
     if config_language == 'zh_CN':
         # 简体中文
         qm_paths = [
-            get_resource_path("xexunrtt_complete.qm"),  # PyInstaller或当前目录
-            "xexunrtt_complete.qm",  # 当前目录（备用）
-            "../Resources/xexunrtt_complete.qm",  # Resources目录（macOS）
-            ":/xexunrtt_complete.qm"  # Qt资源（备用）
+            get_resource_path("xexunrtt_zh_CN.qm"),  # PyInstaller或当前目录
+            "xexunrtt_zh_CN.qm",  # 当前目录（备用）
+            "../Resources/xexunrtt_zh_CN.qm",  # Resources目录（macOS）
+            ":/xexunrtt_zh_CN.qm"  # Qt资源（备用）
         ]
         
         for qm_path in qm_paths:
