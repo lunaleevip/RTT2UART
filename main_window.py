@@ -1692,14 +1692,15 @@ class DeviceMdiWindow(QWidget):
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
         
         # 通知主窗口关闭此设备会话并注销对象
-        # 注意：MDI子窗口的parent是QMdiArea，需要通过mdiArea获取主窗口
-        mdi_area = self.mdiArea()
-        if mdi_area:
-            main_window = mdi_area.parent()
-            while main_window and not isinstance(main_window, RTTMainWindow):
-                main_window = main_window.parent()
-            if main_window and hasattr(main_window, '_on_mdi_window_closed'):
-                main_window._on_mdi_window_closed(self.device_session)
+        # DeviceMdiWindow是QWidget，通过mdi_sub_window获取QMdiArea
+        if hasattr(self, 'mdi_sub_window') and self.mdi_sub_window:
+            mdi_area = self.mdi_sub_window.mdiArea()
+            if mdi_area:
+                main_window = mdi_area.parent()
+                while main_window and not isinstance(main_window, RTTMainWindow):
+                    main_window = main_window.parent()
+                if main_window and hasattr(main_window, '_on_mdi_window_closed'):
+                    main_window._on_mdi_window_closed(self.device_session)
         
         event.accept()
 
@@ -4633,6 +4634,12 @@ class RTTMainWindow(QMainWindow):
                 return
             
             logger.info(f"Disconnecting device: {session.get_display_name()}")
+            
+            # 标记为手动断开，停止自动重连定时器
+            self.manual_disconnect = True
+            if hasattr(self, 'data_check_timer'):
+                self.data_check_timer.stop()
+                logger.info("Auto reconnect timer stopped due to manual disconnect")
             
             # 断开该设备的连接
             if session.rtt2uart:
