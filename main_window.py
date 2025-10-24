@@ -241,11 +241,13 @@ class DeviceSessionManager:
 session_manager = DeviceSessionManager()
 
 # 项目模块导入
-from ui_rtt2uart_updated import Ui_ConnectionDialog
-from ui_sel_device import Ui_Dialog
-from ui_xexunrtt import Ui_xexun_rtt
+from ui import Ui_RTTMainWindow, Ui_ConnectionDialog, Ui_Dialog
 from rtt2uart import ansi_processor, rtt_to_serial
 from config_manager import config_manager
+from ui_constants import (
+    WindowSize, LayoutSize, TimerInterval, BufferConfig,
+    SerialConfig, RTTAddress, CleanupConfig, ColorConfig
+)
 #from performance_test import show_performance_test
 import resources_rc
 
@@ -459,12 +461,9 @@ class JLinkLogHandler(logging.Handler):
 # 日志已在文件开头配置
 
 # pylink支持的最大速率是12000kHz（Release v0.7.0开始支持15000及以上速率）
-speed_list = [5, 10, 20, 30, 50, 100, 200, 300, 400, 500, 600, 750,
-              900, 1000, 1334, 1600, 2000, 2667, 3200, 4000, 4800, 5334, 6000, 8000, 9600, 12000,
-              15000, 20000, 25000, 30000, 40000, 50000]
+speed_list = SerialConfig.SPEED_LIST
 
-baudrate_list = [50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
-                 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600]
+baudrate_list = SerialConfig.BAUDRATE_LIST
 
 MAX_TAB_SIZE = 32
 
@@ -1335,7 +1334,7 @@ class DeviceMdiWindow(QWidget):
         # 创建定时器定期从Worker缓冲区更新UI
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_from_worker)
-        self.update_timer.start(100)  # 每100ms更新一次
+        self.update_timer.start(TimerInterval.MDI_WINDOW_UPDATE)
         
         # 记录上次显示的长度，用于增量更新
         self.last_display_lengths = [0] * MAX_TAB_SIZE
@@ -1374,7 +1373,7 @@ class DeviceMdiWindow(QWidget):
             logger.debug(f"  ✓ Channel {i} scroll listeners installed")
         
         # 设置窗口大小
-        self.resize(800, 600)
+        self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
         
         # 从配置加载筛选文本
         if parent and hasattr(parent, 'connection_dialog') and parent.connection_dialog:
@@ -1736,14 +1735,14 @@ class RTTMainWindow(QMainWindow):
         self.setWindowIcon(QIcon(":/xexunrtt.ico"))
         
         # 根据DPI调整窗口大小
-        base_width, base_height = 1200, 800
+        base_width, base_height = WindowSize.MAIN_WINDOW_BASE_WIDTH, WindowSize.MAIN_WINDOW_BASE_HEIGHT
         adaptive_width, adaptive_height = get_adaptive_window_size(base_width, base_height, self.dpi_scale)
         self.resize(adaptive_width, adaptive_height)
         logger.info(f"Window size adjusted to: {adaptive_width}x{adaptive_height}")
         
         # 设置最小窗口尺寸 - 允许极小窗口以便多设备同时使用
-        min_width = 200  # 极小宽度，只显示核心信息
-        min_height = 150  # 极小高度
+        min_width = WindowSize.MAIN_WINDOW_MIN_WIDTH
+        min_height = WindowSize.MAIN_WINDOW_MIN_HEIGHT
         self.setMinimumSize(min_width, min_height)
         logger.info(f"Minimum window size set to: {min_width}x{min_height}")
         
@@ -1754,34 +1753,25 @@ class RTTMainWindow(QMainWindow):
         #self.setContextMenuPolicy(Qt.CustomContextMenu)
         #self.customContextMenuRequested.connect(self._show_context_menu)
         
-        # 创建中心部件
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
+        # 设置 UI（xexunrtt.ui 现在是 QMainWindow 类型）
+        self.ui = Ui_RTTMainWindow()
+        self.ui.setupUi(self)
         
-        # 设置原有的UI（用于按钮区、命令输入区等公用部分）
-        self.ui = Ui_xexun_rtt()
-        self.ui.setupUi(self.central_widget)
+        # 从 UI 文件获取已创建的部件
+        # UI 文件中已经包含了 mdi_area, main_splitter, button_command_area, jlink_log_area 等
+        # 我们需要获取这些引用并进行额外配置
         
-        # 保存原有的layoutWidget并重新设置其父级
-        original_layout_widget = self.ui.layoutWidget
-        original_layout_widget.setParent(None)  # 从原有父级移除
+        # 从 UI 文件获取已创建的部件引用
+        self.main_splitter = self.ui.main_splitter
+        self.mdi_area = self.ui.mdi_area
         
-        # 隐藏原有的32个TAB（因为现在每个设备有自己的MDI子窗口）
-        self.ui.tem_switch.setVisible(False)
+        # 配置 MDI 区域
+        from PySide6.QtGui import QBrush, QColor
+        self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
+        self.mdi_area.setActivationOrder(QMdiArea.WindowOrder.ActivationHistoryOrder)
+        self.mdi_area.setBackground(QBrush(QColor(53, 53, 53)))
         
-        # 创建新的主布局
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        # 创建垂直分割器（MDI区域 + 按钮区/命令区 + JLink日志区）
-        self.main_splitter = QSplitter(Qt.Vertical)
-        self.main_splitter.setChildrenCollapsible(True)  # 允许子部件折叠
-        
-        # 设置分割条宽度为2px（更窄，减少空间占用）
-        self.main_splitter.setHandleWidth(2)
-        
-        # 设置分割条样式（可选：添加颜色以便识别）
+        # 配置分割器样式
         self.main_splitter.setStyleSheet("""
             QSplitter::handle {
                 background-color: #555555;
@@ -1791,60 +1781,38 @@ class RTTMainWindow(QMainWindow):
             }
         """)
         
-        # 创建MDI区域（用于显示多个设备窗口）
-        from PySide6.QtWidgets import QMdiArea, QSizePolicy
-        from PySide6.QtGui import QBrush, QColor
-        self.mdi_area = QMdiArea()
-        self.mdi_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.mdi_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.mdi_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # 设置视图模式为子窗口模式，允许自由调整大小
-        self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
-        # 设置激活顺序
-        self.mdi_area.setActivationOrder(QMdiArea.WindowOrder.ActivationHistoryOrder)
-        # 设置背景
-        self.mdi_area.setBackground(QBrush(QColor(53, 53, 53)))
-        self.main_splitter.addWidget(self.mdi_area)
-        
-        # 创建底部容器（按钮区 + JLink日志区）
-        bottom_container = QWidget()
-        bottom_layout = QVBoxLayout(bottom_container)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(0)
-        
-        # 将原有的layoutWidget（按钮区+命令输入区）添加到底部容器
-        original_layout_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        original_layout_widget.setFixedHeight(70)  # 设置按钮区固定高度
-        bottom_layout.addWidget(original_layout_widget)
-        
-        # 创建JLink日志区域并添加到底部容器
-        self._create_jlink_log_area()
-        bottom_layout.addWidget(self.jlink_log_widget)
-        
-        # 将底部容器添加到主分割器
-        self.main_splitter.addWidget(bottom_container)
-        
-        # 设置分割比例 (MDI区域占据剩余空间，底部容器可变)
-        self.main_splitter.setStretchFactor(0, 1)  # MDI区域可拉伸
-        self.main_splitter.setStretchFactor(1, 0)  # 底部容器可变大小
-        
-        # 设置可折叠性：MDI不可折叠，底部容器不可折叠（内部JLink区可隐藏）
+        # 设置可折叠性
         self.main_splitter.setCollapsible(0, False)  # MDI区域不可折叠
         self.main_splitter.setCollapsible(1, False)  # 底部容器不可折叠
         
         # 监听分割器大小变化，自动隐藏/显示JLink日志区
         self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
         
-        # 设置中心部件的布局
-        main_layout.addWidget(self.main_splitter)
-        self.central_widget.setLayout(main_layout)
+        # 设置按钮区固定高度
+        if hasattr(self.ui, 'layoutWidget'):
+            self.ui.layoutWidget.setFixedHeight(LayoutSize.BUTTON_AREA_HEIGHT)
+        
+        # 创建JLink日志区域（需要手动创建并添加到bottom_container）
+        self._create_jlink_log_area()
+        if hasattr(self.ui, 'bottom_container'):
+            # 获取bottom_container的布局，添加JLink日志区
+            bottom_layout = self.ui.bottom_container.layout()
+            if bottom_layout is None:
+                bottom_layout = QVBoxLayout(self.ui.bottom_container)
+                bottom_layout.setContentsMargins(0, 0, 0, 0)
+                bottom_layout.setSpacing(0)
+            bottom_layout.addWidget(self.jlink_log_widget)
         
         # 初始化JLink日志区的初始大小（延迟设置，等待窗口显示后）
-        QTimer.singleShot(100, self._init_splitter_sizes)
+        QTimer.singleShot(TimerInterval.DELAYED_INIT, self._init_splitter_sizes)
         
-        # 创建菜单栏和状态栏
+        # 创建菜单栏（UI文件已创建menubar和statusbar，只需配置内容）
         self._create_menu_bar()
-        self._create_status_bar()
+        
+        # 隐藏并从布局中移除 tem_switch（MDI 架构中不再使用）
+        if hasattr(self.ui, 'tem_switch'):
+            self.ui.tem_switch.setVisible(False)
+            self.ui.tem_switch.setParent(None)
         
         # 初始化时禁用RTT相关功能，直到连接成功
         self._set_rtt_controls_enabled(False)
@@ -1966,112 +1934,10 @@ class RTTMainWindow(QMainWindow):
         self.action9.triggered.connect(self.restart_app_execute)
         #self.actionenter.triggered.connect(self.on_pushButton_clicked)
 
-        # 初始化主窗口的UI组件
-        self.ui.tem_switch.clear()
-        editable_tab_bar = EditableTabBar()
-        editable_tab_bar.main_window = self  # 设置主窗口引用
-        self.ui.tem_switch.setTabBar(editable_tab_bar)  # 使用自定义的可编辑标签栏
-        
-        # 清除整个TabWidget的工具提示
-        self.ui.tem_switch.setToolTip("")
-        
-        self.tabText = [None] * MAX_TAB_SIZE
-        self.highlighter = [PythonHighlighter] * MAX_TAB_SIZE
-        for i in range(MAX_TAB_SIZE):
-            page = QWidget()
-            page.setToolTip("")  # 清除页面的工具提示
-            
-            # 🎨 全部TAB支持ANSI彩色显示：统一使用支持纵向选择的ColumnSelectTextEdit
-            from PySide6.QtWidgets import QPlainTextEdit, QTextEdit
-            
-            text_edit = ColumnSelectTextEdit(page)
-            text_edit.setAcceptRichText(True)
-            text_edit.setReadOnly(True)
-            text_edit.setWordWrapMode(QTextOption.NoWrap)  # 禁用换行，提升性能
-            text_edit.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示垂直滚动条
-            text_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)  # 始终显示水平滚动条
-            text_edit.setToolTip("")  # 清除文本编辑器的工具提示
-            
-            # 🚀 QTextEdit性能优化设置
-            text_edit.setUndoRedoEnabled(False)  # 禁用撤销重做，节省内存
-            text_edit.document().setUndoRedoEnabled(False)
-            text_edit.setLineWrapMode(QTextEdit.NoWrap)  # 确保不换行
-            
-            # 🎯 行数限制仅适用于 QPlainTextEdit（当前默认均为 QTextEdit，保留兼容）
-            if isinstance(text_edit, QPlainTextEdit):
-                try:
-                    line_limit = 10000
-                    if self.connection_dialog and hasattr(self.connection_dialog, 'config'):
-                        line_limit = int(self.connection_dialog.config.get_max_log_size())
-                    if line_limit <= 0:
-                        line_limit = 10000
-                except Exception:
-                    line_limit = 10000
-                text_edit.document().setMaximumBlockCount(line_limit)
-            
-            # 🎨 设置等宽字体，提升渲染性能
-            base_font_size = 10
-            adaptive_font_size = get_adaptive_font_size(base_font_size, self.dpi_scale)
-            
-            if sys.platform == "darwin":  # macOS
-                # macOS优先使用SF Mono，然后是Menlo，最后是Monaco
-                font = QFont("SF Mono", adaptive_font_size)
-                if not font.exactMatch():
-                    font = QFont("Menlo", adaptive_font_size)
-                if not font.exactMatch():
-                    font = QFont("Monaco", adaptive_font_size)
-            else:
-                # Windows/Linux使用Consolas或Courier New
-                font = QFont("Consolas", adaptive_font_size)
-                if not font.exactMatch():
-                    font = QFont("Courier New", adaptive_font_size)
-            font.setFixedPitch(True)  # 等宽字体
-            text_edit.setFont(font)
-            
-            layout = QVBoxLayout(page)  # 创建布局管理器
-            layout.addWidget(text_edit)  # 将 QPlainTextEdit 添加到布局中
-            self.highlighter[i] = PythonHighlighter(text_edit.document())
-            self.highlighter[i].main_window = self  # 🔑 设置main_window引用，用于获取字体设置
-            
-            if i == 0:
-                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "All"))  # Add page to tabWidget
-                
-                # 🚀 关键修复：设置GridLayout的拉伸因子，让TAB控件完全填充可用空间
-                # 设置TAB控件的大小策略为完全扩展
-                self.ui.tem_switch.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-                self.ui.tem_switch.setMinimumSize(0, 0)  # 移除最小尺寸限制
-                
-                # 🎯 极小窗口优化：设置TAB控件支持极小尺寸
-                self.ui.tem_switch.setUsesScrollButtons(True)  # 当标签过多时使用滚动按钮
-                self.ui.tem_switch.setElideMode(Qt.ElideRight)  # 标签文本过长时省略显示
-                
-                # 🔧 标签宽度自适应：恢复原始自适应行为
-                tab_bar = self.ui.tem_switch.tabBar()
-                if tab_bar:
-                    # 设置标签扩展填充整个空间（自适应）
-                    tab_bar.setExpanding(True)
-                    # 设置允许滚动，让当前标签始终可见
-                    tab_bar.setUsesScrollButtons(True)
-                    # 设置自动调整当前标签到可见区域
-                    tab_bar.setAutoHide(False)
-                
-                # 设置GridLayout的行拉伸因子，让第0行（TAB控件行）占据主要垂直空间
-                grid_layout = self.ui.gridLayout
-                if grid_layout:
-                    grid_layout.setRowStretch(0, 1)  # TAB控件行，占据主要垂直空间
-                    grid_layout.setRowStretch(1, 0)  # 命令输入行，固定高度
-                    grid_layout.setRowStretch(2, 0)  # 控制按钮行，固定高度
-                    grid_layout.setRowStretch(3, 0)  # 其他行，固定高度
-            elif i < 17:
-                self.ui.tem_switch.addTab(page, '{}'.format(i - 1))  # 将页面添加到 tabWidget 中
-            else:
-                self.ui.tem_switch.addTab(page, QCoreApplication.translate("main_window", "filter"))
-                # 只为自定义filter标签页设置工具提示
-                self.ui.tem_switch.setTabToolTip(i, QCoreApplication.translate("main_window", "double click filter to write filter text"))
-            
-            self.tabText[i] = self.ui.tem_switch.tabText(i)
-                
-        self.ui.tem_switch.currentChanged.connect(self.switchPage)
+        # ========== 旧代码已删除：tem_switch 初始化 ==========
+        # MDI 架构中，每个设备都有自己的 DeviceMdiWindow，不再需要主窗口的 tem_switch
+        # tabText 和 highlighter 也移到了 DeviceMdiWindow 中
+        # ====================================================
         self.ui.pushButton.clicked.connect(self.on_pushButton_clicked)
         self.ui.dis_connect.clicked.connect(self.on_dis_connect_clicked)
         self.ui.re_connect.clicked.connect(self.on_re_connect_clicked)
@@ -2167,7 +2033,7 @@ class RTTMainWindow(QMainWindow):
         # 创建定时器并连接到槽函数
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_periodic_task)
-        self.timer.start(1000)  # 每1000毫秒（1秒）执行一次，进一步降低更新频率
+        self.timer.start(TimerInterval.STATUS_UPDATE)
         
         # 数据更新标志，用于智能刷新
         self.page_dirty_flags = [False] * MAX_TAB_SIZE
@@ -2667,53 +2533,19 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to switch session: {e}", exc_info=True)
     
-    def _refresh_ui_from_worker(self, worker):
-        """从Worker刷新UI显示"""
-        try:
-            if not worker:
-                return
-            
-            # 清空当前UI显示
-            for i in range(MAX_TAB_SIZE):
-                current_page_widget = self.ui.tem_switch.widget(i)
-                if isinstance(current_page_widget, QWidget):
-                    text_edit = current_page_widget.findChild(QTextEdit)
-                    if text_edit:
-                        text_edit.clear()
-            
-            # 从worker的缓冲区重新加载数据到UI
-            for i in range(MAX_TAB_SIZE):
-                if hasattr(worker, 'buffers') and i < len(worker.buffers):
-                    # 获取该通道的数据
-                    if worker.colored_buffers and i < len(worker.colored_buffers):
-                        # 使用彩色缓冲区
-                        colored_data = ''.join(worker.colored_buffers[i])
-                        if colored_data:
-                            current_page_widget = self.ui.tem_switch.widget(i)
-                            if isinstance(current_page_widget, QWidget):
-                                text_edit = current_page_widget.findChild(QTextEdit)
-                                if text_edit:
-                                    text_edit.setHtml(colored_data)
-                                    # 滚动到底部
-                                    text_edit.moveCursor(QTextCursor.End)
-            
-            logger.debug(f"UI refreshed from worker")
-            
-        except Exception as e:
-            logger.error(f"Failed to refresh UI from worker: {e}", exc_info=True)
+    # ========== 旧代码已删除：_refresh_ui_from_worker 方法 ==========
+    # MDI 架构中，每个 DeviceMdiWindow 有自己的 _update_from_worker 方法
+    # ====================================================
+    # def _refresh_ui_from_worker(self, worker):
+    #     # 此方法已废弃
+    #     pass
     
-    def _clear_all_logs(self):
-        """清空所有日志显示"""
-        try:
-            for i in range(MAX_TAB_SIZE):
-                current_page_widget = self.ui.tem_switch.widget(i)
-                if isinstance(current_page_widget, QWidget):
-                    text_edit = current_page_widget.findChild(QTextEdit)
-                    if text_edit:
-                        text_edit.clear()
-            logger.debug("All logs cleared")
-        except Exception as e:
-            logger.error(f"Failed to clear logs: {e}", exc_info=True)
+    # ========== 旧代码已删除：_clear_all_logs 方法 ==========
+    # MDI 架构中，清除日志由 on_clear_clicked 方法处理，操作当前 MDI 窗口
+    # ====================================================
+    # def _clear_all_logs(self):
+    #     # 此方法已废弃
+    #     pass
     
     def _close_device_session(self, index):
         """关闭设备会话"""
@@ -3574,7 +3406,7 @@ class RTTMainWindow(QMainWindow):
         self.manual_disconnect = False  # 清除手动断开标记
         if hasattr(self.ui, 'auto_reconnect_checkbox') and self.ui.auto_reconnect_checkbox.isChecked():
             self.last_data_time = time.time()
-            self.data_check_timer.start(5000)  # 每5秒检查一次
+            self.data_check_timer.start(TimerInterval.DATA_CHECK)
             logger.info("Auto reconnect monitoring started")
         
         # 创建设备会话并添加TAB
@@ -3725,12 +3557,12 @@ class RTTMainWindow(QMainWindow):
             
             # 计算各部分的初始高度
             # MDI区域：占据大部分空间
-            # 底部容器：按钮区70px + JLink日志区150px = 220px
-            button_height = 70
-            jlink_log_height = 150
-            bottom_height = button_height + jlink_log_height  # 220px
-            # 减去菜单栏、状态栏、分割条等额外空间（约100px）
-            mdi_height = total_height - bottom_height - 100
+            # 底部容器：按钮区 + JLink日志区
+            button_height = LayoutSize.BUTTON_AREA_HEIGHT
+            jlink_log_height = LayoutSize.JLINK_LOG_DEFAULT_HEIGHT
+            bottom_height = LayoutSize.BOTTOM_CONTAINER_HEIGHT
+            # 减去菜单栏、状态栏、分割条等额外空间
+            mdi_height = total_height - bottom_height - LayoutSize.MENUBAR_STATUSBAR_HEIGHT
             
             # 设置分割器大小（只有2个部件：MDI区域和底部容器）
             self.main_splitter.setSizes([mdi_height, bottom_height])
@@ -3745,13 +3577,13 @@ class RTTMainWindow(QMainWindow):
             # 获取底部容器的当前高度
             sizes = self.main_splitter.sizes()
             if len(sizes) >= 2:
-                bottom_height = sizes[1]  # 底部容器高度（按钮区70px + JLink日志区）
+                bottom_height = sizes[1]  # 底部容器高度（按钮区 + JLink日志区）
                 
                 # 计算JLink日志区的实际高度（底部容器高度 - 按钮区高度）
-                button_height = 70
+                button_height = LayoutSize.BUTTON_AREA_HEIGHT
                 jlink_height = bottom_height - button_height
                 
-                # 如果JLink区域小于最小高度（80px），自动隐藏
+                # 如果JLink区域小于最小高度，自动隐藏
                 if jlink_height < self.jlink_log_min_height:
                     if self.jlink_log_widget.isVisible():
                         self.jlink_log_widget.setVisible(False)
@@ -3770,9 +3602,9 @@ class RTTMainWindow(QMainWindow):
         self.jlink_log_widget = QWidget()
         self.jlink_log_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
-        # 设置高度限制：最小4行数据（约80px），最大400px
-        self.jlink_log_min_height = 80   # 最小高度80px（约4行数据），低于此值自动隐藏
-        self.jlink_log_max_height = 400  # 最大高度400px
+        # 设置高度限制：最小4行数据，最大高度
+        self.jlink_log_min_height = LayoutSize.JLINK_LOG_MIN_HEIGHT
+        self.jlink_log_max_height = LayoutSize.JLINK_LOG_MAX_HEIGHT
         self.jlink_log_widget.setMinimumHeight(self.jlink_log_min_height)  # 设置最小高度
         self.jlink_log_widget.setMaximumHeight(self.jlink_log_max_height)
         
@@ -4165,7 +3997,7 @@ class RTTMainWindow(QMainWindow):
             if self.jlink_log_tail_timer is None:
                 self.jlink_log_tail_timer = QTimer(self)
                 self.jlink_log_tail_timer.timeout.connect(self._poll_jlink_log_tail)
-            self.jlink_log_tail_timer.start(500)  # 每500ms拉一次
+            self.jlink_log_tail_timer.start(TimerInterval.JLINK_LOG_TAIL)
         except Exception as e:
             self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to start log tailer: %s") % str(e))
 
@@ -4488,7 +4320,7 @@ class RTTMainWindow(QMainWindow):
                 app.quit()
                 
                 # 如果quit()不起作用，延迟强制退出
-                QTimer.singleShot(2000, lambda: os._exit(0))
+                QTimer.singleShot(TimerInterval.FORCE_QUIT, lambda: os._exit(0))
             else:
                 # 没有应用实例，直接退出
                 os._exit(0)
@@ -4501,28 +4333,14 @@ class RTTMainWindow(QMainWindow):
             except:
                 sys.exit(0)
 
-    @Slot(int)
-    def switchPage(self, index):
-        self.connection_dialog.switchPage(index)
-        
-        # 更新当前标签页索引（用于串口转发）
-        if self.connection_dialog and self.connection_dialog.rtt2uart:
-            self.connection_dialog.rtt2uart.set_current_tab_index(index)
-        
-        # 🔧 刷新标签布局，让当前标签优先显示完整
-        if hasattr(self.ui, 'tem_switch'):
-            tab_bar = self.ui.tem_switch.tabBar()
-            if tab_bar:
-                # 强制重新计算所有标签的大小
-                tab_bar.update()
-                # 确保当前标签在可见区域（使用Qt内置方法）
-                self.ui.tem_switch.setCurrentIndex(index)
-        
-        # 每次切换页面时都确保工具提示设置正确
-        self._ensure_correct_tooltips()
-        
-        # 更新窗口标题（显示新的当前标签名称）
-        self.update_window_title()
+    # ========== 旧代码已删除：switchPage 方法 ==========
+    # MDI 架构中，每个 DeviceMdiWindow 有自己的标签页切换逻辑
+    # 不再需要主窗口的 switchPage 方法
+    # ====================================================
+    # @Slot(int)
+    # def switchPage(self, index):
+    #     # 此方法已废弃，MDI 架构中由 DeviceMdiWindow 处理标签页切换
+    #     pass
 
 
     @Slot()
@@ -4764,7 +4582,7 @@ class RTTMainWindow(QMainWindow):
         # 如果启用且已连接，启动监控定时器
         if enabled and self.connection_dialog and self.connection_dialog.start_state:
             self.last_data_time = time.time()
-            self.data_check_timer.start(5000)  # 每5秒检查一次
+            self.data_check_timer.start(TimerInterval.DATA_CHECK)
             logger.info("Auto reconnect on no data enabled")
         else:
             self.data_check_timer.stop()
@@ -4839,7 +4657,7 @@ class RTTMainWindow(QMainWindow):
             rtt_obj.stop(keep_folder=True)  # 保留日志文件夹
             
             # 等待停止完成后重新启动
-            QTimer.singleShot(1000, self._auto_reconnect_start)
+            QTimer.singleShot(TimerInterval.AUTO_RECONNECT, self._auto_reconnect_start)
             
         except Exception as e:
             logger.error(f"Auto reconnect failed: {e}")
@@ -5249,7 +5067,7 @@ class RTTMainWindow(QMainWindow):
                 self.connection_dialog.config.add_command_to_history(command)
             
             # 限制ComboBox项目数量，避免过多
-            max_items = 100
+            max_items = CleanupConfig.MAX_ITEMS
             while self.ui.cmd_buffer.count() > max_items:
                 self.ui.cmd_buffer.removeItem(self.ui.cmd_buffer.count() - 1)
             
@@ -5538,7 +5356,7 @@ class RTTMainWindow(QMainWindow):
             
             # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
             # 同时遍历所有TAB并触发重绘
-            QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
+            QTimer.singleShot(TimerInterval.DELAYED_FONT_REFRESH, lambda: self._delayed_font_refresh_all())
             
         except Exception as e:
             logger.warning(f"Failed to update all tabs font: {e}")
@@ -5778,35 +5596,16 @@ class RTTMainWindow(QMainWindow):
         # 定时任务不应该保存配置，只更新显示信息
         # 配置保存应该在用户实际修改设置时进行
         
-        # 确保工具提示设置正确 - 只有filter标签页才有工具提示
-        self._ensure_correct_tooltips()
+        # ========== 旧代码已删除：_ensure_correct_tooltips 调用 ==========
+        # MDI 架构中不再需要
+        # ====================================================
     
-    def _ensure_correct_tooltips(self):
-        """确保工具提示设置正确 - 只有filter标签页才显示工具提示"""
-        try:
-            # 清除TabWidget本身的工具提示
-            self.ui.tem_switch.setToolTip("")
-            
-            # 清除所有页面和文本编辑器的工具提示
-            for i in range(MAX_TAB_SIZE):
-                page_widget = self.ui.tem_switch.widget(i)
-                if page_widget:
-                    page_widget.setToolTip("")
-                    # 查找页面中的文本编辑器并清除其工具提示
-                    from PySide6.QtWidgets import QPlainTextEdit
-                    text_edit = page_widget.findChild(QPlainTextEdit) or page_widget.findChild(QTextEdit)
-                    if text_edit:
-                        text_edit.setToolTip("")
-                
-                # 清除所有标签页的工具提示
-                self.ui.tem_switch.setTabToolTip(i, "")
-            
-            # 只为filter标签页（索引>=17）设置工具提示
-            for i in range(17, MAX_TAB_SIZE):
-                self.ui.tem_switch.setTabToolTip(i, QCoreApplication.translate("main_window", "double click filter to write filter text"))
-                
-        except Exception:
-            pass  # 忽略任何错误，避免影响正常功能
+    # ========== 旧代码已删除：_ensure_correct_tooltips 方法 ==========
+    # MDI 架构中，工具提示由 DeviceMdiWindow 管理
+    # ====================================================
+    # def _ensure_correct_tooltips(self):
+    #     # 此方法已废弃
+    #     pass
 
 
     def toggle_lock_h_checkbox(self):
@@ -6583,7 +6382,7 @@ class FindAllResultsWindow(QDialog):
         
         self.setWindowTitle(QCoreApplication.translate("FindAllResultsWindow", "Find All Results"))
         self.setModal(False)
-        self.resize(700, 500)
+        self.resize(WindowSize.CONNECTION_DIALOG_WIDTH, WindowSize.CONNECTION_DIALOG_HEIGHT)
         
         # Set window flags to stay on top but allow resizing and dragging
         current_flags = self.windowFlags()
@@ -7043,12 +6842,12 @@ class ConnectionDialog(QDialog):
         if not device_list:
             self.ui.comboBox_Interface.setCurrentIndex(1)  # SWD
             self.ui.comboBox_Speed.setCurrentIndex(19)     # 合适的速度
-            self.ui.comboBox_baudrate.setCurrentIndex(16)  # 115200
+            self.ui.comboBox_baudrate.setCurrentIndex(SerialConfig.DEFAULT_BAUDRATE_INDEX)
             
             # 保存默认设置
             self.config.set_interface(1)
-            self.config.set_speed(4000)
-            self.config.set_baudrate(115200)
+            self.config.set_speed(SerialConfig.DEFAULT_SPEED)
+            self.config.set_baudrate(SerialConfig.DEFAULT_BAUDRATE)
     
     def _apply_config_to_ui(self):
         """根据配置文件中的实际值设置UI控件"""
@@ -7787,7 +7586,7 @@ class ConnectionDialog(QDialog):
                 self.ui.lineEdit_RTTAddress.setText(saved_address)
             else:
                 # 如果没有保存的地址，填充示例
-                self.ui.lineEdit_RTTAddress.setText('0x20000000')
+                self.ui.lineEdit_RTTAddress.setText(RTTAddress.DEFAULT_ADDRESS_STM32)
             self.ui.lineEdit_RTTAddress.setPlaceholderText(
                 QCoreApplication.translate("main_window", "Example: 0x20000000"))
         elif self.ui.radioButton_SearchRange.isChecked():
@@ -7798,7 +7597,7 @@ class ConnectionDialog(QDialog):
                 self.ui.lineEdit_RTTAddress.setText(saved_range)
             else:
                 # 如果没有保存的范围，填充示例
-                self.ui.lineEdit_RTTAddress.setText('0x10000000 0x1000, 0x20000000 0x1000')
+                self.ui.lineEdit_RTTAddress.setText(RTTAddress.DEFAULT_ADDRESS_EXAMPLE)
             self.ui.lineEdit_RTTAddress.setPlaceholderText(
                 QCoreApplication.translate("main_window", "Syntax: <RangeStart [hex]> <RangeSize>, ..."))
         else:
@@ -7877,8 +7676,8 @@ class ConnectionDialog(QDialog):
                 from ctypes import wintypes
                 
                 # 定义Windows API常量
-                GENERIC_READ = 0x80000000
-                GENERIC_WRITE = 0x40000000
+                GENERIC_READ = RTTAddress.GENERIC_READ
+                GENERIC_WRITE = RTTAddress.GENERIC_WRITE
                 OPEN_EXISTING = 3
                 INVALID_HANDLE_VALUE = -1
                 
@@ -8312,7 +8111,7 @@ class ConnectionDialog(QDialog):
         dialog.setWindowTitle(QCoreApplication.translate("main_window", "Select J-Link Device"))
         dialog.setWindowIcon(QIcon(":/xexunrtt.ico"))
         dialog.setModal(True)
-        dialog.resize(500, 350)
+        dialog.resize(WindowSize.FIND_DIALOG_WIDTH, WindowSize.FIND_DIALOG_HEIGHT)
         
         # 设置窗口标志以避免在任务栏Aero Peek中显示
         current_flags = dialog.windowFlags()
@@ -8611,7 +8410,7 @@ class ConnectionDialog(QDialog):
                 document = text_edit.document()
                 current_blocks = document.blockCount()
                 
-                if current_blocks > 1000:  # 只在行数较多时才清理
+                if current_blocks > BufferConfig.MAX_BLOCKS:  # 只在行数较多时才清理
                     # 🚀 使用可配置的清理比例
                     clean_ratio_denominator = 10  # 默认值（1/10）
                     try:
@@ -9153,8 +8952,8 @@ class Worker(QObject):
         # 🎯 成倍扩容配置 (100K->200K->400K->800K->1.6M->3.2M->6.4M)
         self.buffer_capacities = [0] * MAX_TAB_SIZE  # 当前容量
         self.colored_buffer_capacities = [0] * MAX_TAB_SIZE  # 彩色缓冲区容量
-        self.initial_capacity = 100 * 1024  # 初始容量 100KB
-        self.max_capacity = 6400 * 1024     # 最大容量 6.4MB
+        self.initial_capacity = BufferConfig.INITIAL_CAPACITY
+        self.max_capacity = BufferConfig.MAX_CAPACITY
         self.growth_factor = 2               # 扩容系数
         
         # 初始化容量记录
@@ -9211,10 +9010,10 @@ class Worker(QObject):
             self.buffer_flush_timer = QTimer()
             self.buffer_flush_timer.timeout.connect(self.flush_log_buffers)
             # 🚀 更频繁的刷新，确保TAB日志实时输出
-            self.buffer_flush_timer.start(200)  # 每200ms刷新一次缓冲，提高实时性
+            self.buffer_flush_timer.start(TimerInterval.BUFFER_FLUSH)
             
         # 🔧 立即执行一次刷新，确保启动时的数据能及时写入
-        QTimer.singleShot(100, self.flush_log_buffers)
+        QTimer.singleShot(TimerInterval.DELAYED_INIT, self.flush_log_buffers)
 
     def flush_log_buffers(self):
         """定期刷新日志缓冲到文件（增强版本）"""
@@ -9320,7 +9119,7 @@ class Worker(QObject):
                     logger.error(f"Immediate flush failed for {filepath}: {e}")
             
             # 🔧 检查总缓冲区数量，避免文件过多
-            if len(self.log_buffers) > 100:  # 限制同时缓冲的文件数量
+            if len(self.log_buffers) > BufferConfig.MAX_LOG_BUFFERS:  # 限制同时缓冲的文件数量
                 self._emergency_flush_oldest_buffers()
                 
         except Exception as e:
@@ -10226,10 +10025,11 @@ if __name__ == "__main__":
     if config_language == 'zh_CN':
         # 简体中文
         qm_paths = [
-            get_resource_path("xexunrtt_zh_CN.qm"),  # PyInstaller或当前目录
+            get_resource_path(os.path.join("lang", "xexunrtt_zh_CN.qm")),  # PyInstaller或当前目录
+            os.path.join("lang", "xexunrtt_zh_CN.qm"),  # lang目录
             "xexunrtt_zh_CN.qm",  # 当前目录（备用）
-            "../Resources/xexunrtt_zh_CN.qm",  # Resources目录（macOS）
-            ":/xexunrtt_zh_CN.qm"  # Qt资源（备用）
+            "../Resources/lang/xexunrtt_zh_CN.qm",  # Resources目录（macOS）
+            ":/lang/xexunrtt_zh_CN.qm"  # Qt资源（备用）
         ]
         
         for qm_path in qm_paths:
@@ -10248,10 +10048,11 @@ if __name__ == "__main__":
     elif config_language == 'zh_TW':
         # 繁体中文
         qm_paths = [
-            get_resource_path("xexunrtt_zh_TW.qm"),  # PyInstaller或当前目录
+            get_resource_path(os.path.join("lang", "xexunrtt_zh_TW.qm")),  # PyInstaller或当前目录
+            os.path.join("lang", "xexunrtt_zh_TW.qm"),  # lang目录
             "xexunrtt_zh_TW.qm",  # 当前目录（备用）
-            "../Resources/xexunrtt_zh_TW.qm",  # Resources目录（macOS）
-            ":/xexunrtt_zh_TW.qm"  # Qt资源（备用）
+            "../Resources/lang/xexunrtt_zh_TW.qm",  # Resources目录（macOS）
+            ":/lang/xexunrtt_zh_TW.qm"  # Qt资源（备用）
         ]
         
         for qm_path in qm_paths:

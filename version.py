@@ -12,7 +12,7 @@ VERSION = "2.4.2"
 VERSION_NAME = "XexunRTT"
 
 # 编译时期（由 build.py 自动更新，无需手动修改）
-BUILD_TIME = "2025-10-23 11:07:00"
+BUILD_TIME = "2025-10-24 18:30:32"
 
 # 版本描述
 VERSION_DESC = f"{VERSION_NAME} v{VERSION}"

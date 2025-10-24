@@ -55,9 +55,11 @@ a = Analysis(
     pathex=[str(Path.cwd())],
     binaries=pywin32_binaries,
     datas=[
-        ('xexunrtt_complete.qm', '.'),
+        ('lang/xexunrtt_zh_CN.qm', 'lang'),
+        ('lang/xexunrtt_zh_TW.qm', 'lang'),
         ('qt_zh_CN.qm', '.'),
         ('JLinkDevicesBuildIn.xml', '.'),
+        ('ui/*.ui', 'ui'),
     ],
     hiddenimports=[
         # 核心模块
@@ -144,7 +146,11 @@ a = Analysis(
         'rtt2uart',
         'ansi_terminal_widget',
         'performance_monitor',
-        'ui_xexunrtt',
+        'ui',
+        'ui.ui_xexunrtt',
+        'ui.ui_rtt2uart_updated',
+        'ui.ui_sel_device',
+        'ui_constants',
         'resources_rc',
         'auto_updater',
         'update_dialog',

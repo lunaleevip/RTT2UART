@@ -122,7 +122,7 @@ def get_spec_file():
         return 'XexunRTT_cross_macOS.spec'
     else:
         # Windows和Linux使用同一个spec文件
-        return 'XexunRTT_onefile_v2_2.spec'
+        return 'XexunRTT_onefile_win.spec'
 
 def get_output_extension():
     """根据平台获取输出文件扩展名"""
