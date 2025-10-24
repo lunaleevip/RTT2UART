@@ -1498,8 +1498,8 @@ class DeviceMdiWindow(QWidget):
                 text_edit._v_scroll_locked = new_lock_state
                 
                 # 只在状态真正改变时记录日志
-                if old_state != new_lock_state:
-                    logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
+                # if old_state != new_lock_state:
+                #     logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
             
         except Exception as e:
             logger.error(f"Error in scroll changed handler: {e}", exc_info=True)
@@ -2890,7 +2890,9 @@ class RTTMainWindow(QMainWindow):
                 
                 # 添加窗口列表
                 for i, sub_window in enumerate(sub_windows):
-                    if isinstance(sub_window, DeviceMdiWindow):
+                    # sub_window是QMdiSubWindow，需要获取其内部的DeviceMdiWindow
+                    mdi_content = sub_window.widget()
+                    if isinstance(mdi_content, DeviceMdiWindow):
                         # 创建窗口切换动作
                         window_title = sub_window.windowTitle()
                         action = QAction(f"{i+1}. {window_title}", self)
@@ -2900,13 +2902,13 @@ class RTTMainWindow(QMainWindow):
                         if sub_window == self.mdi_area.activeSubWindow():
                             action.setChecked(True)
                         
-                        # 保存窗口引用到action的data中
+                        # 保存窗口引用到action的data中（保存QMdiSubWindow）
                         action.setData(sub_window)
                         
                         # 添加到ActionGroup实现单选
                         self.window_action_group.addAction(action)
                         
-                        # 连接切换信号
+                        # 连接切换信号（传递QMdiSubWindow）
                         action.triggered.connect(lambda checked, w=sub_window: self._activate_mdi_window(w))
                         
                         # 添加到菜单
@@ -2919,19 +2921,21 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to update window menu: {e}", exc_info=True)
     
-    def _activate_mdi_window(self, mdi_window):
+    def _activate_mdi_window(self, mdi_sub_window):
         """激活指定的MDI窗口"""
         try:
-            if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
-                self.mdi_area.setActiveSubWindow(mdi_window)
-                mdi_window.raise_()
-                mdi_window.activateWindow()
+            if mdi_sub_window:
+                # mdi_sub_window是QMdiSubWindow包装器
+                self.mdi_area.setActiveSubWindow(mdi_sub_window)
+                mdi_sub_window.raise_()
+                mdi_sub_window.activateWindow()
                 
-                # 更新当前会话
-                self.current_session = mdi_window.device_session
-                session_manager.set_active_session(mdi_window.device_session)
-                
-                logger.info(f"Activated MDI window for session: {mdi_window.device_session.session_id}")
+                # 获取内部的DeviceMdiWindow来更新会话
+                mdi_content = mdi_sub_window.widget()
+                if isinstance(mdi_content, DeviceMdiWindow):
+                    self.current_session = mdi_content.device_session
+                    session_manager.set_active_session(mdi_content.device_session)
+                    logger.info(f"Activated MDI window for session: {mdi_content.device_session.session_id}")
         except Exception as e:
             logger.error(f"Failed to activate MDI window: {e}", exc_info=True)
     
