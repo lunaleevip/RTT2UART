@@ -1533,8 +1533,8 @@ class DeviceMdiWindow(QWidget):
                     has_new_data = True
                     break
             
-            if has_new_data:
-                logger.info(f"[UPDATE] Found new data for session {self.device_session.session_id}")
+            # if has_new_data:
+            #     logger.info(f"[UPDATE] Found new data for session {self.device_session.session_id}")
             
             # 遍历所有通道，检查是否有新数据
             for channel in range(MAX_TAB_SIZE):
@@ -1634,7 +1634,7 @@ class DeviceMdiWindow(QWidget):
                 # 判断是否有内容（不是"+"且不为空）
                 has_content = tab_text and tab_text != "+"
                 
-                logger.info(f"  TAB[{i}]: text='{tab_text}', visible={is_visible}, has_content={has_content}")
+                # logger.info(f"  TAB[{i}]: text='{tab_text}', visible={is_visible}, has_content={has_content}")
                 
                 if has_content:
                     tabs_with_content.append(i)
@@ -1663,11 +1663,11 @@ class DeviceMdiWindow(QWidget):
                     self.tab_widget.setTabText(i, "+")
                     self.tab_widget.setTabVisible(i, True)
                     shown_empty_count += 1
-                    logger.info(f"  ✓ 设置TAB[{i}]可见（空'+'）")
+                    # logger.info(f"  ✓ 设置TAB[{i}]可见（空'+'）")
                 else:
                     # 隐藏这个空TAB
                     self.tab_widget.setTabVisible(i, False)
-                    logger.info(f"  ✗ 隐藏TAB[{i}]")
+                    # logger.info(f"  ✗ 隐藏TAB[{i}]")
             
             logger.info(f"✅ 筛选TAB更新完成: {len(tabs_with_content)}个有内容, {shown_empty_count}个空'+'可见")
             logger.info("=" * 60)
@@ -6042,20 +6042,28 @@ class RTTMainWindow(QMainWindow):
     def show_find_dialog(self):
         """Show find dialog"""
         try:
-            # Get current active TAB
-            current_index = self.ui.tem_switch.currentIndex()
-            current_page_widget = self.ui.tem_switch.widget(current_index)
-            
-            if not current_page_widget:
+            # Get current active MDI window
+            active_mdi_sub = self.mdi_area.activeSubWindow()
+            if not active_mdi_sub:
+                logger.warning("No active MDI window for find dialog")
                 return
-                
-            # Find text editor
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = current_page_widget.findChild(QPlainTextEdit)
-            if not text_edit:
-                text_edit = current_page_widget.findChild(QTextEdit)
             
+            # Get DeviceMdiWindow content
+            mdi_window = active_mdi_sub.widget()
+            if not mdi_window or not isinstance(mdi_window, DeviceMdiWindow):
+                logger.warning("Active MDI window is not a DeviceMdiWindow")
+                return
+            
+            # Get current active TAB in the MDI window
+            current_index = mdi_window.tab_widget.currentIndex()
+            if current_index < 0 or current_index >= len(mdi_window.text_edits):
+                logger.warning(f"Invalid tab index: {current_index}")
+                return
+            
+            # Get the text editor for current tab
+            text_edit = mdi_window.text_edits[current_index]
             if not text_edit:
+                logger.warning(f"No text editor found for tab {current_index}")
                 return
                 
             # Get selected text (if single line)
@@ -6068,6 +6076,8 @@ class RTTMainWindow(QMainWindow):
                 # QTextCursor uses U+2029 (paragraph separator) for line breaks
                 if '\u2029' not in selected_text:
                     initial_text = selected_text.strip()
+            
+            # logger.info(f"Opening find dialog for tab {current_index}, initial_text: '{initial_text}'")
                 
             # Create and show find dialog
             if not hasattr(self, 'find_dialog') or not self.find_dialog:
@@ -6084,7 +6094,7 @@ class RTTMainWindow(QMainWindow):
             self.find_dialog.activateWindow()
             
         except Exception as e:
-            logger.error(f"Failed to show find dialog: {e}")
+            logger.error(f"Failed to show find dialog: {e}", exc_info=True)
 
 
                                     
@@ -6246,9 +6256,11 @@ class FindDialog(QDialog):
     def find_text(self, forward=True):
         """Find text with optional regex support"""
         if not self.text_edit or not self.search_input.currentText():
+            # logger.debug("find_text: No text_edit or search text")
             return False
             
         search_text = self.search_input.currentText()
+        # logger.info(f"find_text: Searching for '{search_text}', forward={forward}")
         
         # Get search options
         from PySide6.QtGui import QTextDocument
@@ -6264,6 +6276,7 @@ class FindDialog(QDialog):
             
         # Get current cursor position
         cursor = self.text_edit.textCursor()
+        # logger.debug(f"find_text: Current cursor position: {cursor.position()}")
         
         # If new search text, start from beginning/end
         if search_text != self.last_search_text:
@@ -6272,6 +6285,7 @@ class FindDialog(QDialog):
             else:
                 cursor.movePosition(cursor.MoveOperation.End)
             self.last_search_text = search_text
+            # logger.debug(f"find_text: New search, cursor moved to: {cursor.position()}")
             
         # Execute search (regex or plain text)
         if self.regex_mode.isChecked():
@@ -6285,13 +6299,17 @@ class FindDialog(QDialog):
             # Plain text search
             found_cursor = self.text_edit.document().find(search_text, cursor, flags)
         
+        # logger.debug(f"find_text: First search result: isNull={found_cursor.isNull()}")
+        
         if not found_cursor.isNull():
             # Found, select and scroll to position
+            # logger.info(f"find_text: Found at position {found_cursor.position()}")
             self.text_edit.setTextCursor(found_cursor)
             self.text_edit.ensureCursorVisible()
             return True
         else:
             # Not found, search from the other end
+            # logger.debug("find_text: Not found, wrapping search")
             if forward:
                 cursor.movePosition(cursor.MoveOperation.Start)
             else:
@@ -6306,11 +6324,15 @@ class FindDialog(QDialog):
             else:
                 found_cursor = self.text_edit.document().find(search_text, cursor, flags)
             
+            # logger.debug(f"find_text: Wrapped search result: isNull={found_cursor.isNull()}")
+            
             if not found_cursor.isNull():
+                # logger.info(f"find_text: Found (wrapped) at position {found_cursor.position()}")
                 self.text_edit.setTextCursor(found_cursor)
                 self.text_edit.ensureCursorVisible()
                 return True
-                
+        
+        # logger.warning(f"find_text: '{search_text}' not found")
         return False
         
     def find_all(self):
@@ -6384,9 +6406,11 @@ class FindDialog(QDialog):
     def highlight_all(self):
         """Highlight all matching text"""
         if not self.text_edit or not self.search_input.currentText():
+            # logger.debug("highlight_all: No text_edit or search text")
             return
             
         search_text = self.search_input.currentText()
+        # logger.info(f"highlight_all: Highlighting '{search_text}'")
         self.save_search_to_history(search_text)
         self.clear_highlights()
         
@@ -6410,6 +6434,7 @@ class FindDialog(QDialog):
         cursor.movePosition(cursor.MoveOperation.Start)
         
         extra_selections = []
+        match_count = 0
         while True:
             if self.regex_mode.isChecked():
                 # Regex search
@@ -6425,6 +6450,7 @@ class FindDialog(QDialog):
             if cursor.isNull():
                 break
                 
+            match_count += 1
             # Create selection area
             from PySide6.QtWidgets import QTextEdit
             selection = QTextEdit.ExtraSelection()
@@ -6433,11 +6459,13 @@ class FindDialog(QDialog):
             extra_selections.append(selection)
             
         # Apply highlights
+        # logger.info(f"highlight_all: Found {match_count} matches, applying highlights")
         self.text_edit.setExtraSelections(extra_selections)
         self.highlights = extra_selections
         
     def clear_highlights(self):
         """清除所有高亮"""
+        # logger.info("clear_highlights: Clearing all highlights")
         if self.text_edit:
             self.text_edit.setExtraSelections([])
         self.highlights = []
