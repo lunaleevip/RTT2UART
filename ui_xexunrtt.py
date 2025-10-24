@@ -262,13 +262,13 @@ class Ui_xexun_rtt(object):
 #endif // QT_CONFIG(tooltip)
         self.re_connect.setText(QCoreApplication.translate("xexun_rtt", u"Reconnect", None))
 #if QT_CONFIG(tooltip)
-        self.radioButton_pause_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"F5", None))
+        self.radioButton_pause_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"Pause Refresh (F5)", None))
 #endif // QT_CONFIG(tooltip)
-        self.radioButton_pause_refresh.setText(QCoreApplication.translate("xexun_rtt", u"\u6682\u505c\u5237\u65b0(F5)", None))
+        self.radioButton_pause_refresh.setText(QCoreApplication.translate("xexun_rtt", u"Pause Refresh", None))
 #if QT_CONFIG(tooltip)
-        self.radioButton_resume_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"F6", None))
+        self.radioButton_resume_refresh.setToolTip(QCoreApplication.translate("xexun_rtt", u"Resume Refresh (F6)", None))
 #endif // QT_CONFIG(tooltip)
-        self.radioButton_resume_refresh.setText(QCoreApplication.translate("xexun_rtt", u"\u6062\u590d\u5237\u65b0(F6)", None))
+        self.radioButton_resume_refresh.setText(QCoreApplication.translate("xexun_rtt", u"Resume Refresh", None))
         self.sent.setText("")
     # retranslateUi
 

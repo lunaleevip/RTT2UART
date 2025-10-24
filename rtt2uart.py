@@ -510,6 +510,24 @@ class rtt_to_serial():
             self.paused_data_buffer.clear()
             logger.info(f"✅ 暂停数据处理完成，已处理 {buffer_count} 条数据")
     
+    def clear_paused_data(self):
+        """清空暂停缓冲区（关闭时使用，不处理数据）"""
+        try:
+            # 使用超时避免死锁
+            if self.paused_buffer_lock.acquire(timeout=0.5):
+                try:
+                    buffer_count = len(self.paused_data_buffer)
+                    if buffer_count > 0:
+                        self.paused_data_buffer.clear()
+                        logger.info(f"🗑️ 已清空暂停缓冲区，丢弃 {buffer_count} 条未处理数据")
+                finally:
+                    self.paused_buffer_lock.release()
+            else:
+                logger.warning("⚠️ 清空暂停缓冲区超时，强制清空")
+                self.paused_data_buffer.clear()
+        except Exception as e:
+            logger.error(f"清空暂停缓冲区时出错: {e}")
+    
     def add_tab_data_for_forwarding(self, tab_index, data):
         """为TAB添加数据用于串口转发"""
         if self.serial_forward_tab == -1:
@@ -810,6 +828,9 @@ class rtt_to_serial():
         """
         logger.debug(QCoreApplication.translate("rtt2uart", "stop rtt2uart - Starting to stop RTT service"))
 
+        # 清空暂停缓冲区（如果有），避免关闭时卡住
+        self.clear_paused_data()
+        
         # 设置停止标志
         self.thread_switch = False
         logger.debug(QCoreApplication.translate("rtt2uart", "Thread stop flag set"))

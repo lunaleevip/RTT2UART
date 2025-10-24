@@ -1476,13 +1476,14 @@ class DeviceMdiWindow(QWidget):
                 if text_edit._wheel_delta > 0:
                     # 向上滚动：锁定
                     text_edit._v_scroll_locked = True
-                    # logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=True (向上滚动, delta={text_edit._wheel_delta})")
+                    if old_state != text_edit._v_scroll_locked:
+                        logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=True (向上滚动, delta={text_edit._wheel_delta})")
                 elif text_edit._wheel_delta < 0:
                     # 向下滚动：只有到达底部时才解锁
                     if at_bottom:
                         text_edit._v_scroll_locked = False
-                        # if old_state != text_edit._v_scroll_locked:
-                        #     logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=False (向下滚动到底部, delta={text_edit._wheel_delta}, value={value}, max={scrollbar.maximum()})")
+                        if old_state != text_edit._v_scroll_locked:
+                            logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=False (向下滚动到底部, delta={text_edit._wheel_delta}, value={value}, max={scrollbar.maximum()})")
                     # 如果没到底部，保持当前锁定状态不变
                 
                 # 重置滚轮标志
@@ -1498,8 +1499,8 @@ class DeviceMdiWindow(QWidget):
                 text_edit._v_scroll_locked = new_lock_state
                 
                 # 只在状态真正改变时记录日志
-                # if old_state != new_lock_state:
-                #     logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
+                if old_state != new_lock_state:
+                    logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
             
         except Exception as e:
             logger.error(f"Error in scroll changed handler: {e}", exc_info=True)
@@ -2087,7 +2088,6 @@ class RTTMainWindow(QMainWindow):
         self.jlink_log_tail_timer = None
         self.jlink_log_tail_offset = 0
         self.ui.openfolder.clicked.connect(self.on_openfolder_clicked)
-        self.ui.LockH_checkBox.setChecked(True)
         
         # 初始化编码下拉框（ui_xexunrtt.py中已有 encoder 组合框）
         if hasattr(self.ui, 'encoder'):
@@ -2113,9 +2113,6 @@ class RTTMainWindow(QMainWindow):
         
         self.ui.fontsize_box.valueChanged.connect(self.on_fontsize_changed)
         
-        # 连接滚动条锁定复选框的信号
-        self.ui.LockH_checkBox.stateChanged.connect(self.on_lock_h_changed)
-        self.ui.LockV_checkBox.stateChanged.connect(self.on_lock_v_changed)
         
         # 连接自动重连控件的信号
         if hasattr(self.ui, 'auto_reconnect_checkbox'):
@@ -3637,9 +3634,7 @@ class RTTMainWindow(QMainWindow):
             
         try:
             settings = self.connection_dialog.settings
-            logger.debug(f"[RESTORE] Scrollbar lock settings: H={settings['lock_h']}, V={settings['lock_v']}")
-            self.ui.LockH_checkBox.setChecked(settings['lock_h'])
-            self.ui.LockV_checkBox.setChecked(settings['lock_v'])
+            # 注意：滚动条锁定功能已移至DeviceMdiWindow，不再使用LockH/LockV复选框
             self.ui.light_checkbox.setChecked(settings['light_mode'])
             self.ui.fontsize_box.setValue(settings['fontsize'])
             
@@ -4272,17 +4267,19 @@ class RTTMainWindow(QMainWindow):
             # 获取所有MDI子窗口
             sub_windows = self.mdi_area.subWindowList()
             for sub_window in sub_windows:
-                if isinstance(sub_window, DeviceMdiWindow):
-                    try:
+                try:
+                    # sub_window是QMdiSubWindow，需要获取其内部的DeviceMdiWindow
+                    mdi_content = sub_window.widget()
+                    if isinstance(mdi_content, DeviceMdiWindow):
                         # 断开设备连接
-                        if sub_window.device_session.is_connected:
-                            logger.info(f"Disconnecting device: {sub_window.device_session.device_serial}")
-                            sub_window.device_session.disconnect()
-                        
-                        # 关闭MDI窗口
-                        sub_window.close()
-                    except Exception as mdi_e:
-                        logger.error(f"Failed to close MDI window: {mdi_e}", exc_info=True)
+                        if mdi_content.device_session.is_connected:
+                            logger.info(f"Disconnecting device: {mdi_content.device_session.device_serial}")
+                            mdi_content.device_session.disconnect()
+                    
+                    # 关闭MDI窗口
+                    sub_window.close()
+                except Exception as mdi_e:
+                    logger.error(f"Failed to close MDI window: {mdi_e}", exc_info=True)
             
             logger.info(f"Closed {len(sub_windows)} MDI window(s)")
         except Exception as ex:
@@ -4308,63 +4305,22 @@ class RTTMainWindow(QMainWindow):
                 logger.warning(f"Error clearing window flags: {ex}")
         
         try:
-            # 1. 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
-            if self.connection_dialog and hasattr(self.connection_dialog, 'worker'):
-                worker = self.connection_dialog.worker
-                if hasattr(worker, 'force_flush_all_buffers'):
-                    try:
-                        logger.info("Force refreshing all TAB buffers...")
-                        worker.force_flush_all_buffers()
-                    except Exception as ex:
-                        logger.error(f"Error force refreshing buffers: {ex}")
+            # 注意：在MDI架构中，所有设备的RTT连接已在上面的循环中断开
+            # 不再需要单独处理 self.connection_dialog.rtt2uart
             
-            # 2. 停止所有RTT连接并强制关闭JLink
-            if self.connection_dialog:
-                # 2.1 停止RTT连接
-                if self.connection_dialog.rtt2uart is not None:
-                    if self.connection_dialog.start_state == True:
-                        logger.info("Stopping RTT connection...")
-                        try:
-                            # 正确调用stop方法而不是start方法
-                            self.connection_dialog.rtt2uart.stop()
-                            self.connection_dialog.start_state = False
-                            
-                            # 🔄 更新状态栏显示
-                            self.update_status_bar()
-                            
-                            logger.info("RTT connection stopped")
-                        except Exception as ex:
-                            logger.error(f"Error stopping RTT connection: {ex}")
-                
-                # 2.2 🔑 强制关闭JLink连接（防止遗留进程）
-                if hasattr(self.connection_dialog, 'jlink') and self.connection_dialog.jlink:
-                    try:
-                        logger.info("Force closing JLink connection...")
-                        # 尝试关闭JLink
-                        if self.connection_dialog.jlink.connected():
-                            self.connection_dialog.jlink.close()
-                            logger.info("JLink connection force closed")
-                    except Exception as ex:
-                        logger.warning(f"Error force closing JLink (may already closed): {ex}")
-                        # 即使失败也尝试再次关闭
-                        try:
-                            self.connection_dialog.jlink.close()
-                        except:
-                            pass
-            
-            # 3. 停止所有定时器
+            # 1. 停止所有定时器
             self._stop_all_timers()
             
-            # 3. 强制终止所有工作线程
+            # 2. 强制终止所有工作线程
             self._force_terminate_threads()
             
-            # 4. 清理UI资源
+            # 3. 清理UI资源
             self._cleanup_ui_resources()
             
-            # 5. 清理日志目录
+            # 4. 清理日志目录
             self._cleanup_log_directories()
             
-            # 6. 关闭连接对话框
+            # 5. 关闭连接对话框
             if self.connection_dialog:
                 self.connection_dialog.hide()
                 self.connection_dialog.close()
@@ -4405,8 +4361,8 @@ class RTTMainWindow(QMainWindow):
         try:
             import time
             
-            # 给线程一些时间自然结束
-            time.sleep(0.5)
+            # 给线程一些时间自然结束（缩短等待时间）
+            time.sleep(0.1)
             
             # 检查并强制终止仍在运行的线程
             active_threads = []
@@ -4424,8 +4380,8 @@ class RTTMainWindow(QMainWindow):
                         # 先标记为daemon，确保主线程退出时不会阻塞
                         thread.daemon = True
                         
-                        # 尝试优雅地停止线程
-                        thread.join(timeout=2.0)
+                        # 尝试优雅地停止线程（缩短超时时间）
+                        thread.join(timeout=0.5)
                         
                         if thread.is_alive():
                             logger.warning(f"Thread {thread.name} failed to stop gracefully (marked as daemon)")
@@ -4959,8 +4915,12 @@ class RTTMainWindow(QMainWindow):
                 # 先清除暂停标志，这样flush_paused_data处理的数据会正常发送
                 session.rtt2uart.ui_refresh_paused = False
                 
-                # 一次性处理暂停期间积累的所有数据
-                session.rtt2uart.flush_paused_data()
+                # 一次性处理暂停期间积累的所有数据（仅在非关闭状态下）
+                if not self._is_closing:
+                    session.rtt2uart.flush_paused_data()
+                else:
+                    # 关闭时直接清空，不处理
+                    session.rtt2uart.clear_paused_data()
                 
                 logger.info(f"▶️ 设备 {session.get_display_name()} UI刷新已恢复")
                 self.statusBar().showMessage(f"▶️ UI刷新已恢复 - 设备 {session.get_display_name()}", 3000)
@@ -5671,16 +5631,9 @@ class RTTMainWindow(QMainWindow):
                 self.connection_dialog.config.save_config()
                 logger.debug(f"[SAVE] Horizontal scrollbar lock state saved: {self.ui.LockH_checkBox.isChecked()}")
     
+    # 注意：垂直滚动条锁定功能已移至DeviceMdiWindow，此方法已废弃
     def on_lock_v_changed(self):
-        """垂直滚动条锁定状态改变时保存配置"""
-        if self.connection_dialog:
-            # 🔧 BUG修复：同时更新settings字典和配置文件
-            self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
-            # 只在UI初始化完成后保存
-            if self._ui_initialization_complete:
-                self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
-                self.connection_dialog.config.save_config()
-                logger.debug(f"[SAVE] Vertical scrollbar lock state saved: {self.ui.LockV_checkBox.isChecked()}")
+        pass
     
     
     def _update_jlink_log_style(self):
@@ -5855,14 +5808,9 @@ class RTTMainWindow(QMainWindow):
                 self.connection_dialog.config.set_lock_horizontal(self.ui.LockH_checkBox.isChecked())
                 self.connection_dialog.config.save_config()
     
+    # 注意：垂直滚动条锁定功能已移至DeviceMdiWindow，此方法已废弃
     def toggle_lock_v_checkbox(self):
-        self.ui.LockV_checkBox.setChecked(not self.ui.LockV_checkBox.isChecked())
-        if self.connection_dialog:
-            self.connection_dialog.settings['lock_v'] = self.ui.LockV_checkBox.isChecked()
-            # 同步保存到INI配置（只在UI初始化完成后保存）
-            if self._ui_initialization_complete:
-                self.connection_dialog.config.set_lock_vertical(self.ui.LockV_checkBox.isChecked())
-                self.connection_dialog.config.save_config()
+        pass
     def toggle_style_checkbox(self):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
@@ -7187,11 +7135,7 @@ class ConnectionDialog(QDialog):
             if hasattr(self.main_window.ui, 'fontsize_box'):
                 self.config.set_fontsize(self.main_window.ui.fontsize_box.value())
             
-            if hasattr(self.main_window.ui, 'LockH_checkBox'):
-                self.config.set_lock_horizontal(self.main_window.ui.LockH_checkBox.isChecked())
-            
-            if hasattr(self.main_window.ui, 'LockV_checkBox'):
-                self.config.set_lock_vertical(self.main_window.ui.LockV_checkBox.isChecked())
+            # 注意：滚动条锁定功能已移至DeviceMdiWindow，不再保存LockH/LockV状态
             
             # 保存过滤器设置
             # 🔑 修复：必须保存所有filter的状态，包括空值和默认"filter"文本
@@ -9001,13 +8945,7 @@ class ConnectionDialog(QDialog):
                     self.main_window.page_dirty_flags[index] = False
 
                 # 使用滑动文本块机制，不需要手动清理UI文本
-
-                # 恢复滚动条的值
-                if self.main_window.ui.LockV_checkBox.isChecked():
-                    text_edit.verticalScrollBar().setValue(vscroll)
-
-                if self.main_window.ui.LockH_checkBox.isChecked():
-                    text_edit.horizontalScrollBar().setValue(hscroll)
+                # 注意：滚动条锁定逻辑已移至DeviceMdiWindow中处理
             else:
                 logger.debug("No QTextEdit found on page:", index)
         else:
