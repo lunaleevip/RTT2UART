@@ -1274,46 +1274,166 @@ class DeviceMdiWindow(QMdiSubWindow):
         # 记录上次显示的长度，用于增量更新
         self.last_display_lengths = [0] * MAX_TAB_SIZE
         
-        # 智能滚动条锁定状态
-        # 水平滚动条：始终锁定位置
-        # 垂直滚动条：自动检测，在底部时自动滚动，不在底部时锁定位置
-        self.vertical_scroll_locked = [False] * MAX_TAB_SIZE  # 每个TAB独立的垂直锁定状态
-        
-        # 为每个text_edit的垂直滚动条安装事件监听
+        # 为每个text_edit添加滚动条锁定属性和位置保存
         logger.info(f"🎯 Installing scroll listeners for {MAX_TAB_SIZE} channels...")
         for i, text_edit in enumerate(self.text_edits):
-            scrollbar = text_edit.verticalScrollBar()
-            # 使用lambda捕获当前索引
-            scrollbar.valueChanged.connect(lambda value, idx=i: self._on_vertical_scroll_changed(idx, value))
-            logger.debug(f"  ✓ Channel {i} scroll listener installed")
+            # 在text_edit对象上添加自定义属性
+            text_edit._channel_idx = i  # 通道索引
+            text_edit._v_scroll_locked = False  # 垂直滚动条锁定状态
+            text_edit._saved_h_pos = 0  # 保存的水平滚动条位置
+            text_edit._saved_v_pos = 0  # 保存的垂直滚动条位置
+            text_edit._user_scrolling = False  # 标记用户是否正在拖动滑块
+            text_edit._wheel_scrolling = False  # 标记用户是否正在使用滚轮
+            text_edit._wheel_delta = 0  # 记录滚轮滚动方向（正数=向下，负数=向上）
+            
+            v_scrollbar = text_edit.verticalScrollBar()
+            h_scrollbar = text_edit.horizontalScrollBar()
+            
+            # 监听用户手动操作滚动条（按下和释放滑块、滑块移动）
+            v_scrollbar.sliderPressed.connect(lambda te=text_edit: self._on_slider_pressed(te))
+            v_scrollbar.sliderReleased.connect(lambda te=text_edit: self._on_slider_released(te))
+            v_scrollbar.sliderMoved.connect(lambda value, te=text_edit: self._on_slider_moved(te, value))
+            
+            # 安装事件过滤器来检测鼠标滚轮事件
+            # 需要同时在text_edit和其viewport上安装，因为滚轮事件可能发生在viewport上
+            text_edit.installEventFilter(self)
+            text_edit.viewport().installEventFilter(self)
+            
+            # 垂直滚动条监听：检测用户操作并更新锁定状态
+            v_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_vertical_scroll_changed(te, value))
+            
+            # 水平滚动条监听：保存用户设置的位置
+            h_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_horizontal_scroll_changed(te, value))
+            
+            logger.debug(f"  ✓ Channel {i} scroll listeners installed")
         
         # 设置窗口大小
         self.resize(800, 600)
         
         logger.info(f"✅ DeviceMdiWindow created for session: {device_session.session_id} with smart scroll lock")
     
-    def _on_vertical_scroll_changed(self, channel_idx, value):
-        """垂直滚动条位置变化时的处理 - 智能锁定"""
+    def eventFilter(self, obj, event):
+        """事件过滤器：检测鼠标滚轮事件并记录滚动方向"""
         try:
-            if channel_idx >= len(self.text_edits):
+            from PySide6.QtCore import QEvent
+            # 检测鼠标滚轮事件
+            if event.type() == QEvent.Type.Wheel:
+                # 找到对应的text_edit对象
+                text_edit = None
+                if hasattr(obj, '_wheel_scrolling'):
+                    # obj本身就是text_edit
+                    text_edit = obj
+                else:
+                    # obj可能是viewport，需要找到父text_edit
+                    parent = obj.parent()
+                    if parent and hasattr(parent, '_wheel_scrolling'):
+                        text_edit = parent
+                
+                if text_edit:
+                    text_edit._wheel_scrolling = True
+                    # angleDelta().y() < 0 表示向上滚（内容向下移动，远离底部）
+                    # angleDelta().y() > 0 表示向下滚（内容向上移动，接近底部）
+                    text_edit._wheel_delta = event.angleDelta().y()
+                    # logger.info(f"🖱️ Mouse wheel event on channel {text_edit._channel_idx}, delta={text_edit._wheel_delta}")
+        except Exception as e:
+            logger.error(f"Error in event filter: {e}", exc_info=True)
+        
+        # 继续传递事件
+        return super().eventFilter(obj, event)
+    
+    def _on_slider_pressed(self, text_edit):
+        """用户按下滚动条滑块时的处理"""
+        text_edit._user_scrolling = True
+        logger.debug(f"🖱️ User pressed slider on channel {text_edit._channel_idx}")
+    
+    def _on_slider_released(self, text_edit):
+        """用户释放滚动条滑块时的处理"""
+        text_edit._user_scrolling = False
+        logger.debug(f"🖱️ User released slider on channel {text_edit._channel_idx}")
+    
+    def _on_slider_moved(self, text_edit, value):
+        """用户拖动滚动条滑块时的处理（包括鼠标滚轮）"""
+        # 标记用户正在操作，并立即更新锁定状态
+        text_edit._user_scrolling = True
+        logger.debug(f"🖱️ User moved slider on channel {text_edit._channel_idx} to {value}")
+    
+    def _on_vertical_scroll_changed(self, text_edit, value):
+        """垂直滚动条位置变化时的处理 - 智能锁定
+        拖动滑块或使用滚轮时都会更新锁定状态
+        """
+        try:
+            channel_idx = text_edit._channel_idx
+            
+            # 只处理当前激活的TAB
+            current_tab = self.tab_widget.currentIndex()
+            if channel_idx != current_tab:
                 return
             
-            text_edit = self.text_edits[channel_idx]
+            # 始终保存当前位置
+            text_edit._saved_v_pos = value
+            
             scrollbar = text_edit.verticalScrollBar()
             
-            # 检查是否在底部（允许2像素的误差，因为滚动可能不精确）
-            at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
+            # 判断是否是用户操作：
+            # 1. 拖动滑块：_user_scrolling=True AND isSliderDown()=True
+            # 2. 使用滚轮：_wheel_scrolling=True
+            is_dragging = text_edit._user_scrolling and scrollbar.isSliderDown()
+            is_wheeling = text_edit._wheel_scrolling
+            is_user_action = is_dragging or is_wheeling
             
-            # 更新锁定状态：在底部时解锁（自动滚动），不在底部时锁定
-            old_state = self.vertical_scroll_locked[channel_idx]
-            self.vertical_scroll_locked[channel_idx] = not at_bottom
+            # 只有用户操作时才更新锁定状态
+            if not is_user_action:
+                return
             
-            # 记录状态变化（使用info级别以便更容易看到）
-            if old_state != self.vertical_scroll_locked[channel_idx]:
-                logger.info(f"🔒 Channel {channel_idx} scroll lock changed: LOCKED={self.vertical_scroll_locked[channel_idx]} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
+            # 更新锁定状态的逻辑：
+            old_state = text_edit._v_scroll_locked
+            
+            if is_wheeling:
+                # 滚轮操作：根据滚动方向判断
+                # wheel_delta > 0: 向上滚（内容向下移动，远离底部）→ 锁定
+                # wheel_delta < 0: 向下滚（内容向上移动，接近底部）→ 检查是否到底部
+                
+                # 检查是否在底部
+                at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
+                
+                if text_edit._wheel_delta > 0:
+                    # 向上滚动：锁定
+                    text_edit._v_scroll_locked = True
+                    # logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=True (向上滚动, delta={text_edit._wheel_delta})")
+                elif text_edit._wheel_delta < 0:
+                    # 向下滚动：只有到达底部时才解锁
+                    if at_bottom:
+                        text_edit._v_scroll_locked = False
+                        # if old_state != text_edit._v_scroll_locked:
+                        #     logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=False (向下滚动到底部, delta={text_edit._wheel_delta}, value={value}, max={scrollbar.maximum()})")
+                    # 如果没到底部，保持当前锁定状态不变
+                
+                # 重置滚轮标志
+                text_edit._wheel_scrolling = False
+                text_edit._wheel_delta = 0
+            elif is_dragging:
+                # 拖动滑块：实时更新锁定状态
+                # 检查是否在底部
+                at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
+                new_lock_state = not at_bottom
+                
+                # 只在状态真正改变时更新和记录日志
+                if old_state != new_lock_state:
+                    text_edit._v_scroll_locked = new_lock_state
+                    # logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
             
         except Exception as e:
             logger.error(f"Error in scroll changed handler: {e}", exc_info=True)
+    
+    def _on_horizontal_scroll_changed(self, text_edit, value):
+        """水平滚动条位置变化时的处理 - 保存用户设置的位置"""
+        try:
+            # 保存当前位置到text_edit对象（所有TAB都保存，不只是当前激活的）
+            text_edit._saved_h_pos = value
+            # logger.debug(f"↔️ Channel {text_edit._channel_idx} H-scroll position saved: {value}")
+            
+        except Exception as e:
+            logger.error(f"Error in horizontal scroll handler: {e}", exc_info=True)
     
     def _update_from_worker(self):
         """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
@@ -1339,61 +1459,62 @@ class DeviceMdiWindow(QMdiSubWindow):
                     if new_data and channel < len(self.text_edits):
                         text_edit = self.text_edits[channel]
                         
-                        # 在添加数据前，先检查并更新滚动条状态
+                        # 获取滚动条
                         v_scrollbar = text_edit.verticalScrollBar()
                         h_scrollbar = text_edit.horizontalScrollBar()
                         
-                        # 检查垂直滚动条是否在底部（添加数据前检查）
-                        v_at_bottom = (v_scrollbar.value() >= v_scrollbar.maximum() - 2)
+                        # 完全按照旧代码switchPage的方式（8284-8285行）：
+                        # 在添加数据前保存当前滚动条位置
+                        vscroll = v_scrollbar.value()
+                        hscroll = h_scrollbar.value()
                         
-                        # 保存当前滚动条位置
-                        old_v_value = v_scrollbar.value()
-                        old_h_value = h_scrollbar.value()
+                        # 使用同步方式插入ANSI文本（参考旧代码的_insert_ansi_text_fast方法）
+                        # 不使用FastAnsiTextEdit的批处理机制，确保滚动条恢复时机正确
+                        if hasattr(text_edit, '_parse_ansi_fast'):
+                            # 使用FastAnsiTextEdit的解析方法，但同步插入
+                            segments = text_edit._parse_ansi_fast(new_data)
+                            cursor = text_edit.textCursor()
+                            cursor.movePosition(QTextCursor.End)
+                            for segment in segments:
+                                if segment['text']:
+                                    cursor.insertText(segment['text'], segment['format'])
+                            text_edit.setTextCursor(cursor)
+                        else:
+                            # 降级处理：使用普通追加
+                            cursor = text_edit.textCursor()
+                            cursor.movePosition(QTextCursor.End)
+                            text_edit.setTextCursor(cursor)
+                            text_edit.insertPlainText(new_data)
                         
-                        # 根据当前位置更新锁定状态
-                        # 如果不在底部，立即锁定；如果在底部，保持解锁状态
-                        should_lock = not v_at_bottom
-                        if self.vertical_scroll_locked[channel] != should_lock:
-                            self.vertical_scroll_locked[channel] = should_lock
-                            logger.info(f"📍 Channel {channel} lock updated BEFORE append: LOCKED={should_lock} (v_value={old_v_value}, v_max={v_scrollbar.maximum()}, at_bottom={v_at_bottom})")
-                        
-                        # 临时阻塞滚动条信号，避免在添加文本时触发valueChanged
+                        # 完全按照旧代码switchPage方法的逻辑（8507-8511行）：
+                        # 关键：阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
+                        # 只有用户手动拖动滚动条时才应该改变锁定状态
                         v_scrollbar.blockSignals(True)
                         h_scrollbar.blockSignals(True)
                         
-                        # 保存文本编辑器的自动滚动状态并禁用
-                        # 这样append操作不会自动滚动
-                        old_cursor = text_edit.textCursor()
-                        
-                        # 使用FastAnsiTextEdit的append_ansi_text方法追加ANSI文本
-                        if hasattr(text_edit, 'append_ansi_text'):
-                            text_edit.append_ansi_text(new_data)
-                        else:
-                            # 降级处理：使用普通追加
-                            text_edit.moveCursor(QTextCursor.End)
-                            text_edit.insertPlainText(new_data)
-                        
-                        # 立即强制设置滚动条位置，不等待Qt事件循环
-                        # 水平滚动条：始终锁定，保持原位置
-                        h_scrollbar.setValue(old_h_value)
-                        
-                        # 垂直滚动条：根据锁定状态决定
-                        if self.vertical_scroll_locked[channel]:
-                            # 锁定状态：保持原位置（用户正在查看历史）
-                            v_scrollbar.setValue(old_v_value)
-                            logger.info(f"🔒 Channel {channel} V-scroll LOCKED: set {old_v_value}, actual={v_scrollbar.value()}, max={v_scrollbar.maximum()}")
-                        else:
-                            # 未锁定状态：滚动到底部（用户在查看最新数据）
-                            v_scrollbar.setValue(v_scrollbar.maximum())
-                            logger.info(f"🔓 Channel {channel} V-scroll UNLOCKED: set {v_scrollbar.maximum()}, actual={v_scrollbar.value()}")
-                        
-                        # 恢复滚动条信号
-                        v_scrollbar.blockSignals(False)
-                        h_scrollbar.blockSignals(False)
-                        
-                        # 强制处理待处理的事件，确保滚动条位置生效
-                        from PySide6.QtCore import QCoreApplication
-                        QCoreApplication.processEvents()
+                        try:
+                            # 垂直滚动条：根据锁定状态决定是否恢复位置
+                            if text_edit._v_scroll_locked:
+                                # 锁定状态：恢复到保存的位置
+                                v_scrollbar.setValue(vscroll)
+                                # logger.info(f"🔒 Channel {channel} V-scroll LOCKED: set {vscroll}, actual={v_scrollbar.value()}, max={v_scrollbar.maximum()}")
+                            else:
+                                # 未锁定状态：滚动到底部
+                                v_scrollbar.setValue(v_scrollbar.maximum())
+                                # logger.info(f"🔓 Channel {channel} V-scroll UNLOCKED: set {v_scrollbar.maximum()}, actual={v_scrollbar.value()}")
+                                
+                                # 关键：确保解锁状态不被意外改变
+                                # 因为设置完后可能还有新数据到来，导致maximum变化
+                                # 所以需要确保_v_scroll_locked保持为False
+                                text_edit._v_scroll_locked = False
+                            
+                            # 水平滚动条：永远锁定，使用保存的位置
+                            h_scrollbar.setValue(hscroll)
+                            # logger.debug(f"↔️ Channel {channel} H-scroll: set {hscroll}, actual={h_scrollbar.value()}, max={h_scrollbar.maximum()}")
+                        finally:
+                            # 恢复信号
+                            v_scrollbar.blockSignals(False)
+                            h_scrollbar.blockSignals(False)
                         
                         # 更新已显示长度
                         self.last_display_lengths[channel] = current_length
