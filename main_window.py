@@ -1257,33 +1257,17 @@ class EditableTabBar(QTabBar):
                     
                     logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
 
-class DeviceMdiWindow(QMdiSubWindow):
-    """设备MDI子窗口 - 每个设备有自己的32个日志TAB"""
+class DeviceMdiWindow(QWidget):
+    """设备MDI子窗口内容 - 每个设备有自己的32个日志TAB"""
     def __init__(self, device_session, parent=None):
         super(DeviceMdiWindow, self).__init__(parent)
         
         self.device_session = device_session
         self.main_window = parent  # 保存主窗口引用以访问配置
-        
-        # 设置窗口标题和图标
-        self.setWindowTitle(f"{device_session.get_display_name()}")
-        self.setWindowIcon(QIcon(":/xexunrtt.ico"))
-        
-        # 创建中心部件
-        self.central_widget = QWidget()
-        self.setWidget(self.central_widget)
-        
-        # 设置合理的初始大小
-        self.resize(800, 600)  # 初始大小
-        
-        # 显式启用所有窗口控制选项
-        from PySide6.QtCore import Qt
-        # 不设置窗口标志，让QMdiSubWindow使用默认标志
-        # 但确保窗口是正常状态（非最大化）
-        self.setWindowState(Qt.WindowState.WindowNoState)
+        self.mdi_sub_window = None  # 将在添加到MDI区域时设置
         
         # 创建布局
-        layout = QVBoxLayout(self.central_widget)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
@@ -2531,15 +2515,54 @@ class RTTMainWindow(QMainWindow):
                     session.connection_dialog = temp_dialog
                     session.is_connected = True
                     
-                    # 创建MDI子窗口
-                    mdi_window = DeviceMdiWindow(session, self)
-                    session.mdi_window = mdi_window
+                    # 创建MDI子窗口内容
+                    mdi_content = DeviceMdiWindow(session, self)
                     
-                    # 将MDI窗口添加到MDI区域（不使用addSubWindow，直接设置parent）
-                    # 这样可以确保窗口有正确的调整大小行为
-                    mdi_window.setParent(self.mdi_area)
-                    self.mdi_area.addSubWindow(mdi_window)
-                    mdi_window.showNormal()  # 使用showNormal而不是show
+                    # 创建MDI子窗口并添加内容
+                    from PySide6.QtCore import Qt
+                    mdi_sub_window = self.mdi_area.addSubWindow(mdi_content)
+                    mdi_sub_window.setWindowTitle(f"{session.get_display_name()}")
+                    mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+                    
+                    # 显式设置窗口标志以确保可以调整大小
+                    flags = mdi_sub_window.windowFlags()
+                    logger.info(f"[MDI] Original window flags: {flags}")
+                    # 确保没有设置固定大小相关的标志
+                    mdi_sub_window.setWindowFlags(
+                        Qt.WindowType.SubWindow |
+                        Qt.WindowType.WindowTitleHint |
+                        Qt.WindowType.WindowSystemMenuHint |
+                        Qt.WindowType.WindowMinMaxButtonsHint
+                    )
+                    logger.info(f"[MDI] New window flags: {mdi_sub_window.windowFlags()}")
+                    
+                    # 设置大小
+                    mdi_sub_window.resize(800, 600)
+                    logger.info(f"[MDI] Window size: {mdi_sub_window.size()}")
+                    
+                    # 确保窗口状态是正常的（非最大化）
+                    mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
+                    logger.info(f"[MDI] Window state: {mdi_sub_window.windowState()}")
+                    
+                    # 保存引用
+                    session.mdi_window = mdi_content
+                    mdi_content.mdi_sub_window = mdi_sub_window
+                    
+                    # 连接关闭信号
+                    mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(session))
+                    
+                    # 显示窗口（使用showNormal确保正常状态）
+                    mdi_sub_window.showNormal()
+                    logger.info(f"[MDI] Window shown, isVisible: {mdi_sub_window.isVisible()}, state: {mdi_sub_window.windowState()}")
+                    
+                    # 延迟设置窗口状态，确保窗口框架已经完全初始化
+                    from PySide6.QtCore import QTimer
+                    def ensure_normal_state():
+                        if mdi_sub_window.windowState() != Qt.WindowState.WindowNoState:
+                            logger.info(f"[MDI] Forcing window to normal state, current: {mdi_sub_window.windowState()}")
+                            mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
+                            mdi_sub_window.resize(800, 600)
+                    QTimer.singleShot(100, ensure_normal_state)
                     
                     # 添加到会话列表
                     self.device_sessions.append(session)
@@ -2571,9 +2594,14 @@ class RTTMainWindow(QMainWindow):
     def _get_active_device_session(self):
         """获取当前激活的设备会话（基于激活的MDI窗口）"""
         try:
-            active_mdi = self.mdi_area.activeSubWindow()
-            if active_mdi and isinstance(active_mdi, DeviceMdiWindow):
-                return active_mdi.device_session
+            active_mdi_sub = self.mdi_area.activeSubWindow()
+            if active_mdi_sub:
+                # 获取MDI子窗口的内容widget（DeviceMdiWindow）
+                content_widget = active_mdi_sub.widget()
+                if content_widget and isinstance(content_widget, DeviceMdiWindow):
+                    logger.debug(f"[GET_ACTIVE] Found active session: {content_widget.device_session.session_id}")
+                    return content_widget.device_session
+            logger.debug("[GET_ACTIVE] No active MDI window found")
             return None
         except Exception as e:
             logger.error(f"Failed to get active device session: {e}")
@@ -2735,15 +2763,52 @@ class RTTMainWindow(QMainWindow):
             session.connection_dialog = self.connection_dialog
             session.is_connected = True
             
-            # 创建MDI子窗口
-            mdi_window = DeviceMdiWindow(session, self)
-            session.mdi_window = mdi_window
+            # 创建MDI子窗口内容
+            mdi_content = DeviceMdiWindow(session, self)
             
-            # 将MDI窗口添加到MDI区域（不使用addSubWindow，直接设置parent）
-            # 这样可以确保窗口有正确的调整大小行为
-            mdi_window.setParent(self.mdi_area)
-            self.mdi_area.addSubWindow(mdi_window)
-            mdi_window.showNormal()  # 使用showNormal而不是show
+            # 创建MDI子窗口并添加内容
+            from PySide6.QtCore import Qt, QTimer
+            mdi_sub_window = self.mdi_area.addSubWindow(mdi_content)
+            mdi_sub_window.setWindowTitle(f"{session.get_display_name()}")
+            mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+            
+            # 显式设置窗口标志以确保可以调整大小
+            flags = mdi_sub_window.windowFlags()
+            logger.info(f"[MDI-2] Original window flags: {flags}")
+            mdi_sub_window.setWindowFlags(
+                Qt.WindowType.SubWindow |
+                Qt.WindowType.WindowTitleHint |
+                Qt.WindowType.WindowSystemMenuHint |
+                Qt.WindowType.WindowMinMaxButtonsHint
+            )
+            logger.info(f"[MDI-2] New window flags: {mdi_sub_window.windowFlags()}")
+            
+            # 设置大小
+            mdi_sub_window.resize(800, 600)
+            logger.info(f"[MDI-2] Window size: {mdi_sub_window.size()}")
+            
+            # 确保窗口状态是正常的（非最大化）
+            mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
+            logger.info(f"[MDI-2] Window state: {mdi_sub_window.windowState()}")
+            
+            # 保存引用
+            session.mdi_window = mdi_content
+            mdi_content.mdi_sub_window = mdi_sub_window
+            
+            # 连接关闭信号
+            mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(session))
+            
+            # 显示窗口（使用showNormal确保正常状态）
+            mdi_sub_window.showNormal()
+            logger.info(f"[MDI-2] Window shown, isVisible: {mdi_sub_window.isVisible()}, state: {mdi_sub_window.windowState()}")
+            
+            # 延迟设置窗口状态，确保窗口框架已经完全初始化
+            def ensure_normal_state():
+                if mdi_sub_window.windowState() != Qt.WindowState.WindowNoState:
+                    logger.info(f"[MDI-2] Forcing window to normal state, current: {mdi_sub_window.windowState()}")
+                    mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
+                    mdi_sub_window.resize(800, 600)
+            QTimer.singleShot(100, ensure_normal_state)
             
             # 添加到会话列表
             self.device_sessions.append(session)
@@ -4558,15 +4623,16 @@ class RTTMainWindow(QMainWindow):
             
             logger.info(f"Disconnecting device: {session.get_display_name()}")
             
-            # 标记为手动断开，禁用自动重连
-            self.manual_disconnect = True
-            self.data_check_timer.stop()
-            
             # 断开该设备的连接
-            if session.connection_dialog and session.connection_dialog.rtt2uart is not None and session.connection_dialog.start_state == True:
-                session.connection_dialog.start()  # 这会切换到断开状态
-                session.is_connected = False
-                logger.info(f"Device disconnected: {session.get_display_name()}")
+            if session.rtt2uart:
+                try:
+                    session.rtt2uart.stop()
+                    logger.info(f"RTT stopped for device: {session.get_display_name()}")
+                except Exception as e:
+                    logger.error(f"Failed to stop RTT: {e}")
+            
+            session.is_connected = False
+            logger.info(f"Device disconnected: {session.get_display_name()}")
             
         except Exception as e:
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
@@ -4647,15 +4713,35 @@ class RTTMainWindow(QMainWindow):
                         session.connection_dialog = temp_dialog
                         session.is_connected = True
                         
-                        # 创建MDI子窗口
-                        mdi_window = DeviceMdiWindow(session, self)
-                        session.mdi_window = mdi_window
+                        # 创建MDI子窗口内容
+                        mdi_content = DeviceMdiWindow(session, self)
                         
-                        # 将MDI窗口添加到MDI区域（不使用addSubWindow，直接设置parent）
-                        # 这样可以确保窗口有正确的调整大小行为
-                        mdi_window.setParent(self.mdi_area)
-                        self.mdi_area.addSubWindow(mdi_window)
-                        mdi_window.showNormal()  # 使用showNormal而不是show
+                        # 创建MDI子窗口并添加内容
+                        from PySide6.QtCore import Qt
+                        mdi_sub_window = self.mdi_area.addSubWindow(mdi_content)
+                        mdi_sub_window.setWindowTitle(f"{session.get_display_name()}")
+                        mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+                        
+                        # 显式设置窗口标志以确保可以调整大小
+                        mdi_sub_window.setWindowFlags(
+                            Qt.WindowType.SubWindow |
+                            Qt.WindowType.WindowTitleHint |
+                            Qt.WindowType.WindowSystemMenuHint |
+                            Qt.WindowType.WindowMinMaxButtonsHint
+                        )
+                        
+                        # 设置大小
+                        mdi_sub_window.resize(800, 600)
+                        
+                        # 保存引用
+                        session.mdi_window = mdi_content
+                        mdi_content.mdi_sub_window = mdi_sub_window
+                        
+                        # 连接关闭信号
+                        mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(session))
+                        
+                        # 显示窗口
+                        mdi_sub_window.show()
                         
                         # 添加到会话列表
                         self.device_sessions.append(session)
