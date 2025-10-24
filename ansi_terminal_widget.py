@@ -177,9 +177,21 @@ class FastAnsiTextEdit(QTextEdit):
                         
         return segments
         
-    def append_ansi_text(self, text, force_flush=False):
-        """添加ANSI文本 - 支持批处理"""
+    def append_ansi_text(self, text, force_flush=False, on_complete=None):
+        """添加ANSI文本 - 支持批处理
+        
+        Args:
+            text: 要添加的文本
+            force_flush: 是否立即刷新
+            on_complete: 完成后的回调函数
+        """
         self._pending_texts.append(text)
+        
+        # 保存回调函数
+        if on_complete:
+            if not hasattr(self, '_pending_callbacks'):
+                self._pending_callbacks = []
+            self._pending_callbacks.append(on_complete)
         
         if force_flush or len(self._pending_texts) > 10:
             self._flush_batch()
@@ -217,6 +229,15 @@ class FastAnsiTextEdit(QTextEdit):
         
         if elapsed > 20:  # 超过20ms记录警告
             print(f"[ANSI] 批处理耗时: {elapsed:.1f}ms, 数据量: {len(combined_text)}字节")
+        
+        # 调用所有待处理的回调函数
+        if hasattr(self, '_pending_callbacks') and self._pending_callbacks:
+            for callback in self._pending_callbacks:
+                try:
+                    callback()
+                except Exception as e:
+                    print(f"[ANSI] 回调函数执行失败: {e}")
+            self._pending_callbacks.clear()
             
     def clear_content(self):
         """清空内容 - 同时清理缓存"""

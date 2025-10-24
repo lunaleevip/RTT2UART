@@ -309,7 +309,11 @@ class rtt_to_serial():
     def _log_to_gui(self, message):
         """将消息发送到GUI日志"""
         if self.jlink_log_callback:
-            self.jlink_log_callback(message)
+            try:
+                self.jlink_log_callback(message)
+            except RuntimeError:
+                # 程序退出时GUI对象可能已被删除，忽略此错误
+                pass
     
     def _auto_reset_jlink_connection(self):
         """自动重置JLink连接"""
@@ -843,7 +847,11 @@ class rtt_to_serial():
                     logger.error(f"强制停止{thread_name}时出错: {e}")
         
         # 给线程一些时间完成清理
-        time.sleep(0.2)
+        try:
+            time.sleep(0.2)
+        except OSError:
+            # 程序退出时可能句柄已无效，忽略此错误
+            pass
 
     def _safe_close_jlink(self):
         """安全关闭 JLink 连接"""
@@ -899,7 +907,11 @@ class rtt_to_serial():
                 retry_count += 1
                 if retry_count < max_retries:
                     import time
-                    time.sleep(0.2)
+                    try:
+                        time.sleep(0.2)
+                    except OSError:
+                        # 程序退出时可能句柄已无效，忽略此错误
+                        pass
                 continue
         
         if retry_count >= max_retries:
