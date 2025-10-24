@@ -10,7 +10,7 @@ import time
 from collections import deque
 from PySide6.QtWidgets import QTextEdit, QWidget, QVBoxLayout
 from PySide6.QtCore import QTimer, Signal, QThread, QObject
-from PySide6.QtGui import QTextCursor, QTextCharFormat, QColor, QFont
+from PySide6.QtGui import QTextCursor, QTextCharFormat, QColor, QFont, QKeySequence
 
 
 class FastAnsiTextEdit(QTextEdit):
@@ -19,6 +19,7 @@ class FastAnsiTextEdit(QTextEdit):
     - 批量处理ANSI序列
     - 缓存格式化对象
     - 优化文本插入性能
+    - 支持ALT键纵向选择
     """
     
     def __init__(self, parent=None):
@@ -36,6 +37,12 @@ class FastAnsiTextEdit(QTextEdit):
             Qt.TextInteractionFlag.TextSelectableByMouse |
             Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
+        
+        # ALT纵向选择支持
+        self.column_select_mode = False
+        self.column_select_start = None
+        self.column_select_cursor_start = None
+        self.column_select_ranges = None  # 保存选择范围(起始行列，结束行列)
         
         # 🎯 最大化显示设置
         from PySide6.QtWidgets import QSizePolicy
@@ -252,6 +259,188 @@ class FastAnsiTextEdit(QTextEdit):
         # 清理部分缓存以释放内存
         if len(self._format_cache) > 100:
             self._format_cache.clear()
+    
+    # ==================== ALT纵向选择功能 ====================
+    
+    def mousePressEvent(self, event):
+        """鼠标按下事件"""
+        from PySide6.QtCore import Qt
+        # 检查是否按住ALT键
+        if event.modifiers() & Qt.AltModifier:
+            self.column_select_mode = True
+            # 记录起始位置
+            self.column_select_start = event.pos()
+            cursor = self.cursorForPosition(event.pos())
+            self.column_select_cursor_start = cursor
+            # 清除现有选择
+            cursor.clearSelection()
+            self.setTextCursor(cursor)
+            event.accept()
+        else:
+            self.column_select_mode = False
+            # 清除纵向选择的高亮
+            self._clearColumnSelection()
+            super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """鼠标移动事件"""
+        if self.column_select_mode and self.column_select_start:
+            # 执行纵向选择
+            self._updateColumnSelection(event.pos())
+            event.accept()
+        else:
+            # 普通拖动选择时清除纵向选择高亮
+            if hasattr(self, '_column_selection_data') and event.buttons():
+                self._clearColumnSelection()
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """鼠标释放事件"""
+        if self.column_select_mode:
+            self.column_select_mode = False
+            # 保存选择信息以便复制
+            self._saveColumnSelection()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+    
+    def keyPressEvent(self, event):
+        """键盘事件 - 支持Ctrl+C复制纵向选择的文本"""
+        from PySide6.QtCore import Qt
+        if event.matches(QKeySequence.Copy) and self.column_select_ranges:
+            self._copyColumnSelection()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+    
+    def _saveColumnSelection(self):
+        """保存纵向选择的文本数据"""
+        if not self.column_select_ranges:
+            return
+        
+        start_line, start_col, end_line, end_col = self.column_select_ranges
+        
+        # 提取纵向选择的文本
+        selected_text = []
+        document = self.document()
+        
+        for line_num in range(start_line, end_line + 1):
+            block = document.findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+            
+            block_text = block.text()
+            block_length = len(block_text)
+            
+            # 提取本行的选中部分
+            line_start_col = min(start_col, block_length)
+            line_end_col = min(end_col, block_length)
+            
+            if line_start_col < line_end_col:
+                selected_text.append(block_text[line_start_col:line_end_col])
+            else:
+                selected_text.append('')
+        
+        # 保存选择数据
+        self._column_selection_data = '\n'.join(selected_text)
+    
+    def _copyColumnSelection(self):
+        """复制纵向选择的文本到剪贴板"""
+        if not hasattr(self, '_column_selection_data'):
+            return
+        
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        text = self._column_selection_data
+        clipboard.setText(text)
+    
+    def _applyColumnHighlight(self):
+        """应用纵向选择的高亮"""
+        if not self.column_select_ranges:
+            return
+        
+        start_line, start_col, end_line, end_col = self.column_select_ranges
+        
+        # 创建纵向选择
+        extra_selections = []
+        document = self.document()
+        
+        for line_num in range(start_line, end_line + 1):
+            block = document.findBlockByNumber(line_num)
+            if not block.isValid():
+                continue
+            
+            block_text = block.text()
+            block_length = len(block_text)
+            
+            # 计算本行的选择范围
+            line_start_col = min(start_col, block_length)
+            line_end_col = min(end_col, block_length)
+            
+            if line_start_col < line_end_col:
+                # 创建选区
+                selection = QTextEdit.ExtraSelection()
+                cursor = QTextCursor(block)
+                cursor.setPosition(block.position() + line_start_col)
+                cursor.setPosition(block.position() + line_end_col, QTextCursor.KeepAnchor)
+                
+                # 设置选区样式
+                selection.cursor = cursor
+                selection.format.setBackground(self.palette().highlight())
+                selection.format.setForeground(self.palette().highlightedText())
+                
+                extra_selections.append(selection)
+        
+        # 应用选区
+        self.setExtraSelections(extra_selections)
+    
+    def _clearColumnSelection(self):
+        """清除纵向选择的高亮"""
+        self.column_select_ranges = None
+        if hasattr(self, '_column_selection_data'):
+            delattr(self, '_column_selection_data')
+        self.setExtraSelections([])
+    
+    def paintEvent(self, event):
+        """重写绘制事件以保持纵向选择高亮"""
+        super().paintEvent(event)
+        
+        if self.column_select_ranges:
+            self._applyColumnHighlight()
+    
+    def _updateColumnSelection(self, end_pos):
+        """更新纵向选择"""
+        if not self.column_select_cursor_start:
+            return
+        
+        # 获取起始和结束光标位置
+        start_cursor = self.column_select_cursor_start
+        end_cursor = self.cursorForPosition(end_pos)
+        
+        # 获取起始和结束的行号和列号
+        start_block = start_cursor.block()
+        end_block = end_cursor.block()
+        
+        start_line = start_block.blockNumber()
+        end_line = end_block.blockNumber()
+        
+        start_col = start_cursor.positionInBlock()
+        end_col = end_cursor.positionInBlock()
+        
+        # 确保起始行小于结束行
+        if start_line > end_line:
+            start_line, end_line = end_line, start_line
+            start_col, end_col = end_col, start_col
+        
+        # 确保起始列小于结束列
+        if start_col > end_col:
+            start_col, end_col = end_col, start_col
+        
+        # 保存选择范围用于后续重新应用
+        self.column_select_ranges = (start_line, start_col, end_line, end_col)
+        
+        # 应用高亮
+        self._applyColumnHighlight()
 
 
 class OptimizedTerminalWidget(QWidget):
