@@ -6882,35 +6882,12 @@ class ConnectionDialog(QDialog):
             # 保存过滤器设置
             # 🔑 修复：必须保存所有filter的状态，包括空值和默认"filter"文本
             # 否则配置文件中的旧filter值不会被清除
-            # 🚨 重要：只有在filter已经加载到UI后才能保存，否则会意外清空配置文件
-            if (hasattr(self.main_window, '_filters_loaded') and 
-                self.main_window._filters_loaded and 
-                hasattr(self.main_window.ui, 'tem_switch')):
-                # logger.info("=" * 80)
-                # logger.info("[FILTER SAVE] 开始保存筛选值到配置文件")
-                # logger.info(f"[FILTER SAVE] _filters_loaded = {self.main_window._filters_loaded}")
-                # logger.info(f"[FILTER SAVE] TAB总数 = {self.main_window.ui.tem_switch.count()}")
-                for i in range(17, min(33, self.main_window.ui.tem_switch.count())):
-                    tab_text = self.main_window.ui.tem_switch.tabText(i)
-                    # 如果是默认的"filter"文本，保存为空字符串
-                    if tab_text == QCoreApplication.translate("main_window", "filter"):
-                        self.config.set_filter(i, "")
-                        #logger.info(f"[FILTER SAVE] TAB[{i}] = '' (默认filter文本)")
-                    else:
-                        self.config.set_filter(i, tab_text)
-                        #logger.info(f"[FILTER SAVE] TAB[{i}] = '{tab_text}'")
-                #logger.info("[FILTER SAVE] 筛选值保存完成")
-                #logger.info("=" * 80)
-            # else:
-                # logger.warning("=" * 80)
-                # logger.warning("[FILTER SAVE] ⚠️ 跳过筛选值保存！")
-                # if not hasattr(self.main_window, '_filters_loaded'):
-                #     logger.warning("[FILTER SAVE] 原因: _filters_loaded属性不存在")
-                # elif not self.main_window._filters_loaded:
-                #     logger.warning("[FILTER SAVE] 原因: _filters_loaded = False (筛选值尚未加载到UI)")
-                # elif not hasattr(self.main_window.ui, 'tem_switch'):
-                #     logger.warning("[FILTER SAVE] 原因: tem_switch不存在")
-                # logger.warning("=" * 80)
+            # MDI 架构：筛选器保存由 DeviceMdiWindow 管理
+            # 这里只需要确保 config 对象中的筛选器数据已经同步
+            # 筛选器在 DeviceMdiWindow 中编辑时会实时更新到 config 对象
+            if hasattr(self.main_window, '_filters_loaded') and self.main_window._filters_loaded:
+                # 筛选器已经在 config 对象中，无需额外操作
+                pass
             
             # 保存命令历史
             if hasattr(self.main_window.ui, 'cmd_buffer'):
@@ -6930,14 +6907,13 @@ class ConnectionDialog(QDialog):
             return
         
         # 检查主窗口的TAB是否已经初始化完成
-        # 如果TAB还没准备好，添加一个占位项，稍后会被更新
+        # MDI 架构：检查当前活动的设备会话是否有 MDI 窗口
         tab_ready = False
-        if (self.main_window and hasattr(self.main_window, 'ui') and 
-            hasattr(self.main_window.ui, 'tem_switch')):
-            tab_count = self.main_window.ui.tem_switch.count()
-            tab_ready = (tab_count >= MAX_TAB_SIZE)
-            if not tab_ready:
-                logger.debug(f"[DEBUG] TAB not ready yet, count={tab_count}, expected={MAX_TAB_SIZE}")
+        active_session = None
+        if self.main_window:
+            active_session = self.main_window._get_active_device_session()
+            if active_session and active_session.mdi_window:
+                tab_ready = True
             
         # 临时断开信号连接，避免在更新过程中触发不必要的事件
         # 使用blockSignals更安全的方式
@@ -6954,10 +6930,11 @@ class ConnectionDialog(QDialog):
             # LOG模式：显示所有TAB页面
             self.ui.comboBox_SerialForward.addItem(QCoreApplication.translate("dialog", "Current Tab"), 'current_tab')
             
-            # 只有当TAB准备好时才添加TAB列表
-            if tab_ready and self.main_window and hasattr(self.main_window, 'ui') and hasattr(self.main_window.ui, 'tem_switch'):
+            # MDI 架构：从当前活动的设备会话获取 TAB 列表
+            if tab_ready and active_session and active_session.mdi_window:
+                mdi_window = active_session.mdi_window
                 for i in range(MAX_TAB_SIZE):
-                    tab_text = self.main_window.ui.tem_switch.tabText(i)
+                    tab_text = mdi_window.tab_widget.tabText(i)
 
                     # 根据索引构建显示文本
                     if i == 0:
@@ -6970,7 +6947,7 @@ class ConnectionDialog(QDialog):
                     else:
                         # 筛选标签页（索引17+）
                         filter_translated = QCoreApplication.translate("main_window", "filter")
-                        if tab_text == "filter" or tab_text == filter_translated:
+                        if tab_text == "filter" or tab_text == filter_translated or tab_text == "+":
                             display_text = QCoreApplication.translate('dialog', 'Filter %s: (%s)') % (i-16, QCoreApplication.translate('dialog', 'Not Set'))
                         else:
                             display_text = QCoreApplication.translate('dialog', 'Filter %s: %s') % (i-16, tab_text)
@@ -8419,323 +8396,21 @@ class ConnectionDialog(QDialog):
 
     @Slot(int)
     def switchPage(self, index):
-        # 获取当前选定的页面索引并显示相应的缓冲区数据
-        from PySide6.QtGui import QTextCursor
+        """MDI 架构：TAB 切换和刷新由 DeviceMdiWindow 处理
         
-        # 断开连接后仍可显示缓存数据，但不清空缓存
-        is_connected = hasattr(self, 'start_state') and self.start_state
-            
-        if len(self.worker.buffers[index]) <= 0:
-            return
-        
-        if not self.main_window:
-            return
-            
-        current_page_widget = self.main_window.ui.tem_switch.widget(index)
-        if isinstance(current_page_widget, QWidget):
-            # 优先使用QPlainTextEdit（高性能），回退到QTextEdit
-            from PySide6.QtWidgets import QPlainTextEdit
-            text_edit = current_page_widget.findChild(QPlainTextEdit)
-            if not text_edit:
-                text_edit = current_page_widget.findChild(QTextEdit)
-            
-            # 使用等宽字体（优先使用配置的字体）
-            font_name = None
-            if hasattr(self.main_window.ui, 'font_combo'):
-                font_name = self.main_window.ui.font_combo.currentText()
-            
-            if not font_name:
-                # 如果没有font_combo，从配置加载
-                if hasattr(self, 'config'):
-                    font_name = self.config.get_fontfamily()
-                else:
-                    # 默认字体
-                    font_name = "SF Mono" if sys.platform == "darwin" else "Consolas"
-            
-            font_size = self.main_window.ui.fontsize_box.value()
-            font = QFont(font_name, font_size)
-            font.setFixedPitch(True)
-            font.setStyleHint(QFont.Monospace)  # 🔑 关键：设置字体提示为等宽
-            font.setKerning(False)  # 🔑 关键：禁用字距调整，确保严格等宽
-            
-            if text_edit:
-                text_edit.setFont(font)
-                # 记录滚动条位置
-                vscroll = text_edit.verticalScrollBar().value()
-                hscroll = text_edit.horizontalScrollBar().value()
-
-                # 更新文本并恢复滚动条位置
-                cursor = text_edit.textCursor()
-                cursor.movePosition(QTextCursor.End)
-                text_edit.setTextCursor(cursor)
-                text_edit.setCursorWidth(0)
-                
-                if index >= 17:
-                    self.main_window.highlighter[index].setKeywords([self.main_window.ui.tem_switch.tabText(index)])
-                    if self.main_window.tabText[index] != self.main_window.ui.tem_switch.tabText(index):
-                        self.main_window.tabText[index] = self.main_window.ui.tem_switch.tabText(index)
-                        # 不再自动清空筛选页面，保留历史数据
-                elif index != 2:
-                    keywords = []
-                    for i in range(MAX_TAB_SIZE):
-                        if i >= 17:
-                            keywords.append(self.main_window.ui.tem_switch.tabText(i))
-                    self.main_window.highlighter[index].setKeywords(keywords)
-                    
-                # 🎨 智能ANSI颜色支持 + 高性能文本处理
-                try:
-                    # 🎯 动态调整插入长度：根据缓冲区容量利用率智能限制
-                    if hasattr(self.worker, 'get_buffer_memory_usage'):
-                        memory_info = self.worker.get_buffer_memory_usage()
-                        utilization = memory_info.get('capacity_utilization', 0)
-                        
-                        # 根据容量利用率调整插入长度
-                        if utilization > 80:  # 高利用率
-                            max_insert_length = 2048   # 2KB（更保守，降低每次插入量）
-                        elif utilization > 60:  # 中等利用率
-                            max_insert_length = 4096   # 4KB
-                        else:  # 低利用率
-                            max_insert_length = 8192   # 8KB
-                    else:
-                        max_insert_length = 8192  # 默认更保守
-                    
-                    # 检查是否有ANSI彩色数据
-                    has_colored_data = (hasattr(self.worker, 'colored_buffers') and 
-                                      len(self.worker.colored_buffers[index]) > 0)
-                    
-                    if self.worker.enable_color_buffers and has_colored_data and len(self.worker.colored_buffers[index]) > 0:
-                        # 🎨 修复：TAB切换时重新渲染颜色 - 无论QPlainTextEdit还是QTextEdit都使用ANSI彩色处理
-                        from PySide6.QtWidgets import QPlainTextEdit
-                        
-                        # 🔧 修复TAB切换重复数据问题：严格控制完全重新渲染条件
-                        # 只有在真正需要时才进行完全重新渲染，避免旧数据重新出现
-                        current_text_length = len(text_edit.toPlainText()) if hasattr(text_edit, 'toPlainText') else 0
-                        has_display_data = hasattr(self.worker, 'display_lengths') and self.worker.display_lengths[index] > 0
-                        
-                        # 🔧 关键修复：严格限制完全重新渲染的条件
-                        # 只有在文本编辑器完全为空且从未显示过任何数据时才完全重新渲染
-                        needs_full_render = (current_text_length == 0 and  # 文本编辑器为空
-                                           not has_display_data and  # 且从未显示过数据
-                                           len(self.worker.colored_buffers[index]) > 0)  # 且有新数据要显示
-                        
-                        if isinstance(text_edit, QPlainTextEdit):
-                            if needs_full_render:
-                                # 🎨 完全重新渲染：只显示最新数据，避免旧数据重新出现
-                                ui_start_time = time.time()
-                                text_edit.clear()  # 清空当前显示
-                                all_colored_data = ''.join(self.worker.colored_buffers[index])
-                                
-                                # 🔧 BUG1修复：display_lengths必须基于colored_buffers计算，而不是buffers
-                                # 因为实际显示的是colored_buffers，长度不一致会导致增量更新时重复数据
-                                total_colored_length = len(all_colored_data)
-                                
-                                if total_colored_length > max_insert_length:
-                                    all_colored_data = all_colored_data[-max_insert_length:]
-                                    # 同步更新display_lengths，基于colored_buffers的长度
-                                    self.worker.display_lengths[index] = max(0, total_colored_length - max_insert_length)
-                                else:
-                                    # 直接使用colored_buffers的长度
-                                    self.worker.display_lengths[index] = total_colored_length
-                                    
-                                self._insert_ansi_text_fast(text_edit, all_colored_data, index)
-                            else:
-                                # 🎨 增量更新：使用ANSI彩色处理而不是纯文本
-                                incremental_colored, current_total = self.worker._extract_increment_from_chunks(
-                                    self.worker.colored_buffers[index] if hasattr(self.worker, 'colored_buffers') else self.worker.buffers[index],
-                                    self.worker.display_lengths[index],
-                                    max_insert_length
-                                )
-                                ui_start_time = time.time()
-                                if incremental_colored:
-                                    self._insert_ansi_text_fast(text_edit, incremental_colored, index)
-                                    self.worker.display_lengths[index] = current_total
-                        else:
-                            # QTextEdit 保持彩色路径
-                            if needs_full_render:
-                                # 🎨 完全重新渲染：只显示最新数据，避免旧数据重新出现
-                                ui_start_time = time.time()
-                                text_edit.clear()
-                                all_colored_data = ''.join(self.worker.colored_buffers[index])
-                                
-                                # 🔧 BUG1修复：display_lengths必须基于colored_buffers计算，而不是buffers
-                                # 因为实际显示的是colored_buffers，长度不一致会导致增量更新时重复数据
-                                total_colored_length = len(all_colored_data)
-                                
-                                if total_colored_length > max_insert_length:
-                                    all_colored_data = all_colored_data[-max_insert_length:]
-                                    # 同步更新display_lengths，基于colored_buffers的长度
-                                    self.worker.display_lengths[index] = max(0, total_colored_length - max_insert_length)
-                                else:
-                                    # 直接使用colored_buffers的长度
-                                    self.worker.display_lengths[index] = total_colored_length
-                                    
-                                self._insert_ansi_text_fast(text_edit, all_colored_data, index)
-                            else:
-                                # 🔧 修复：真正的增量更新，只插入新数据而不是全部数据
-                                incremental_colored, current_total = self.worker._extract_increment_from_chunks(
-                                    self.worker.colored_buffers[index],
-                                    self.worker.display_lengths[index],
-                                    max_insert_length
-                                )
-                                ui_start_time = time.time()
-                                if incremental_colored:
-                                    self._insert_ansi_text_fast(text_edit, incremental_colored, index)
-                                    self.worker.display_lengths[index] = current_total
-                        
-                        # 自动滚动到底部
-                        text_edit.verticalScrollBar().setValue(
-                            text_edit.verticalScrollBar().maximum())
-                        
-                        # 📈 性能监控：UI更新结束
-                        ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        
-                        # 🚀 使用可配置的性能阈值
-                        clean_trigger = 50  # 默认值
-                        warning_trigger = 100  # 默认值
-                        try:
-                            if self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
-                                clean_trigger = self.main_window.connection_dialog.config.get_clean_trigger_ms()
-                                warning_trigger = self.main_window.connection_dialog.config.get_warning_trigger_ms()
-                        except Exception:
-                            pass
-                        
-                        if ui_time > clean_trigger:  # 使用配置的清理触发阈值
-                            data_size = len(incremental_colored) // 1024 if 'incremental_colored' in locals() else 0  # KB
-                            if ui_time > warning_trigger:  # 使用配置的警告触发阈值
-                                logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
-                            
-                            # 🚀 自动清理：耗时超过阈值时清理该TAB的数据
-                            self._auto_clean_tab_data(index, text_edit, ui_time)
-                    
-                    elif len(self.worker.buffers[index]) > 0:
-                        # 🚀 方案B：智能处理 — QPlainTextEdit 增量纯文本
-                        from PySide6.QtWidgets import QPlainTextEdit
-                        ui_start_time = time.time()
-                        if isinstance(text_edit, QPlainTextEdit):
-                            # 快进逻辑：积压过多时直接从尾部显示，避免显示严重滞后
-                            backlog = self.worker.buffer_lengths[index] - self.worker.display_lengths[index]
-                            if backlog > self.worker.backlog_fast_forward_threshold:
-                                # 🎨 快速前进模式：保持ANSI彩色显示
-                                tail_bytes = self.worker.fast_forward_tail
-                                accumulated = ''.join(self.worker.buffers[index])
-                                tail_text = accumulated[-tail_bytes:]
-                                # 使用ANSI彩色文本插入而不是纯文本
-                                self._insert_ansi_text_fast(text_edit, tail_text, index)
-                                self.worker.display_lengths[index] = self.worker.buffer_lengths[index]
-                                ui_start_time = time.time()
-                                # 自动滚动到底部
-                                text_edit.verticalScrollBar().setValue(
-                                    text_edit.verticalScrollBar().maximum())
-                                ui_time = (time.time() - ui_start_time) * 1000
-                            else:
-                                incremental_text, current_total = self.worker._extract_increment_from_chunks(
-                                    self.worker.buffers[index],
-                                    self.worker.display_lengths[index],
-                                    max_insert_length
-                                )
-                            if incremental_text:
-                                # 🎨 增量更新：保持ANSI彩色显示
-                                self._insert_ansi_text_fast(text_edit, incremental_text, index)
-                                self.worker.display_lengths[index] = current_total
-                        else:
-                            accumulated_data = ''.join(self.worker.buffers[index])
-                            if len(accumulated_data) > max_insert_length:
-                                display_data = accumulated_data[-max_insert_length:]
-                            else:
-                                display_data = accumulated_data
-                            # 🎨 统一使用ANSI文本插入方法，自动处理彩色和纯文本
-                            self._insert_ansi_text_fast(text_edit, display_data, index)
-                        
-                        # 📈 性能监控：UI更新结束
-                        ui_time = (time.time() - ui_start_time) * 1000  # 转换为毫秒
-                        
-                        # 🚀 使用可配置的性能阈值
-                        clean_trigger = 50  # 默认值
-                        warning_trigger = 100  # 默认值
-                        try:
-                            if self.main_window.connection_dialog and hasattr(self.main_window.connection_dialog, 'config'):
-                                clean_trigger = self.main_window.connection_dialog.config.get_clean_trigger_ms()
-                                warning_trigger = self.main_window.connection_dialog.config.get_warning_trigger_ms()
-                        except Exception:
-                            pass
-                        
-                        if ui_time > clean_trigger:  # 使用配置的清理触发阈值
-                            data_size = len(display_data) // 1024  # KB
-                            if ui_time > warning_trigger:  # 使用配置的警告触发阈值
-                                logger.warning(f"[UI] UI更新耗时 - TAB{index}: {ui_time:.1f}ms, 数据量: {data_size}KB")
-                            
-                            # 🚀 自动清理：耗时超过阈值时清理该TAB的数据
-                            self._auto_clean_tab_data(index, text_edit, ui_time)
-                        
-                        # 自动滚动到底部
-                        text_edit.verticalScrollBar().setValue(
-                            text_edit.verticalScrollBar().maximum())
-                    
-                    # 🔧 移除TAB切换后清空缓冲区的逻辑，避免显示旧数据后再清空
-                    # 注释：不再在TAB切换后清空缓冲区，让增量更新机制正常工作
-                        
-                except Exception as e:
-                    # 🔧 异常处理：不再清空缓冲区，只记录错误
-                    logger.debug(f"文本更新异常: {e}")  # 调试信息
-                
-                # 📋 使用正确的显示模式：累积显示全部数据
-                # 只清空增量缓冲区（colored_buffers），保留累积缓冲区（buffers）
-                # 这样每次显示的是完整的累积数据，而不是增量数据
-                
-                # 标记页面已更新，无需再次更新
-                if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'page_dirty_flags'):
-                    self.main_window.page_dirty_flags[index] = False
-
-                # 使用滑动文本块机制，不需要手动清理UI文本
-                # 注意：滚动条锁定逻辑已移至DeviceMdiWindow中处理
-            else:
-                logger.debug("No QTextEdit found on page:", index)
-        else:
-            logger.debug("Invalid page index or widget type:", index)
+        这个方法在旧架构中用于切换 TAB 时刷新显示。
+        现在保留方法签名以兼容旧代码调用，但不执行任何操作。
+        """
+        pass
 
     def clear_current_tab(self):
-        """清空当前标签页的内容 - 仅限RTT通道（0-15），不包括ALL窗口"""
-        current_index = self.main_window.ui.tem_switch.currentIndex()
+        """清空当前标签页的内容 - 仅限RTT通道（0-15），不包括ALL窗口（MDI架构）
         
-        # 限制清屏功能：只允许RTT通道（索引1-16，对应通道0-15），不允许ALL窗口（索引0）
-        if current_index >= 1 and current_index <= 16:
-            current_page_widget = self.main_window.ui.tem_switch.widget(current_index)
-            if isinstance(current_page_widget, QWidget):
-                # 优先使用QPlainTextEdit（高性能），回退到QTextEdit
-                from PySide6.QtWidgets import QPlainTextEdit
-                text_edit = current_page_widget.findChild(QPlainTextEdit)
-                if not text_edit:
-                    text_edit = current_page_widget.findChild(QTextEdit)
-                
-                if text_edit and hasattr(text_edit, 'clear'):
-                    text_edit.clear()
-                # 同时清空对应的缓冲区
-                if hasattr(self, 'worker') and self.worker:
-                    if current_index < len(self.worker.buffers):
-                        try:
-                            self.worker.buffer_lengths[current_index] = 0
-                            self.worker.buffers[current_index].clear()
-                        except Exception:
-                            self.worker.buffers[current_index] = []
-                    if hasattr(self.worker, 'colored_buffers') and current_index < len(self.worker.colored_buffers):
-                        try:
-                            self.worker.colored_buffer_lengths[current_index] = 0
-                            self.worker.colored_buffers[current_index].clear()
-                        except Exception:
-                            self.worker.colored_buffers[current_index] = []
-
-                    # 清空HTML缓冲区
-                    if hasattr(self.worker, 'html_buffers') and current_index < len(self.worker.html_buffers):
-                        self.worker.html_buffers[current_index] = ""
-        else:
-            # ALL窗口或其他窗口不允许清屏
-            if current_index == 0:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.information(
-                    self.main_window, 
-                    QCoreApplication.translate("MainWindow", "Info"),
-                    QCoreApplication.translate("MainWindow", "ALL window displays summary data from all channels and doesn't support clear operation.\nPlease switch to specific RTT channel (0-15) to clear.")
-                )
+        MDI 架构：清空功能由主窗口的 on_clear_clicked 处理。
+        这个方法保留以兼容旧代码调用。
+        """
+        if self.main_window:
+            self.main_window.on_clear_clicked()
 
 
     def _insert_ansi_text_fast(self, text_edit, text, tab_index=None):
@@ -9267,16 +8942,12 @@ class Worker(QObject):
             if hasattr(self.parent, 'main_window') and self.parent.main_window:
                 if hasattr(self.parent.main_window, 'page_dirty_flags'):
                     # 标记相关页面需要更新
-                    self.parent.main_window.page_dirty_flags[index + 1] = True  # 对应通道页面
-                    self.parent.main_window.page_dirty_flags[0] = True  # ALL页面
-                    
-                    # 如果当前显示的是这些页面，立即更新
-                    current_index = self.parent.main_window.ui.tem_switch.currentIndex()
-                    if current_index == index + 1 or current_index == 0:
-                        QTimer.singleShot(0, lambda: self.parent.switchPage(current_index))
+                    # MDI 架构：page_dirty_flags 已废弃
+                    # 数据更新由 DeviceMdiWindow 的定时器处理
+                    pass
                         
-                # 🚀 强制触发缓冲区更新处理
-                QTimer.singleShot(0, lambda: self.parent.handleBufferUpdate())
+                # MDI 架构：缓冲区更新由 DeviceMdiWindow 处理
+                # handleBufferUpdate 已废弃
     
     def _process_buffer_data(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
