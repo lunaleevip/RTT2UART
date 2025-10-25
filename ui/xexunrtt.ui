@@ -48,10 +48,16 @@
       </widget>
       <widget class="QWidget" name="bottom_container" native="true">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>70</height>
+        </size>
        </property>
        <layout class="QVBoxLayout" name="verticalLayout_bottom">
         <property name="spacing">

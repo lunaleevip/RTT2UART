@@ -1771,19 +1771,24 @@ class RTTMainWindow(QMainWindow):
         self.mdi_area.setActivationOrder(QMdiArea.WindowOrder.ActivationHistoryOrder)
         self.mdi_area.setBackground(QBrush(QColor(53, 53, 53)))
         
-        # 配置分割器样式
+        # 配置分割器样式和行为
+        self.main_splitter.setHandleWidth(3)  # 设置分割线宽度为 3 像素
         self.main_splitter.setStyleSheet("""
             QSplitter::handle {
                 background-color: #555555;
+                height: 3px;
             }
             QSplitter::handle:hover {
                 background-color: #777777;
+            }
+            QSplitter::handle:pressed {
+                background-color: #999999;
             }
         """)
         
         # 设置可折叠性
         self.main_splitter.setCollapsible(0, False)  # MDI区域不可折叠
-        self.main_splitter.setCollapsible(1, False)  # 底部容器不可折叠
+        self.main_splitter.setCollapsible(1, True)   # 底部容器可折叠（允许完全隐藏）
         
         # 监听分割器大小变化，自动隐藏/显示JLink日志区
         self.main_splitter.splitterMoved.connect(self._on_splitter_moved)
