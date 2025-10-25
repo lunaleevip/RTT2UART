@@ -1170,27 +1170,48 @@ class EditableTabBar(QTabBar):
         if index >= 17:
             old_text = self.tabText(index)
             
+            # 如果是"+"符号,传递空字符串给对话框
+            # 如果筛选内容本身就是"+",则传递"+"
+            dialog_text = old_text
+            if old_text == "+":
+                # 检查配置中的实际内容
+                actual_filter = ""
+                if self.main_window and self.main_window.connection_dialog:
+                    actual_filter = self.main_window.connection_dialog.config.get_filter(index)
+                # 如果配置中是空的或也是"+",传空字符串;否则传实际内容
+                if not actual_filter or actual_filter == "+":
+                    dialog_text = ""
+                else:
+                    dialog_text = actual_filter
+            
             # 获取当前TAB的正则表达式状态
             current_regex_state = False
             if self.main_window and self.main_window.connection_dialog:
                 current_regex_state = self.main_window.connection_dialog.config.get_tab_regex_filter(index)
             
             # 显示自定义对话框
-            dialog = FilterEditDialog(self, old_text, current_regex_state)
+            dialog = FilterEditDialog(self, dialog_text, current_regex_state)
             if dialog.exec() == QDialog.Accepted:
                 new_text = dialog.get_filter_text()
                 regex_enabled = dialog.is_regex_enabled()
                 
-                # 更新TAB文本
+                # 更新TAB文本和tooltip
+                tab_widget = self.parent()
                 if new_text:
                     self.setTabText(index, new_text)
+                    # 设置tooltip显示完整内容
+                    if tab_widget:
+                        tab_widget.setTabToolTip(index, new_text)
                     logger.info(f"📝 TAB[{index}] 设置筛选文本: '{new_text}'")
                 else:
                     self.setTabText(index, "+")  # 清空时显示"+"
+                    # 设置tooltip提示双击编辑
+                    if tab_widget:
+                        from PySide6.QtCore import QCoreApplication
+                        tab_widget.setTabToolTip(index, QCoreApplication.translate("main_window", "Double-click to edit filter"))
                     logger.info(f"🗑️ TAB[{index}] 清空筛选文本，设置为'+'")
                 
                 # 找到当前的DeviceMdiWindow实例
-                tab_widget = self.parent()
                 mdi_window = None
                 if tab_widget:
                     # tab_widget.parent() 是 central_widget (QWidget)
@@ -1375,13 +1396,19 @@ class DeviceMdiWindow(QWidget):
         # 设置窗口大小
         self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
         
-        # 从配置加载筛选文本
+        # 从配置加载筛选文本并设置tooltip
         if parent and hasattr(parent, 'connection_dialog') and parent.connection_dialog:
             for i in range(17, MAX_TAB_SIZE):
                 filter_content = parent.connection_dialog.config.get_filter(i)
                 if filter_content:
                     self.tab_widget.setTabText(i, filter_content)
+                    # 设置tooltip显示完整的筛选内容
+                    self.tab_widget.setTabToolTip(i, filter_content)
                     logger.debug(f"  Filter[{i}] loaded: '{filter_content}'")
+                else:
+                    # 空内容时设置tooltip提示双击编辑
+                    from PySide6.QtCore import QCoreApplication
+                    self.tab_widget.setTabToolTip(i, QCoreApplication.translate("main_window", "Double-click to edit filter"))
         
         # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
         self.update_filter_tab_display()
@@ -1645,9 +1672,12 @@ class DeviceMdiWindow(QWidget):
             logger.info(f"  有内容的TAB: {tabs_with_content}")
             logger.info(f"  空TAB: {empty_tabs}")
             
-            # 先将所有有内容的TAB设为可见
+            # 先将所有有内容的TAB设为可见,并更新tooltip
             for i in tabs_with_content:
                 self.tab_widget.setTabVisible(i, True)
+                # 更新tooltip显示完整内容
+                tab_text = self.tab_widget.tabText(i)
+                self.tab_widget.setTabToolTip(i, tab_text)
                 logger.info(f"  ✓ 设置TAB[{i}]可见（有内容）")
             
             # 决定需要显示多少个空"+"TAB
@@ -1661,6 +1691,9 @@ class DeviceMdiWindow(QWidget):
                 if shown_empty_count < empty_tab_to_show_count:
                     # 显示这个空TAB
                     self.tab_widget.setTabText(i, "+")
+                    # 设置tooltip提示双击编辑
+                    from PySide6.QtCore import QCoreApplication
+                    self.tab_widget.setTabToolTip(i, QCoreApplication.translate("main_window", "Double-click to edit filter"))
                     self.tab_widget.setTabVisible(i, True)
                     shown_empty_count += 1
                     # logger.info(f"  ✓ 设置TAB[{i}]可见（空'+'）")
@@ -4438,41 +4471,30 @@ class RTTMainWindow(QMainWindow):
                             break
                     
                     if existing_session:
-                        # 设备已存在，重新连接（刷新）
-                        logger.info(f"Device {device_serial} already exists, refreshing connection")
+                        # 设备已存在，直接切换到该设备的MDI窗口
+                        logger.info(f"Device {device_serial} already connected, switching to its window")
                         
-                        # 停止旧的定时器
-                        if existing_session.mdi_window and hasattr(existing_session.mdi_window, 'update_timer'):
-                            existing_session.mdi_window.update_timer.stop()
-                            logger.info(f"Stopped old update timer for device {device_serial}")
-                        
-                        # 更新连接信息
-                        existing_session.rtt2uart = rtt
-                        existing_session.connection_dialog = temp_dialog
-                        existing_session.is_connected = True
-                        
-                        # 重新启动MDI窗口的更新定时器
-                        if existing_session.mdi_window:
-                            # 更新MDI窗口的device_session引用，确保它使用新的connection_dialog
-                            existing_session.mdi_window.device_session = existing_session
-                            # 重置显示长度，确保从头开始读取新数据
-                            existing_session.mdi_window.last_display_lengths = [0] * MAX_TAB_SIZE
-                            # 重新启动更新定时器
-                            if hasattr(existing_session.mdi_window, 'update_timer'):
-                                existing_session.mdi_window.update_timer.start(50)  # 50ms更新一次
-                                logger.info(f"✅ MDI window update timer restarted for device {device_serial}")
-                                # 立即触发一次更新
-                                existing_session.mdi_window._update_from_worker()
-                            # 激活该设备的MDI窗口
-                            if existing_session.mdi_window and existing_session.mdi_window.mdi_sub_window:
-                                self.mdi_area.setActiveSubWindow(existing_session.mdi_window.mdi_sub_window)
+                        # 激活该设备的MDI窗口
+                        if existing_session.mdi_window and existing_session.mdi_window.mdi_sub_window:
+                            self.mdi_area.setActiveSubWindow(existing_session.mdi_window.mdi_sub_window)
+                            logger.info(f"✅ Switched to existing device {device_serial} window")
                         
                         # 设置为当前会话
                         self.current_session = existing_session
                         session_manager.set_active_session(existing_session)
-                        self.connection_dialog = temp_dialog
                         
-                        logger.info(f"✅ Device {device_serial} reconnected")
+                        # 关闭临时对话框(因为不需要重新连接)
+                        temp_dialog.close()
+                        
+                        # 显示提示信息
+                        from PySide6.QtWidgets import QMessageBox
+                        QMessageBox.information(
+                            self,
+                            QCoreApplication.translate("main_window", "Device Already Connected"),
+                            QCoreApplication.translate("main_window", "Device %s is already connected.\nSwitched to its window.") % device_serial
+                        )
+                        
+                        return
                     else:
                         # 新设备，创建新会话和MDI窗口
                         device_info = {
@@ -6679,12 +6701,25 @@ class ConnectionDialog(QDialog):
                 except Exception as ex:
                     logger.error(f"Error force flushing ConnectionDialog buffers: {ex}")
             
-            # 停止RTT连接
-            if self.rtt2uart is not None and self.start_state == True:
+            # 停止RTT连接(会自动关闭JLink)
+            if self.rtt2uart is not None:
                 try:
                     self.rtt2uart.stop()
+                    # 清理rtt2uart对象引用
+                    self.rtt2uart = None
+                    logger.info("RTT2UART object cleaned up in closeEvent")
                 except Exception as ex:
                     logger.error(f"Error stopping RTT: {ex}")
+            
+            # 清理JLink对象引用(不需要再次关闭,rtt2uart.stop()已经处理)
+            if hasattr(self, 'jlink') and self.jlink is not None:
+                try:
+                    # 只删除引用,不再调用close()(避免重复关闭导致access violation)
+                    del self.jlink
+                    self.jlink = None
+                    logger.info("JLink object reference cleaned up in closeEvent")
+                except Exception as ex:
+                    logger.warning(f"Error cleaning up JLink reference: {ex}")
             
             # 关闭RTT窗口
             # 主窗口由父窗口管理，不需要在这里关闭

@@ -658,6 +658,10 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>取消</translation>
     </message>
     <message>
+        <source>Double-click to edit filter</source>
+        <translation>双击编辑筛选内容</translation>
+    </message>
+    <message>
         <location filename="../main_window.py" line="1734"/>
         <source>XexunRTT - RTT Debug Main Window</source>
         <translation>XexunRTT - RTT调试主窗口</translation>

@@ -659,6 +659,10 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>取消</translation>
     </message>
     <message>
+        <source>Double-click to edit filter</source>
+        <translation>雙擊編輯篩選內容</translation>
+    </message>
+    <message>
         <location filename="../main_window.py" line="553"/>
         <source>Target Device Settings</source>
         <translation>目标设备设置</translation>
