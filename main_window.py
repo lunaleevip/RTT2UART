@@ -1771,6 +1771,18 @@ class RTTMainWindow(QMainWindow):
         self.mdi_area.setActivationOrder(QMdiArea.WindowOrder.ActivationHistoryOrder)
         self.mdi_area.setBackground(QBrush(QColor(53, 53, 53)))
         
+        # 禁用自动调整子窗口大小选项，允许手动调整
+        self.mdi_area.setOption(QMdiArea.AreaOption.DontMaximizeSubWindowOnActivation, True)
+        
+        # 设置 MDI 区域样式
+        # 只设置背景色,不覆盖子窗口的原生样式
+        self.mdi_area.setStyleSheet("""
+            QMdiArea {
+                background-color: #353535;
+            }
+        """)
+        
+        
         # 配置分割器样式和行为
         self.main_splitter.setHandleWidth(3)  # 设置分割线宽度为 3 像素
         self.main_splitter.setStyleSheet("""
@@ -2609,7 +2621,14 @@ class RTTMainWindow(QMainWindow):
             self.current_session = self.device_sessions[0]
             # 激活第一个设备的MDI窗口
             if self.current_session.mdi_window:
-                self.mdi_area.setActiveSubWindow(self.current_session.mdi_window)
+                self.mdi_area.setActiveSubWindow(self.current_session.mdi_window.mdi_sub_window)
+            
+            # 如果只剩一个窗口，先设置默认大小再最大化
+            remaining_windows = self.mdi_area.subWindowList()
+            if len(remaining_windows) == 1:
+                remaining_windows[0].resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                remaining_windows[0].showMaximized()
+                logger.info(f"Only one MDI window remaining, set to default size (800x600) then maximized")
         else:
             self.current_session = None
             # 恢复到主连接对话框
@@ -2648,30 +2667,14 @@ class RTTMainWindow(QMainWindow):
             # 创建MDI子窗口内容
             mdi_content = DeviceMdiWindow(session, self)
             
+            # 先获取当前窗口数量(在添加新窗口之前)
+            current_window_count = len(self.mdi_area.subWindowList())
+            
             # 创建MDI子窗口并添加内容
             from PySide6.QtCore import Qt, QTimer
             mdi_sub_window = self.mdi_area.addSubWindow(mdi_content)
             mdi_sub_window.setWindowTitle(f"{session.get_display_name()}")
             mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
-            
-            # 显式设置窗口标志以确保可以调整大小
-            flags = mdi_sub_window.windowFlags()
-            logger.info(f"[MDI-2] Original window flags: {flags}")
-            mdi_sub_window.setWindowFlags(
-                Qt.WindowType.SubWindow |
-                Qt.WindowType.WindowTitleHint |
-                Qt.WindowType.WindowSystemMenuHint |
-                Qt.WindowType.WindowMinMaxButtonsHint
-            )
-            logger.info(f"[MDI-2] New window flags: {mdi_sub_window.windowFlags()}")
-            
-            # 设置大小
-            mdi_sub_window.resize(800, 600)
-            logger.info(f"[MDI-2] Window size: {mdi_sub_window.size()}")
-            
-            # 确保窗口状态是正常的（非最大化）
-            mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
-            logger.info(f"[MDI-2] Window state: {mdi_sub_window.windowState()}")
             
             # 保存引用
             session.mdi_window = mdi_content
@@ -2680,17 +2683,39 @@ class RTTMainWindow(QMainWindow):
             # 连接关闭信号
             mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(session))
             
-            # 显示窗口（使用showNormal确保正常状态）
-            mdi_sub_window.showNormal()
-            logger.info(f"[MDI-2] Window shown, isVisible: {mdi_sub_window.isVisible()}, state: {mdi_sub_window.windowState()}")
+            # 注意: 不要手动设置 windowFlags,使用 QMdiSubWindow 的默认标志
+            # 默认标志已经包含了所有必要的功能(标题栏、调整大小、最小化/最大化/关闭按钮)
+            logger.info(f"MDI window created with default flags: {mdi_sub_window.windowFlags()}")
             
-            # 延迟设置窗口状态，确保窗口框架已经完全初始化
-            def ensure_normal_state():
-                if mdi_sub_window.windowState() != Qt.WindowState.WindowNoState:
-                    logger.info(f"[MDI-2] Forcing window to normal state, current: {mdi_sub_window.windowState()}")
-                    mdi_sub_window.setWindowState(Qt.WindowState.WindowNoState)
-                    mdi_sub_window.resize(800, 600)
-            QTimer.singleShot(100, ensure_normal_state)
+            # 为子窗口设置一个简单的边框样式,但不影响标题栏
+            mdi_sub_window.setStyleSheet("""
+                QMdiSubWindow {
+                    border: 1px solid #555555;
+                }
+            """)
+            
+            if current_window_count == 0:
+                # 第一个窗口：先设置默认大小,再最大化
+                mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                mdi_sub_window.show()
+                mdi_sub_window.showMaximized()
+                logger.info(f"First MDI window, set to default size (800x600) then maximized")
+            else:
+                # 多个窗口：恢复所有窗口为正常大小，然后平铺
+                # 恢复第一个窗口
+                all_windows = self.mdi_area.subWindowList()
+                for win in all_windows:
+                    if win.isMaximized():
+                        win.showNormal()
+                        win.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                
+                # 设置新窗口的大小和位置
+                mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                mdi_sub_window.move(20, 20)
+                mdi_sub_window.show()
+                # 平铺所有窗口
+                self.mdi_area.tileSubWindows()
+                logger.info(f"Multiple MDI windows ({current_window_count + 1}), tiling all windows")
             
             # 添加到会话列表
             self.device_sessions.append(session)
