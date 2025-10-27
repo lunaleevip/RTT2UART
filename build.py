@@ -119,7 +119,7 @@ def update_spec_file(spec_file, version_info_file):
 def get_spec_file():
     """根据平台获取对应的spec文件"""
     if IS_MACOS:
-        return 'XexunRTT_cross_macOS.spec'
+        return 'XexunRTT_macOS.spec'
     else:
         # Windows和Linux使用同一个spec文件
         return 'XexunRTT_onefile_win.spec'

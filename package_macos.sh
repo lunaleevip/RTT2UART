@@ -5,6 +5,10 @@
 echo "🍎 macOS 应用程序打包脚本"
 echo "================================"
 
+# 从 version.py 读取版本号
+VERSION=$(python3 -c "from version import VERSION; print(VERSION)" 2>/dev/null || echo "3.0.0")
+echo "📦 版本: v${VERSION}"
+
 # 检查是否在 macOS 上运行
 if [[ "$OSTYPE" != "darwin"* ]]; then
     echo "❌ 此脚本需要在 macOS 系统上运行"
@@ -46,9 +50,9 @@ cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
     <key>CFBundleIdentifier</key>
     <string>com.xexun.rtt2uart</string>
     <key>CFBundleVersion</key>
-    <string>2.1.3</string>
+    <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.3</string>
+    <string>${VERSION}</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleExecutable</key>
@@ -92,7 +96,7 @@ echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "📦 创建 DMG 安装包..."
     
-    DMG_NAME="XexunRTT_macOS_v2.1.3.dmg"
+    DMG_NAME="XexunRTT_macOS_v${VERSION}.dmg"
     DMG_TEMP_DIR="dist_macos_final/dmg_temp"
     
     # 创建临时目录

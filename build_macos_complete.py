@@ -15,6 +15,12 @@ import zipfile
 from pathlib import Path
 import tempfile
 
+# 导入版本信息
+try:
+    from version import VERSION
+except ImportError:
+    VERSION = "3.0.0"  # 默认版本
+
 def create_app_bundle_structure(source_dir, output_dir):
     """在 Windows 上创建 macOS .app 目录结构"""
     print("📁 创建 macOS 应用程序包结构...")
@@ -65,9 +71,9 @@ def create_info_plist(app_path):
     <key>CFBundleIdentifier</key>
     <string>com.xexun.rtt2uart</string>
     <key>CFBundleVersion</key>
-    <string>2.1.3</string>
+    <string>{VERSION}</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.3</string>
+    <string>{VERSION}</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleExecutable</key>
