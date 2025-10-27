@@ -2665,6 +2665,9 @@ class RTTMainWindow(QMainWindow):
                 remaining_windows[0].resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
                 remaining_windows[0].showMaximized()
                 logger.info(f"Only one MDI window remaining, set to default size (800x600) then maximized")
+            else:
+                #水平排列所有窗口
+                pass
         else:
             self.current_session = None
             # 恢复到主连接对话框
@@ -2711,7 +2714,7 @@ class RTTMainWindow(QMainWindow):
             """)
             
             if current_window_count == 0:
-                # 第一个窗口：先设置默认大小,再最大化
+                # 第一个窗口：先设置默认大小,再最大化image.png
                 mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
                 mdi_sub_window.show()
                 mdi_sub_window.showMaximized()
@@ -5796,11 +5799,11 @@ class RTTMainWindow(QMainWindow):
         # 3. 当前激活的设备窗口和标签页名称
         if active_session and active_session.mdi_window:
             # 获取设备名称
-            device_name = active_session.get_display_name()
+            #device_name = active_session.get_display_name()
             # 获取当前标签页名称
             current_index = active_session.mdi_window.tab_widget.currentIndex()
             current_tab_name = active_session.mdi_window.tab_widget.tabText(current_index)
-            title_parts.append(f"{device_name} - {current_tab_name}")
+            title_parts.append(f"{current_tab_name}")
                 
         # 组合标题
         title = " | ".join(title_parts)

@@ -783,22 +783,143 @@ class rtt_to_serial():
                         try:
                             address = int(self._rtt_address, 16)  # 转换十六进制地址
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block address: %s") % self._rtt_address)
-                            self.jlink.rtt_start(address)
-                        except ValueError:
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Invalid address format, using auto detection"))
-                            self.jlink.rtt_start()
+                            
+                            # 验证指定地址是否有 RTT 控制块
+                            try:
+                                # 读取指定地址的前 16 字节，检查是否是 "SEGGER RTT"
+                                data = self.jlink.memory_read8(address, 16)
+                                data_bytes = bytes(data)
+                                rtt_id = b"SEGGER RTT"
+                                
+                                if data_bytes.startswith(rtt_id):
+                                    logger.info(f"Verified RTT Control Block at 0x{address:08X}")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Verified RTT Control Block at address: 0x%08X") % address)
+                                    self.jlink.rtt_start(address)
+                                else:
+                                    error_msg = QCoreApplication.translate("rtt2uart", "No RTT Control Block found at specified address: 0x%08X") % address
+                                    self._log_to_gui(error_msg)
+                                    logger.error(f"No RTT Control Block at 0x{address:08X}, found: {data_bytes[:16]}")
+                                    raise Exception(error_msg)
+                            except Exception as e:
+                                if "No RTT Control Block found" in str(e):
+                                    raise  # 重新抛出验证失败的错误
+                                # 其他错误（如内存读取失败）也应该停止
+                                error_msg = QCoreApplication.translate("rtt2uart", "Failed to verify address 0x%08X: %s") % (address, str(e))
+                                self._log_to_gui(error_msg)
+                                logger.error(f"Failed to verify address 0x{address:08X}: {e}")
+                                raise Exception(error_msg)
+                                
+                        except ValueError as e:
+                            error_msg = QCoreApplication.translate("rtt2uart", "Invalid address format: %s") % self._rtt_address
+                            self._log_to_gui(error_msg)
+                            logger.error(f"Invalid address format: {self._rtt_address}")
+                            raise Exception(error_msg)
                     elif self._rtt_cb_mode == 'search_range' and self._rtt_search_range:
                         # 使用搜索范围启动RTT
-                        # 格式: "0x10000000 0x1000, 0x20000000 0x1000"
-                        # pylink需要BlockAddress参数，搜索范围功能由JLink自动处理
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block search range: %s") % self._rtt_search_range)
-                        # 注意：pylink可能不直接支持多范围搜索，这里使用自动检测
-                        # 如果需要真正的搜索范围，可能需要通过JLink脚本或其他方式实现
-                        self.jlink.rtt_start()
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Searching for RTT Control Block in memory..."))
+                        
+                        # 解析搜索范围并搜索控制块
+                        cb_addr = None
+                        try:
+                            # 解析搜索范围，格式: "0x20000000 0x10000" 或 "0x20000000 0x10000, 0x30000000 0x10000"
+                            ranges = self._rtt_search_range.split(',')
+                            rtt_id = b"SEGGER RTT"
+                            search_chunk = 0x1000  # 每次搜索 4KB
+                            
+                            for range_str in ranges:
+                                parts = range_str.strip().split()
+                                if len(parts) >= 2:
+                                    try:
+                                        ram_start = int(parts[0], 16) if parts[0].startswith('0x') else int(parts[0])
+                                        ram_size = int(parts[1], 16) if parts[1].startswith('0x') else int(parts[1])
+                                        
+                                        logger.info(f"Searching range: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
+                                        
+                                        for offset in range(0, ram_size, search_chunk):
+                                            try:
+                                                addr = ram_start + offset
+                                                data = self.jlink.memory_read8(addr, min(search_chunk, ram_size - offset))
+                                                data_bytes = bytes(data)
+                                                pos = data_bytes.find(rtt_id)
+                                                if pos >= 0:
+                                                    cb_addr = addr + pos
+                                                    logger.info(f"Found RTT Control Block at 0x{cb_addr:08X}")
+                                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found RTT Control Block at address: 0x%08X") % cb_addr)
+                                                    break
+                                            except Exception:
+                                                pass
+                                        
+                                        if cb_addr:
+                                            break
+                                    except ValueError:
+                                        logger.warning(f"Invalid range format: {range_str}")
+                            
+                            if cb_addr:
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
+                                self.jlink.rtt_start(block_address=cb_addr)
+                            else:
+                                error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in specified range")
+                                self._log_to_gui(error_msg)
+                                logger.error(f"RTT Control Block not found in range: {self._rtt_search_range}")
+                                raise Exception(error_msg)
+                        except Exception as e:
+                            if "not found in specified range" in str(e):
+                                raise  # 重新抛出，不要继续
+                            logger.error(f"Range search failed: {e}")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Memory search failed: %s") % str(e))
+                            raise Exception(f"Range search failed: {e}")
                     else:
-                        # 自动检测模式
-                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Using RTT Control Block auto detection"))
-                        self.jlink.rtt_start()
+                        # 自动检测模式：先搜索内存找到控制块地址
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Searching for RTT Control Block in memory..."))
+                        
+                        cb_addr = None
+                        try:
+                            # nRF52840 的 RAM 范围: 0x20000000 - 0x20040000 (256KB)
+                            # TODO: 根据不同芯片调整范围
+                            ram_start = 0x20000000
+                            ram_size = 0x40000  # 256KB
+                            search_chunk = 0x1000  # 每次搜索 4KB
+                            
+                            # RTT 控制块的标识符 "SEGGER RTT"
+                            rtt_id = b"SEGGER RTT"
+                            
+                            for offset in range(0, ram_size, search_chunk):
+                                try:
+                                    addr = ram_start + offset
+                                    # 读取内存块
+                                    data = self.jlink.memory_read8(addr, min(search_chunk, ram_size - offset))
+                                    
+                                    # 转换为 bytes
+                                    data_bytes = bytes(data)
+                                    
+                                    # 查找标识符
+                                    pos = data_bytes.find(rtt_id)
+                                    if pos >= 0:
+                                        cb_addr = addr + pos
+                                        logger.info(f"Found RTT Control Block at 0x{cb_addr:08X}")
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found RTT Control Block at address: 0x%08X") % cb_addr)
+                                        break
+                                except Exception as e:
+                                    # 某些内存区域可能不可读，跳过
+                                    pass
+                            
+                            if not cb_addr:
+                                error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X)") % (ram_start, ram_start + ram_size)
+                                self._log_to_gui(error_msg)
+                                logger.error(f"RTT Control Block not found in RAM: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
+                                raise Exception(error_msg)
+                            else:
+                                # 使用找到的地址启动 RTT
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
+                                self.jlink.rtt_start(block_address=cb_addr)
+                                
+                        except Exception as e:
+                            if "not found in memory" in str(e):
+                                raise  # 重新抛出，不要继续
+                            logger.error(f"Memory search failed: {e}")
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Memory search failed: %s") % str(e))
+                            raise Exception(f"Memory search failed: {e}")
                     
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
                     
@@ -806,6 +927,77 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Initializing RTT buffers..."))
                     self._initialize_rtt_buffers()
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT buffers initialized"))
+                    
+                    # 启动延迟线程获取 RTT 通道信息
+                    import threading
+                    def get_rtt_info_delayed():
+                        """延迟获取 RTT 通道信息"""
+                        import time
+                        time.sleep(2)  # 等待 2 秒让 RTT 完全初始化
+                        
+                        logger.info("=== get_rtt_info_delayed started ===")
+                        
+                        try:
+                            # 获取通道信息
+                            num_up = self.jlink.rtt_get_num_up_buffers()
+                            num_down = self.jlink.rtt_get_num_down_buffers()
+                            
+                            logger.info(f"RTT channels: {num_up} up, {num_down} down")
+                            
+                            if num_up > 0 or num_down > 0:
+                                # 收集所有要显示的信息
+                                messages = []
+                                
+                                messages.append(QCoreApplication.translate("rtt2uart", "RTT Channel Info:"))
+                                messages.append(QCoreApplication.translate("rtt2uart", "  Up channels: %d") % num_up)
+                                
+                                # 打印每个上行通道的详细信息
+                                for i in range(num_up):
+                                    try:
+                                        buf_info = self.jlink.rtt_get_buf_descriptor(i, True)
+                                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                                        size = buf_info.SizeOfBuffer
+                                        flags = buf_info.Flags
+                                        mode_str = {0: "skip", 1: "trim", 2: "block"}.get(flags, f"mode{flags}")
+                                        messages.append(QCoreApplication.translate("rtt2uart", "    #%d %s: %d bytes, %s") % (i, name, size, mode_str))
+                                    except Exception as e:
+                                        logger.warning(f"Failed to get up buffer {i} info: {e}")
+                                
+                                messages.append(QCoreApplication.translate("rtt2uart", "  Down channels: %d") % num_down)
+                                
+                                # 打印每个下行通道的详细信息
+                                for i in range(num_down):
+                                    try:
+                                        buf_info = self.jlink.rtt_get_buf_descriptor(i, False)
+                                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                                        size = buf_info.SizeOfBuffer
+                                        flags = buf_info.Flags
+                                        mode_str = {0: "skip", 1: "trim", 2: "block"}.get(flags, f"mode{flags}")
+                                        messages.append(QCoreApplication.translate("rtt2uart", "    #%d %s: %d bytes, %s") % (i, name, size, mode_str))
+                                    except Exception as e:
+                                        logger.warning(f"Failed to get down buffer {i} info: {e}")
+                                
+                                # 在主线程中显示所有消息
+                                logger.info(f"Collected {len(messages)} messages, sending to GUI...")
+                                for msg in messages:
+                                    QTimer.singleShot(0, lambda m=msg: self._log_to_gui(m))
+                                logger.info("Messages sent to GUI")
+                            else:
+                                logger.debug("No RTT channels found")
+                                    
+                        except Exception as e:
+                            logger.error(f"!!! Failed to get RTT info: {e}", exc_info=True)
+                            # 在主线程中显示错误
+                            QTimer.singleShot(0, lambda: self._log_to_gui(f"ERROR getting RTT info: {e}"))
+                            # 不影响正常流程，继续执行
+                        
+                        logger.info("=== get_rtt_info_delayed finished ===")
+                    
+                    # 启动延迟获取线程
+                    logger.info("Starting rtt_info_getter thread...")
+                    info_thread = threading.Thread(target=get_rtt_info_delayed, daemon=True, name="rtt_info_getter")
+                    info_thread.start()
+                    logger.info("rtt_info_getter thread started")
 
                 except pylink.errors.JLinkException as e:
                     error_msg = f"Connect target failed: {e}"

@@ -21,17 +21,17 @@ def run_command(cmd, description):
         result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8')
         if result.stdout:
             print(result.stdout)
-        print(f"✓ {description} - 成功")
+        print(f"[OK] {description} - 成功")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"✗ {description} - 失败")
+        print(f"[FAIL] {description} - 失败")
         if e.stdout:
             print(f"STDOUT: {e.stdout}")
         if e.stderr:
             print(f"STDERR: {e.stderr}")
         return False
     except Exception as e:
-        print(f"✗ {description} - 错误: {e}")
+        print(f"[ERROR] {description} - 错误: {e}")
         return False
 
 
@@ -134,10 +134,10 @@ def main():
     
     print("\n" + "="*60)
     if success:
-        print("✓ 所有操作完成")
+        print("[OK] 所有操作完成")
         return 0
     else:
-        print("✗ 某些操作失败")
+        print("[FAIL] 某些操作失败")
         return 1
 
 
