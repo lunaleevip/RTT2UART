@@ -56,9 +56,9 @@ excludes = [
     'tkinter',
     'unittest',
     'test',
-    'email',
-    'http',
-    'urllib',
+    # 'email',  # requests 依赖此模块，不能排除
+    # 'http',  # requests 依赖此模块，不能排除
+    # 'urllib',  # requests 依赖此模块，不能排除
     'pydoc',
     'sqlite3',
     'asyncio',
