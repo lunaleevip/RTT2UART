@@ -147,7 +147,10 @@ class DeviceSession:
         """断开设备连接"""
         if self.rtt2uart:
             try:
-                self.rtt2uart.stop()
+                # 异步停止RTT,不阻塞UI
+                from PySide6.QtCore import QTimer
+                rtt_obj = self.rtt2uart
+                QTimer.singleShot(0, lambda: rtt_obj.stop())
             except Exception as e:
                 logger.error(f"Failed to stop RTT: {e}")
         self.is_connected = False
@@ -411,11 +414,11 @@ def get_adaptive_window_size(base_width, base_height, dpi_scale):
 
 
 class JLinkLogHandler(logging.Handler):
-    """自定义JLink日志处理器，将日志输出到GUI"""
+    """自定义JLink日志处理器，将日志输出到GUI - 统一使用回调函数"""
     
-    def __init__(self, text_widget):
+    def __init__(self, log_callback):
         super().__init__()
-        self.text_widget = text_widget
+        self.log_callback = log_callback
         self.setLevel(logging.DEBUG)
         
         # 设置日志格式
@@ -432,29 +435,10 @@ class JLinkLogHandler(logging.Handler):
             pass
     
     def _append_to_gui(self, message):
-        """在GUI中添加消息"""
+        """在GUI中添加消息 - 通过回调函数统一处理"""
         try:
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            formatted_message = f"[{timestamp}] {message}"
-            
-            # 兼容 QPlainTextEdit 与 QTextEdit
-            if hasattr(self.text_widget, 'appendPlainText'):
-                self.text_widget.appendPlainText(formatted_message)
-            else:
-                self.text_widget.append(formatted_message)
-            
-            # 自动滚动到底部
-            scrollbar = self.text_widget.verticalScrollBar()
-            scrollbar.setValue(scrollbar.maximum())
-            
-            # 限制日志行数，避免内存占用过多
-            document = self.text_widget.document()
-            if document.blockCount() > 1000:
-                cursor = self.text_widget.textCursor()
-                cursor.movePosition(cursor.Start)
-                cursor.movePosition(cursor.Down, cursor.KeepAnchor, 100)
-                cursor.removeSelectedText()
+            if self.log_callback:
+                self.log_callback(message)
         except Exception:
             pass
 
@@ -1856,6 +1840,12 @@ class RTTMainWindow(QMainWindow):
             self.jlink_log_max_height = LayoutSize.JLINK_LOG_MAX_HEIGHT
             self.jlink_log_widget.setMinimumHeight(0)  # 允许完全隐藏
             self.jlink_log_widget.setMaximumHeight(self.jlink_log_max_height)
+        
+        # 限制底部容器的最大高度（按钮区 + JLink日志区）
+        if hasattr(self.ui, 'bottom_container'):
+            max_bottom_height = LayoutSize.BUTTON_AREA_HEIGHT + self.jlink_log_max_height
+            self.ui.bottom_container.setMaximumHeight(max_bottom_height)
+            logger.debug(f"Bottom container max height set to {max_bottom_height}px")
             
             # 连接UI文件中的按钮信号
             if hasattr(self.ui, 'clear_jlink_log_btn'):
@@ -2743,7 +2733,7 @@ class RTTMainWindow(QMainWindow):
             session_manager.set_active_session(session)
             
             logger.info(f"✅ Device session created with MDI window: {session.get_display_name()}")
-            self.append_jlink_log(f"✅ Device {session.get_display_name()} connected successfully")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Device %s connected successfully") % session.get_display_name())
             
         except Exception as e:
             logger.error(f"Failed to create device session: {e}", exc_info=True)
@@ -3666,7 +3656,11 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to initialize splitter sizes: {e}", exc_info=True)
     
     def _on_splitter_moved(self, pos, index):
-        """分割器移动事件 - 自动隐藏/显示JLink日志区"""
+        """分割器移动事件 - 自动隐藏/显示JLink日志区
+        
+        注意：最大高度限制已通过 bottom_container.setMaximumHeight() 设置，
+        Qt 会自动限制分割线的可拖动范围，无需在此处理
+        """
         try:
             # 获取底部容器的当前高度
             sizes = self.main_splitter.sizes()
@@ -3691,9 +3685,9 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to handle splitter move: {e}", exc_info=True)
     
     def _setup_jlink_logging(self):
-        """设置JLink日志捕获"""
-        # 创建自定义日志处理器来捕获JLink日志
-        self.jlink_log_handler = JLinkLogHandler(self.jlink_log_text)
+        """设置JLink日志捕获 - 统一使用 append_jlink_log 回调"""
+        # 创建自定义日志处理器来捕获JLink日志，使用统一的回调函数
+        self.jlink_log_handler = JLinkLogHandler(self.append_jlink_log)
         
         # 设置JLink库的日志级别 - 默认只显示WARNING及以上级别的日志
         jlink_logger = logging.getLogger('pylink')
@@ -3777,7 +3771,7 @@ class RTTMainWindow(QMainWindow):
             self.append_jlink_log(QCoreApplication.translate("main_window", "Error disabling file logging: %s") % str(e))
     
     def append_jlink_log(self, message):
-        """添加JLink日志消息"""
+        """添加JLink日志消息 - 统一的日志显示方法"""
         import datetime
         timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         formatted_message = f"[{timestamp}] {message}"
@@ -3791,6 +3785,14 @@ class RTTMainWindow(QMainWindow):
         # 自动滚动到底部
         scrollbar = self.jlink_log_text.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        
+        # 限制日志行数，避免内存占用过多
+        document = self.jlink_log_text.document()
+        if document.blockCount() > 1000:
+            cursor = self.jlink_log_text.textCursor()
+            cursor.movePosition(cursor.Start)
+            cursor.movePosition(cursor.Down, cursor.KeepAnchor, 100)
+            cursor.removeSelectedText()
     
     def get_tab1_content(self, full_content=False):
         """获取TAB 1 (RTT Channel 1) 的当前内容
@@ -4434,7 +4436,7 @@ class RTTMainWindow(QMainWindow):
                 return
             
             logger.info(f"Disconnecting device: {session.get_display_name()}")
-            self.append_jlink_log(f"Disconnecting device: {session.get_display_name()}")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Disconnecting device: %s") % session.get_display_name())
             
             # 标记为手动断开，停止自动重连定时器
             self.manual_disconnect = True
@@ -4447,14 +4449,14 @@ class RTTMainWindow(QMainWindow):
                 try:
                     session.rtt2uart.stop()
                     logger.info(f"RTT stopped for device: {session.get_display_name()}")
-                    self.append_jlink_log(f"✅ RTT stopped for device: {session.get_display_name()}")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "RTT stopped for device: %s") % session.get_display_name())
                 except Exception as e:
                     logger.error(f"Failed to stop RTT: {e}")
-                    self.append_jlink_log(f"❌ Failed to stop RTT: {e}")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to stop RTT: %s") % str(e))
             
             session.is_connected = False
             logger.info(f"Device disconnected: {session.get_display_name()}")
-            self.append_jlink_log(f"✅ Device disconnected: {session.get_display_name()}")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Device disconnected: %s") % session.get_display_name())
             
         except Exception as e:
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
@@ -4490,7 +4492,7 @@ class RTTMainWindow(QMainWindow):
                     if existing_session:
                         # 设备已存在，重新连接
                         logger.info(f"Device {device_serial} exists, reconnecting...")
-                        self.append_jlink_log(f"Device {device_serial} exists, reconnecting...")
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "Device %s exists, reconnecting...") % device_serial)
                         
                         # 保存旧的字节计数
                         old_read_bytes0 = 0
@@ -4520,11 +4522,11 @@ class RTTMainWindow(QMainWindow):
                         rtt.read_bytes1 = old_read_bytes1
                         rtt.write_bytes0 = old_write_bytes0
                         logger.info(f"✅ 恢复字节计数: read0={old_read_bytes0}, read1={old_read_bytes1}, write0={old_write_bytes0}")
-                        self.append_jlink_log(f"✅ 恢复字节计数: {old_read_bytes0} bytes")
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "Restored byte count: %s bytes") % old_read_bytes0)
                         
                         # 不清空buffer,保持累计
                         logger.info(f"✅ Keeping existing buffers for device {device_serial}")
-                        self.append_jlink_log(f"✅ Reconnecting without clearing data")
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "Reconnecting without clearing data"))
                         
                         # 重置UI显示偏移量,确保新数据立即显示
                         if existing_session.mdi_window:
@@ -4535,16 +4537,16 @@ class RTTMainWindow(QMainWindow):
                                     # 设置为当前buffer长度,这样新数据会立即显示
                                     existing_session.mdi_window.last_display_lengths[ch] = old_worker.colored_buffer_lengths[ch]
                                 logger.info(f"✅ Reset UI display offsets to current buffer lengths: {existing_session.mdi_window.last_display_lengths[:3]}")
-                                self.append_jlink_log(f"✅ Reset UI display offsets")
+                                self.append_jlink_log(QCoreApplication.translate("main_window", "Reset UI display offsets"))
                         
                         # 启动RTT数据读取
                         try:
                             rtt.start()
                             logger.info(f"✅ RTT data reading started for device {device_serial}")
-                            self.append_jlink_log(f"✅ RTT data reading started for device {device_serial}")
+                            self.append_jlink_log(QCoreApplication.translate("main_window", "RTT data reading started for device %s") % device_serial)
                         except Exception as e:
                             logger.error(f"Failed to start RTT: {e}", exc_info=True)
-                            self.append_jlink_log(f"❌ Failed to start RTT: {e}")
+                            self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to start RTT: %s") % str(e))
                         
                         # 重新启动MDI窗口的更新定时器
                         if existing_session.mdi_window:
@@ -4552,17 +4554,10 @@ class RTTMainWindow(QMainWindow):
                                 existing_session.mdi_window.update_timer.start(TimerInterval.MDI_WINDOW_UPDATE)
                                 logger.info(f"✅ MDI window update timer restarted for device {device_serial}")
                         
-                        # 激活该设备的MDI窗口
+                        # 激活该设备的MDI窗口(保持原有大小,不改变窗口状态)
                         if existing_session.mdi_window and existing_session.mdi_window.mdi_sub_window:
                             self.mdi_area.setActiveSubWindow(existing_session.mdi_window.mdi_sub_window)
-                            
-                            # 如果只有一个窗口,最大化显示
-                            if len(self.mdi_area.subWindowList()) == 1:
-                                mdi_sub_window = existing_session.mdi_window.mdi_sub_window
-                                mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
-                                mdi_sub_window.show()
-                                mdi_sub_window.showMaximized()
-                                logger.info("Reconnected: Only one window, set to default size then maximized")
+                            logger.info("Reconnected: Activated existing MDI window without changing size")
                         
                         # 设置为当前会话
                         self.current_session = existing_session
@@ -6545,9 +6540,6 @@ class ConnectionDialog(QDialog):
     def __init__(self, parent=None):
         super(ConnectionDialog, self).__init__(parent)
         
-        # 检测是否有其他python进程占用JLink
-        self._check_and_handle_jlink_conflicts()
-        
         # 强制清理可能残留的JLink实例,防止"already open"错误
         try:
             import pylink
@@ -6557,6 +6549,12 @@ class ConnectionDialog(QDialog):
             logger.info("🧹 Garbage collection triggered to clean up stale JLink instances")
         except Exception as e:
             logger.warning(f"Failed to trigger garbage collection: {e}")
+        
+        # 🚫 暂时禁用进程冲突检测,因为它会阻塞UI响应
+        # 用户可以通过日志查看"JLink already open"错误并手动处理
+        # 如需启用,取消下面的注释:
+        # import threading
+        # threading.Thread(target=self._check_and_handle_jlink_conflicts, daemon=True).start()
         
         self.ui = Ui_ConnectionDialog()
         self.ui.setupUi(self)
@@ -6578,16 +6576,17 @@ class ConnectionDialog(QDialog):
         # 使用新的配置管理器
         self.config = config_manager
         
-        # 尝试从旧的pickle文件迁移配置
-        old_settings_file = os.path.join(os.getcwd(), "settings")
-        if os.path.exists(old_settings_file):
-            if self.config.migrate_from_pickle(old_settings_file):
-                # 迁移成功后删除旧文件
-                try:
-                    os.remove(old_settings_file)
-                    logger.debug("旧配置文件已删除")
-                except:
-                    pass
+        # 异步迁移旧配置(不阻塞UI)
+        def migrate_old_config():
+            old_settings_file = os.path.join(os.getcwd(), "settings")
+            if os.path.exists(old_settings_file):
+                if self.config.migrate_from_pickle(old_settings_file):
+                    try:
+                        os.remove(old_settings_file)
+                        logger.debug("旧配置文件已删除")
+                    except:
+                        pass
+        QTimer.singleShot(0, migrate_old_config)
 
         self.start_state = False
         self.target_device = None
@@ -6754,6 +6753,7 @@ class ConnectionDialog(QDialog):
                 return
                 
             # 🚨 强制刷新所有缓冲区到文件（确保数据不丢失）
+            # 注意: 这里保持同步执行,虽然可能稍慢,但能确保数据完整性
             if hasattr(self, 'worker') and hasattr(self.worker, 'force_flush_all_buffers'):
                 try:
                     logger.info("ConnectionDialog closed, force refreshing all TAB buffers...")
@@ -7314,12 +7314,6 @@ class ConnectionDialog(QDialog):
                     for i, dev in enumerate(self.available_jlinks):
                         marker = "=>" if i == device_index else "  "
                         logger.debug(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
-                
-                # 🚨 重大BUG修复：清空Worker缓存，防止历史数据写入新文件夹
-                if hasattr(self.main_window, 'append_jlink_log'):
-                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Cleaning Worker cache to ensure new connection uses clean data..."))
-                
-                self._clear_all_worker_caches()
                 
                 # 获取RTT Control Block配置
                 rtt_cb_mode = self.config.get_rtt_control_block_mode()

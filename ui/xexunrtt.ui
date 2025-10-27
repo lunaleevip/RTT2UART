@@ -48,7 +48,7 @@
       </widget>
       <widget class="QWidget" name="bottom_container" native="true">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+        <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -379,15 +379,15 @@
         <item>
          <widget class="QWidget" name="jlink_log_area" native="true">
           <property name="sizePolicy">
-           <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+           <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
             <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
+            <verstretch>1</verstretch>
            </sizepolicy>
           </property>
           <property name="minimumSize">
            <size>
             <width>0</width>
-            <height>0</height>
+            <height>80</height>
            </size>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_jlink">

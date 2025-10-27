@@ -648,22 +648,22 @@ class rtt_to_serial():
                             if hasattr(self.jlink, 'core_name'):
                                 core_name = self.jlink.core_name()
                                 if core_name:
-                                    self._log_to_gui(f"Core: {core_name}")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Core: %s") % core_name)
                             
                             if hasattr(self.jlink, 'product_name'):
                                 product = self.jlink.product_name
                                 if product:
-                                    self._log_to_gui(f"Product: {product}")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Product: %s") % product)
                             
                             if hasattr(self.jlink, 'firmware_version'):
                                 fw_ver = self.jlink.firmware_version
                                 if fw_ver:
-                                    self._log_to_gui(f"Firmware: {fw_ver}")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Firmware: %s") % fw_ver)
                             
                             if hasattr(self.jlink, 'hardware_version'):
                                 hw_ver = self.jlink.hardware_version
                                 if hw_ver:
-                                    self._log_to_gui(f"Hardware: {hw_ver}")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Hardware: %s") % hw_ver)
                         except Exception as e:
                             logger.debug(f"Failed to get JLink info: {e}")
                         
