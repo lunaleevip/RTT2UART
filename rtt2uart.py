@@ -606,6 +606,8 @@ class rtt_to_serial():
 
     def start(self):
         logger.debug(QCoreApplication.translate("rtt2uart", "启动RTT2UART"))
+        # 初始化首次数据到达标记
+        self._first_data_received = False
         # 记录设备连接信息
         if self.jlink_log_callback:
             self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "Connecting device: %s") % self.device_info)
@@ -623,6 +625,7 @@ class rtt_to_serial():
                     # 加载jlinkARM.dll
                     try:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Opening JLink connection..."))
+                        
                         if self._connect_inf == 'USB':
                             if self._connect_para:
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via USB (Serial: %s)") % self._connect_para)
@@ -638,6 +641,31 @@ class rtt_to_serial():
                         import time
                         time.sleep(0.1)
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection established"))
+                        
+                        # 尝试获取JLink连接详细信息
+                        try:
+                            # 获取设备信息
+                            if hasattr(self.jlink, 'core_name'):
+                                core_name = self.jlink.core_name()
+                                if core_name:
+                                    self._log_to_gui(f"Core: {core_name}")
+                            
+                            if hasattr(self.jlink, 'product_name'):
+                                product = self.jlink.product_name
+                                if product:
+                                    self._log_to_gui(f"Product: {product}")
+                            
+                            if hasattr(self.jlink, 'firmware_version'):
+                                fw_ver = self.jlink.firmware_version
+                                if fw_ver:
+                                    self._log_to_gui(f"Firmware: {fw_ver}")
+                            
+                            if hasattr(self.jlink, 'hardware_version'):
+                                hw_ver = self.jlink.hardware_version
+                                if hw_ver:
+                                    self._log_to_gui(f"Hardware: {hw_ver}")
+                        except Exception as e:
+                            logger.debug(f"Failed to get JLink info: {e}")
                         
                     except pylink.errors.JLinkException as e:
                         error_msg = str(e)
@@ -864,9 +892,9 @@ class rtt_to_serial():
             if thread and thread.is_alive():
                 logger.info(f"正在停止{thread_name}...")
                 
-                # 第一次尝试：优雅停止
+                # 第一次尝试：优雅停止,减少超时时间避免长时间卡住
                 try:
-                    thread.join(timeout=2.0)
+                    thread.join(timeout=0.5)  # 从2.0秒减少到0.5秒
                     if not thread.is_alive():
                         logger.info(f"{thread_name}已优雅停止")
                         continue
@@ -880,10 +908,10 @@ class rtt_to_serial():
                     thread.daemon = True
                     
                     # 再次尝试join，但时间更短
-                    thread.join(timeout=1.0)
+                    thread.join(timeout=0.3)  # 从1.0秒减少到0.3秒
                     
                     if thread.is_alive():
-                        logger.error(f"{thread_name}仍在运行，将在主程序退出时被强制终止")
+                        logger.warning(f"{thread_name}仍在运行，将在主程序退出时被强制终止")
                     else:
                         logger.info(f"{thread_name}已强制停止")
                         
@@ -946,17 +974,25 @@ class rtt_to_serial():
                     break
                     
             except Exception as e:
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Unexpected error while closing JLink (attempt %s): %s") % (retry_count + 1, str(e)))
-                logger.error(f'Unexpected error during JLink close on attempt {retry_count + 1}: {e}')
-                retry_count += 1
-                if retry_count < max_retries:
-                    import time
-                    try:
-                        time.sleep(0.2)
-                    except OSError:
-                        # 程序退出时可能句柄已无效，忽略此错误
-                        pass
-                continue
+                # 检查是否是访问冲突错误(pylink库的已知问题,不影响功能)
+                error_msg = str(e).lower()
+                if 'access violation' in error_msg or 'access denied' in error_msg:
+                    # 访问冲突是pylink库在关闭时的已知问题,降低日志级别
+                    logger.warning(f'JLink close triggered access violation (attempt {retry_count + 1}), this is a known pylink issue and can be ignored')
+                    # 访问冲突通常意味着JLink已经被释放,直接退出
+                    break
+                else:
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Unexpected error while closing JLink (attempt %s): %s") % (retry_count + 1, str(e)))
+                    logger.error(f'Unexpected error during JLink close on attempt {retry_count + 1}: {e}')
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        import time
+                        try:
+                            time.sleep(0.2)
+                        except OSError:
+                            # 程序退出时可能句柄已无效，忽略此错误
+                            pass
+                    continue
         
         if retry_count >= max_retries:
             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Maximum retry attempts reached, JLink close failed"))
@@ -1002,15 +1038,11 @@ class rtt_to_serial():
             logger.error(f'Failed to cleanup log folder: {e}', exc_info=True)
 
     def rtt_thread_exec(self):
-        # 新连接修复：初始化buffer写入偏移量，避免旧数据写入新日志
-        # 如果buffers中已有数据（保留的旧数据），从当前位置开始写入，而不是从头开始
-        if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
-            all_chunks = self.main.buffers[0]
-            current_buffer_length = sum(len(part) for part in all_chunks)
-            self._last_buffer_size = current_buffer_length
-            logger.info(f"初始化日志写入偏移: {current_buffer_length} 字节（跳过旧数据）")
-        else:
-            self._last_buffer_size = 0
+        # MDI架构：重连时buffer保留旧数据继续累计显示
+        # 关键：_last_buffer_size必须设置为0,否则_extract_increment会跳过旧数据
+        # 这样新数据会立即显示,而不是等到超过旧buffer长度
+        self._last_buffer_size = 0
+        logger.info(f"初始化日志写入偏移: 0 字节（重连时继续累计显示）")
         
         # 打开日志文件，如果不存在将自动创建
         # 文本日志使用可配置编码
@@ -1032,6 +1064,10 @@ class rtt_to_serial():
             
             while self.thread_switch:
                 try:
+                    # 在循环开始时检查停止标志,快速响应停止请求
+                    if not self.thread_switch:
+                        break
+                    
                     # 减少连接状态检查频率，避免过多警告
                     connection_check_counter += 1
                     if connection_check_counter >= connection_check_interval:
@@ -1097,6 +1133,13 @@ class rtt_to_serial():
 
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
+                    
+                    # 首次数据到达时间戳记录
+                    if not self._first_data_received and rtt_log_len > 0:
+                        self._first_data_received = True
+                        from datetime import datetime
+                        first_data_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        logger.info(f"⏱️ 首次数据到达时间: {first_data_time} (接收 {rtt_log_len} 字节)")
 
                     # 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
                     if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
@@ -1134,6 +1177,10 @@ class rtt_to_serial():
                                     logger.error(f"Failed to write ALL buffer data: {e}")
 
                             self._last_buffer_size = current_total_size
+                            
+                            # 文件写入后检查停止标志,快速响应停止请求
+                            if not self.thread_switch:
+                                break
                         except Exception as e:
                             logger.error(f"ALL buffer incremental write failed: {e}")
                     else:
@@ -1181,14 +1228,14 @@ class rtt_to_serial():
         import time
         
         try:
-            # 等待RTT完全稳定
-            time.sleep(0.5)
+            # 极短等待，让RTT就绪（减少到50ms）
+            time.sleep(0.05)
             
             # 清理RTT Channel 0 和 Channel 1 的缓冲区
-            # 多次读取直到缓冲区清空，丢弃这些初始垃圾数据
+            # 快速读取并丢弃初始垃圾数据，不等待
             for channel in [0, 1]:
                 cleared_bytes = 0
-                max_clear_attempts = 10
+                max_clear_attempts = 5  # 减少尝试次数
                 
                 for attempt in range(max_clear_attempts):
                     try:
@@ -1199,20 +1246,7 @@ class rtt_to_serial():
                         
                         cleared_bytes += len(garbage_data)
                         
-                        # 检查是否全是空字节
-                        if isinstance(garbage_data, (list, tuple)):
-                            null_count = sum(1 for b in garbage_data if b == 0)
-                        else:
-                            null_count = garbage_data.count(0) if hasattr(garbage_data, 'count') else 0
-                        
-                        # 如果读取到的数据超过50%是空字节，认为是垃圾数据
-                        if len(garbage_data) > 0:
-                            null_percentage = (null_count / len(garbage_data)) * 100
-                            if null_percentage > 50:
-                                logger.debug(QCoreApplication.translate("rtt2uart", "清理RTT Channel %d垃圾数据: %d字节 (%.1f%%空字节)") % (channel, len(garbage_data), null_percentage))
-                        
-                        # 短暂等待，避免过快读取
-                        time.sleep(0.01)
+                        # 不再等待，直接继续读取
                         
                     except pylink.errors.JLinkException as e:
                         # RTT读取错误，可能缓冲区已空或RTT未就绪
@@ -1221,9 +1255,6 @@ class rtt_to_serial():
                 
                 if cleared_bytes > 0:
                     logger.info(QCoreApplication.translate("rtt2uart", "RTT Channel %d初始化完成，清理了%d字节垃圾数据") % (channel, cleared_bytes))
-            
-            # 最后再等待一小段时间，确保RTT完全稳定
-            time.sleep(0.2)
             
         except Exception as e:
             logger.warning(QCoreApplication.translate("rtt2uart", "RTT缓冲区初始化警告: %s") % str(e))
@@ -1287,6 +1318,10 @@ class rtt_to_serial():
             
             while self.thread_switch:
                 try:
+                    # 在循环开始时检查停止标志,快速响应停止请求
+                    if not self.thread_switch:
+                        break
+                    
                     # 减少连接状态检查频率，避免过多警告
                     connection_check_counter += 1
                     if connection_check_counter >= connection_check_interval:

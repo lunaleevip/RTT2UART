@@ -1742,6 +1742,10 @@ class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
         
+        # 保存当前进程PID,用于进程冲突检测
+        import os
+        self.main_process_pid = os.getpid()
+        
         # 主窗口标识（用于日志文件夹等）
         self.window_id = "main"
         
@@ -2670,32 +2674,12 @@ class RTTMainWindow(QMainWindow):
         
         logger.info(f"Device session closed: {session.session_id}")
     
-    def _create_device_session_from_connection(self):
-        """从当前连接创建设备会话、MDI窗口"""
+    def _create_device_session_from_connection(self, session):
+        """从已有session创建MDI窗口"""
         try:
-            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
-                logger.warning("No active connection to create session from")
+            if not session:
+                logger.warning("No session provided")
                 return
-            
-            # 获取当前连接的设备信息
-            rtt = self.connection_dialog.rtt2uart
-            device_info = {
-                'serial': getattr(rtt, '_connect_para', 'Unknown'),
-                'product_name': getattr(rtt, 'device_info', 'Unknown'),
-                'connection': 'USB'
-            }
-            
-            # 检查是否已经存在该设备的会话
-            for session in self.device_sessions:
-                if session.device_serial == device_info['serial']:
-                    logger.info(f"Device session already exists: {device_info['serial']}")
-                    return
-            
-            # 创建新的设备会话
-            session = DeviceSession(device_info)
-            session.rtt2uart = rtt
-            session.connection_dialog = self.connection_dialog
-            session.is_connected = True
             
             # 创建MDI子窗口内容
             mdi_content = DeviceMdiWindow(session, self)
@@ -2759,6 +2743,7 @@ class RTTMainWindow(QMainWindow):
             session_manager.set_active_session(session)
             
             logger.info(f"✅ Device session created with MDI window: {session.get_display_name()}")
+            self.append_jlink_log(f"✅ Device {session.get_display_name()} connected successfully")
             
         except Exception as e:
             logger.error(f"Failed to create device session: {e}", exc_info=True)
@@ -3502,8 +3487,36 @@ class RTTMainWindow(QMainWindow):
             self.data_check_timer.start(TimerInterval.DATA_CHECK)
             logger.info("Auto reconnect monitoring started")
         
-        # 创建设备会话并添加TAB
-        self._create_device_session_from_connection()
+        # 创建设备会话并添加MDI窗口
+        if not self.connection_dialog or not self.connection_dialog.rtt2uart:
+            logger.warning("No active connection to create session from")
+            return
+        
+        # 获取当前连接的设备信息
+        rtt = self.connection_dialog.rtt2uart
+        device_serial = getattr(rtt, '_connect_para', 'Unknown')
+        device_info = {
+            'serial': device_serial,
+            'product_name': getattr(rtt, 'device_info', 'Unknown'),
+            'connection': 'USB'
+        }
+        
+        # 创建新的设备会话
+        session = DeviceSession(device_info=device_info)
+        session.rtt2uart = rtt
+        session.connection_dialog = self.connection_dialog
+        session.is_connected = True
+        
+        # 添加到会话管理器
+        session_manager.add_session(session)
+        self.device_sessions.append(session)
+        
+        # 创建MDI子窗口并添加内容
+        self._create_device_session_from_connection(session)
+        
+        # 设置为当前会话
+        self.current_session = session
+        session_manager.set_active_session(session)
         
         # 更新连接状态显示，包含设备信息
         if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
@@ -4421,6 +4434,7 @@ class RTTMainWindow(QMainWindow):
                 return
             
             logger.info(f"Disconnecting device: {session.get_display_name()}")
+            self.append_jlink_log(f"Disconnecting device: {session.get_display_name()}")
             
             # 标记为手动断开，停止自动重连定时器
             self.manual_disconnect = True
@@ -4433,11 +4447,14 @@ class RTTMainWindow(QMainWindow):
                 try:
                     session.rtt2uart.stop()
                     logger.info(f"RTT stopped for device: {session.get_display_name()}")
+                    self.append_jlink_log(f"✅ RTT stopped for device: {session.get_display_name()}")
                 except Exception as e:
                     logger.error(f"Failed to stop RTT: {e}")
+                    self.append_jlink_log(f"❌ Failed to stop RTT: {e}")
             
             session.is_connected = False
             logger.info(f"Device disconnected: {session.get_display_name()}")
+            self.append_jlink_log(f"✅ Device disconnected: {session.get_display_name()}")
             
         except Exception as e:
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
@@ -4471,29 +4488,87 @@ class RTTMainWindow(QMainWindow):
                             break
                     
                     if existing_session:
-                        # 设备已存在，直接切换到该设备的MDI窗口
-                        logger.info(f"Device {device_serial} already connected, switching to its window")
+                        # 设备已存在，重新连接
+                        logger.info(f"Device {device_serial} exists, reconnecting...")
+                        self.append_jlink_log(f"Device {device_serial} exists, reconnecting...")
+                        
+                        # 保存旧的字节计数
+                        old_read_bytes0 = 0
+                        old_read_bytes1 = 0
+                        old_write_bytes0 = 0
+                        if existing_session.rtt2uart:
+                            old_read_bytes0 = existing_session.rtt2uart.read_bytes0
+                            old_read_bytes1 = existing_session.rtt2uart.read_bytes1
+                            old_write_bytes0 = existing_session.rtt2uart.write_bytes0
+                            logger.info(f"保存旧字节计数: read0={old_read_bytes0}, read1={old_read_bytes1}, write0={old_write_bytes0}")
+                        
+                        # 先断开旧连接
+                        if existing_session.rtt2uart and existing_session.is_connected:
+                            try:
+                                logger.info(f"Stopping old RTT connection for device {device_serial}")
+                                existing_session.rtt2uart.stop()
+                            except Exception as e:
+                                logger.error(f"Failed to stop old RTT: {e}")
+                        
+                        # 更新会话的连接信息
+                        existing_session.rtt2uart = rtt
+                        existing_session.connection_dialog = temp_dialog
+                        existing_session.is_connected = True
+                        
+                        # 恢复字节计数
+                        rtt.read_bytes0 = old_read_bytes0
+                        rtt.read_bytes1 = old_read_bytes1
+                        rtt.write_bytes0 = old_write_bytes0
+                        logger.info(f"✅ 恢复字节计数: read0={old_read_bytes0}, read1={old_read_bytes1}, write0={old_write_bytes0}")
+                        self.append_jlink_log(f"✅ 恢复字节计数: {old_read_bytes0} bytes")
+                        
+                        # 不清空buffer,保持累计
+                        logger.info(f"✅ Keeping existing buffers for device {device_serial}")
+                        self.append_jlink_log(f"✅ Reconnecting without clearing data")
+                        
+                        # 重置UI显示偏移量,确保新数据立即显示
+                        if existing_session.mdi_window:
+                            # 获取旧worker的colored_buffer长度作为新的起点
+                            old_worker = getattr(existing_session.connection_dialog, 'worker', None) if existing_session.connection_dialog else None
+                            if old_worker:
+                                for ch in range(len(existing_session.mdi_window.last_display_lengths)):
+                                    # 设置为当前buffer长度,这样新数据会立即显示
+                                    existing_session.mdi_window.last_display_lengths[ch] = old_worker.colored_buffer_lengths[ch]
+                                logger.info(f"✅ Reset UI display offsets to current buffer lengths: {existing_session.mdi_window.last_display_lengths[:3]}")
+                                self.append_jlink_log(f"✅ Reset UI display offsets")
+                        
+                        # 启动RTT数据读取
+                        try:
+                            rtt.start()
+                            logger.info(f"✅ RTT data reading started for device {device_serial}")
+                            self.append_jlink_log(f"✅ RTT data reading started for device {device_serial}")
+                        except Exception as e:
+                            logger.error(f"Failed to start RTT: {e}", exc_info=True)
+                            self.append_jlink_log(f"❌ Failed to start RTT: {e}")
+                        
+                        # 重新启动MDI窗口的更新定时器
+                        if existing_session.mdi_window:
+                            if hasattr(existing_session.mdi_window, 'update_timer'):
+                                existing_session.mdi_window.update_timer.start(TimerInterval.MDI_WINDOW_UPDATE)
+                                logger.info(f"✅ MDI window update timer restarted for device {device_serial}")
                         
                         # 激活该设备的MDI窗口
                         if existing_session.mdi_window and existing_session.mdi_window.mdi_sub_window:
                             self.mdi_area.setActiveSubWindow(existing_session.mdi_window.mdi_sub_window)
-                            logger.info(f"✅ Switched to existing device {device_serial} window")
+                            
+                            # 如果只有一个窗口,最大化显示
+                            if len(self.mdi_area.subWindowList()) == 1:
+                                mdi_sub_window = existing_session.mdi_window.mdi_sub_window
+                                mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                                mdi_sub_window.show()
+                                mdi_sub_window.showMaximized()
+                                logger.info("Reconnected: Only one window, set to default size then maximized")
                         
                         # 设置为当前会话
                         self.current_session = existing_session
                         session_manager.set_active_session(existing_session)
                         
-                        # 关闭临时对话框(因为不需要重新连接)
-                        temp_dialog.close()
-                        
-                        # 显示提示信息
-                        from PySide6.QtWidgets import QMessageBox
-                        QMessageBox.information(
-                            self,
-                            QCoreApplication.translate("main_window", "Device Already Connected"),
-                            QCoreApplication.translate("main_window", "Device %s is already connected.\nSwitched to its window.") % device_serial
-                        )
-                        
+                        logger.info(f"✅ Device {device_serial} reconnected")
                         return
                     else:
                         # 新设备，创建新会话和MDI窗口
@@ -4508,39 +4583,8 @@ class RTTMainWindow(QMainWindow):
                         session.connection_dialog = temp_dialog
                         session.is_connected = True
                         
-                        # 创建MDI子窗口内容
-                        mdi_content = DeviceMdiWindow(session, self)
-                        
-                        # 创建MDI子窗口并添加内容
-                        from PySide6.QtCore import Qt
-                        mdi_sub_window = self.mdi_area.addSubWindow(mdi_content)
-                        mdi_sub_window.setWindowTitle(f"{session.get_display_name()}")
-                        mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
-                        
-                        # 显式设置窗口标志以确保可以调整大小
-                        mdi_sub_window.setWindowFlags(
-                            Qt.WindowType.SubWindow |
-                            Qt.WindowType.WindowTitleHint |
-                            Qt.WindowType.WindowSystemMenuHint |
-                            Qt.WindowType.WindowMinMaxButtonsHint
-                        )
-                        
-                        # 设置大小
-                        mdi_sub_window.resize(800, 600)
-                        
-                        # 保存引用
-                        session.mdi_window = mdi_content
-                        mdi_content.mdi_sub_window = mdi_sub_window
-                        
-                        # 连接关闭信号
-                        mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(session))
-                        
-                        # 显示窗口
-                        mdi_sub_window.show()
-                        
-                        # 添加到会话列表
-                        self.device_sessions.append(session)
-                        session_manager.add_session(session)
+                        # 创建MDI子窗口并添加内容(包含单窗口最大化逻辑)
+                        self._create_device_session_from_connection(session)
                         
                         # 设置为当前会话
                         self.current_session = session
@@ -5519,25 +5563,27 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             pass
 
+        # 获取当前激活的设备会话
+        active_session = self._get_active_device_session()
+        
         # 1. 连接状态和设备信息
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
-            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
+        if active_session and active_session.is_connected and active_session.rtt2uart:
+            device_info = getattr(active_session.rtt2uart, 'device_info', 'Unknown')
             title_parts.append(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
         else:
             title_parts.append(QCoreApplication.translate("main_window", "Disconnected"))
         
-        # 2. 读写字节统计
+        # 2. 读写字节统计 - 使用当前session的rtt2uart
         readed = 0
         writed = 0
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
-            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
-            writed = self.connection_dialog.rtt2uart.write_bytes0
+        if active_session and active_session.rtt2uart:
+            readed = active_session.rtt2uart.read_bytes0 + active_session.rtt2uart.read_bytes1
+            writed = active_session.rtt2uart.write_bytes0
         
         title_parts.append(QCoreApplication.translate("main_window", "Read: %10d bytes") % readed)
         title_parts.append(QCoreApplication.translate("main_window", "Write: %4d bytes") % writed)
 
         # 3. 当前激活的设备窗口和标签页名称
-        active_session = self._get_active_device_session()
         if active_session and active_session.mdi_window:
             # 获取设备名称
             device_name = active_session.get_display_name()
@@ -6498,6 +6544,20 @@ class ConnectionDialog(QDialog):
     
     def __init__(self, parent=None):
         super(ConnectionDialog, self).__init__(parent)
+        
+        # 检测是否有其他python进程占用JLink
+        self._check_and_handle_jlink_conflicts()
+        
+        # 强制清理可能残留的JLink实例,防止"already open"错误
+        try:
+            import pylink
+            import gc
+            # 触发垃圾回收,清理未正确关闭的JLink对象
+            gc.collect()
+            logger.info("🧹 Garbage collection triggered to clean up stale JLink instances")
+        except Exception as e:
+            logger.warning(f"Failed to trigger garbage collection: {e}")
+        
         self.ui = Ui_ConnectionDialog()
         self.ui.setupUi(self)
 
@@ -7440,6 +7500,127 @@ class ConnectionDialog(QDialog):
             return True
         except Exception:
             return False
+    
+    def _check_and_handle_jlink_conflicts(self):
+        """检测并处理JLink占用冲突"""
+        try:
+            import psutil
+            import os
+            
+            # 获取当前进程PID和父进程PID
+            current_pid = os.getpid()
+            try:
+                current_proc = psutil.Process(current_pid)
+                parent_pid = current_proc.ppid()  # 获取父进程PID
+                logger.info(f"当前进程PID: {current_pid}, 父进程PID: {parent_pid}")
+            except Exception as e:
+                logger.warning(f"无法获取父进程信息: {e}")
+                parent_pid = None
+            
+            xexunrtt_processes = []
+            
+            # 只查找运行XexunRTT的进程(main_window.py或XexunRTT.exe)
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    proc_pid = proc.info['pid']
+                    
+                    # 排除当前进程和父进程
+                    if proc_pid == current_pid:
+                        logger.debug(f"跳过当前进程 PID: {proc_pid}")
+                        continue
+                    if parent_pid and proc_pid == parent_pid:
+                        logger.debug(f"跳过父进程(虚拟环境启动器) PID: {proc_pid}")
+                        continue
+                    
+                    cmdline = proc.info['cmdline'] if proc.info['cmdline'] else []
+                    cmdline_str = ' '.join(cmdline).lower()
+                    
+                    # 检查是否是XexunRTT相关进程
+                    is_xexunrtt = False
+                    if 'xexunrtt.exe' in cmdline_str or 'xexunrtt_v' in cmdline_str:
+                        is_xexunrtt = True
+                    elif 'python' in proc.info['name'].lower() and 'main_window.py' in cmdline_str:
+                        is_xexunrtt = True
+                    
+                    if is_xexunrtt:
+                        logger.info(f"发现XexunRTT进程 PID: {proc_pid}, 名称: {proc.info['name']}, 命令行: {cmdline_str[:100]}")
+                        xexunrtt_processes.append({
+                            'pid': proc_pid,
+                            'name': proc.info['name'],
+                            'cmdline': ' '.join(cmdline) if cmdline else 'N/A'
+                        })
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            
+            if xexunrtt_processes:
+                logger.warning(f"检测到 {len(xexunrtt_processes)} 个其他XexunRTT进程可能占用JLink")
+                
+                # 构建提示信息
+                process_info = "\n".join([
+                    f"PID: {p['pid']} - {p['name']}\n{QCoreApplication.translate('main_window', 'Command line')}: {p['cmdline'][:100]}..."
+                    for p in xexunrtt_processes[:5]  # 最多显示5个
+                ])
+                
+                if len(xexunrtt_processes) > 5:
+                    process_info += f"\n... {QCoreApplication.translate('main_window', 'and %n more process(es)', '', len(xexunrtt_processes) - 5)}"
+                
+                # 显示对话框让用户选择
+                from PySide6.QtWidgets import QMessageBox
+                from PySide6.QtCore import Qt
+                msg_box = QMessageBox(self.parent())
+                msg_box.setWindowFlags(msg_box.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+                msg_box.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT Process Conflict"))
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+                msg_box.setText(QCoreApplication.translate("main_window", 
+                    "Detected %n other XexunRTT process(es) running, which may occupy the JLink device.\n\n"
+                    "If you encounter \"JLink already open\" error, you can choose to terminate these processes.", 
+                    "", len(xexunrtt_processes)))
+                msg_box.setDetailedText(process_info)
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                msg_box.button(QMessageBox.StandardButton.Yes).setText(QCoreApplication.translate("main_window", "Terminate Old XexunRTT Processes"))
+                msg_box.button(QMessageBox.StandardButton.No).setText(QCoreApplication.translate("main_window", "Ignore and Continue"))
+                
+                result = msg_box.exec()
+                
+                if result == QMessageBox.StandardButton.Yes:
+                    # 用户选择终止进程
+                    killed_count = 0
+                    for proc_info in xexunrtt_processes:
+                        try:
+                            proc = psutil.Process(proc_info['pid'])
+                            proc.terminate()  # 先尝试优雅终止
+                            proc.wait(timeout=2)  # 等待2秒
+                            killed_count += 1
+                            logger.info(f"✅ 已终止进程 PID: {proc_info['pid']}")
+                        except psutil.TimeoutExpired:
+                            # 如果优雅终止失败,强制杀死
+                            try:
+                                proc.kill()
+                                killed_count += 1
+                                logger.info(f"✅ 已强制终止进程 PID: {proc_info['pid']}")
+                            except Exception as e:
+                                logger.error(f"❌ 无法终止进程 PID {proc_info['pid']}: {e}")
+                        except Exception as e:
+                            logger.error(f"❌ 终止进程失败 PID {proc_info['pid']}: {e}")
+                    
+                    if killed_count > 0:
+                        QMessageBox.information(
+                            self.parent(),
+                            QCoreApplication.translate("main_window", "Process Termination Completed"),
+                            QCoreApplication.translate("main_window", 
+                                "Successfully terminated %n process(es).\n\n"
+                                "You can now try to connect to the JLink device.", 
+                                "", killed_count)
+                        )
+                        logger.info(f"🎯 用户选择终止进程,已清理 {killed_count} 个进程")
+                else:
+                    logger.info("用户选择忽略进程冲突警告")
+                    
+        except ImportError:
+            logger.warning("psutil模块未安装,无法检测进程冲突")
+        except Exception as e:
+            logger.error(f"检测JLink冲突时出错: {e}", exc_info=True)
 
     def target_device_selete(self):
         # 传入主窗口作为parent，以便应用相同的主题样式
@@ -9633,27 +9814,135 @@ if __name__ == "__main__":
     # 2. 尝试获取单实例锁
     if not acquire_instance_lock():
         # 如果无法获取锁，说明有其他实例在运行
-        # 显示错误对话框并退出
+        # 提示用户选择是否终止旧进程
         try:
             app = QApplication.instance()
             if app is None:
                 app = QApplication(sys.argv)
             
+            # 查找XexunRTT进程
+            current_pid = os.getpid()
+            xexunrtt_processes = []
+            
+            try:
+                import psutil
+                for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+                    try:
+                        if proc.pid == current_pid:
+                            continue
+                        
+                        proc_name = proc.info.get('name', '')
+                        proc_exe = proc.info.get('exe', '')
+                        
+                        # 匹配XexunRTT进程或python进程运行main_window.py
+                        if ('XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or
+                            (proc_exe and 'XexunRTT' in proc_exe)):
+                            xexunrtt_processes.append({
+                                'pid': proc.pid,
+                                'name': proc_name,
+                                'exe': proc_exe or 'N/A'
+                            })
+                        elif 'python' in proc_name.lower():
+                            # 检查命令行是否包含main_window.py
+                            cmdline = proc.info.get('cmdline', [])
+                            if cmdline and any('main_window.py' in arg for arg in cmdline):
+                                xexunrtt_processes.append({
+                                    'pid': proc.pid,
+                                    'name': proc_name,
+                                    'exe': ' '.join(cmdline)
+                                })
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                        continue
+            except ImportError:
+                pass
+            
+            # 构建进程信息
+            if xexunrtt_processes:
+                process_info = "\n".join([
+                    f"PID: {p['pid']} - {p['name']}\n{QCoreApplication.translate('main_window', 'Path')}: {p['exe']}"
+                    for p in xexunrtt_processes
+                ])
+            else:
+                process_info = QCoreApplication.translate("main_window", 
+                    "Unable to detect specific process information\n"
+                    "The port may be occupied or process permission is insufficient")
+            
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Warning)
-            msg.setWindowTitle("XexunRTT - Already Running")
-            msg.setText("XexunRTT is already running!")
+            msg.setWindowTitle(QCoreApplication.translate("main_window", "XexunRTT - Already Running"))
+            msg.setText(QCoreApplication.translate("main_window", "XexunRTT is already running!"))
             msg.setInformativeText(
-                "Another instance of XexunRTT is currently running.\n\n"
-                "If you don't see the window, there might be a zombie process.\n"
-                "Please check Task Manager and terminate any XexunRTT processes manually."
+                QCoreApplication.translate("main_window",
+                    "Another instance of XexunRTT is currently running.\n\n"
+                    "If you don't see the window, there might be a zombie process.\n"
+                    "Please check Task Manager and terminate any XexunRTT processes manually.")
             )
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec()
-        except:
-            pass
-        
-        sys.exit(1)
+            msg.setDetailedText(process_info)
+            
+            # 如果找到了进程,提供终止选项
+            if xexunrtt_processes:
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                msg.setDefaultButton(QMessageBox.No)
+                msg.button(QMessageBox.Yes).setText(QCoreApplication.translate("main_window", "Terminate Old Processes and Start"))
+                msg.button(QMessageBox.No).setText(QCoreApplication.translate("main_window", "Cancel"))
+                
+                result = msg.exec()
+                
+                if result == QMessageBox.Yes:
+                    # 用户选择终止旧进程
+                    killed_count = 0
+                    try:
+                        import psutil
+                        for proc_info in xexunrtt_processes:
+                            try:
+                                proc = psutil.Process(proc_info['pid'])
+                                proc.terminate()  # 先尝试优雅终止
+                                proc.wait(timeout=3)  # 等待3秒
+                                killed_count += 1
+                                logger.info(f"✅ 已终止旧进程 PID: {proc_info['pid']}")
+                            except psutil.TimeoutExpired:
+                                # 如果优雅终止失败,强制杀死
+                                try:
+                                    proc.kill()
+                                    killed_count += 1
+                                    logger.info(f"✅ 已强制终止旧进程 PID: {proc_info['pid']}")
+                                except Exception as e:
+                                    logger.error(f"❌ 无法终止进程 PID {proc_info['pid']}: {e}")
+                            except Exception as e:
+                                logger.error(f"❌ 终止进程失败 PID {proc_info['pid']}: {e}")
+                        
+                        if killed_count > 0:
+                            logger.info(f"🎯 已清理 {killed_count} 个旧进程,等待端口释放...")
+                            time.sleep(2)  # 等待端口释放
+                            
+                            # 重新尝试获取锁
+                            if acquire_instance_lock():
+                                logger.info("✅ 成功获取单实例锁,继续启动")
+                                # 继续启动程序(不退出)
+                            else:
+                                QMessageBox.critical(
+                                    None,
+                                    "启动失败",
+                                    "终止旧进程后仍无法获取锁,可能端口仍被占用。\n请手动检查任务管理器。"
+                                )
+                                sys.exit(1)
+                        else:
+                            QMessageBox.warning(None, "终止失败", "无法终止任何旧进程,程序将退出。")
+                            sys.exit(1)
+                    except ImportError:
+                        QMessageBox.warning(None, "功能不可用", "psutil模块未安装,无法自动终止进程。")
+                        sys.exit(1)
+                else:
+                    # 用户选择取消
+                    sys.exit(0)
+            else:
+                # 没有找到进程,只显示确定按钮
+                msg.setStandardButtons(QMessageBox.Ok)
+                msg.exec()
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"处理单实例冲突时出错: {e}", exc_info=True)
+            sys.exit(1)
     
     # 获取DPI设置并应用环境变量
     manual_dpi = config_manager.get_dpi_scale()
