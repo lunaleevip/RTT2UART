@@ -90,7 +90,8 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QMessageBox, QFileDialog, QTabWidget,
     QSplitter, QFrame, QMenu, QHeaderView, QAbstractItemView,
     QSizePolicy, QButtonGroup, QListWidget, QListWidgetItem, QTabBar,
-    QPlainTextEdit, QMdiArea, QMdiSubWindow
+    QPlainTextEdit, QMdiArea, QMdiSubWindow, QTableWidget, QTableWidgetItem,
+    QDialogButtonBox
 )
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
@@ -2188,6 +2189,14 @@ class RTTMainWindow(QMainWindow):
         
         self.tools_menu.addSeparator()
         
+        # RTT Chain Info 动作
+        self.rtt_info_action = QAction(QCoreApplication.translate("main_window", "RTT Chain Info(&I)"), self)
+        self.rtt_info_action.triggered.connect(self.show_rtt_chain_info)
+        self.rtt_info_action.setEnabled(False)  # 默认禁用，连接后启用
+        self.tools_menu.addAction(self.rtt_info_action)
+        
+        self.tools_menu.addSeparator()
+        
         # 编码设置子菜单（仅在断开时可切换）
         self.encoding_menu = self.tools_menu.addMenu(QCoreApplication.translate("main_window", "Encoding(&E)"))
         self._build_encoding_submenu()
@@ -2734,6 +2743,10 @@ class RTTMainWindow(QMainWindow):
             
             logger.info(f"✅ Device session created with MDI window: {session.get_display_name()}")
             self.append_jlink_log(QCoreApplication.translate("main_window", "Device %s connected successfully") % session.get_display_name())
+            
+            # 启用 RTT Chain Info 菜单
+            if hasattr(self, 'rtt_info_action'):
+                self.rtt_info_action.setEnabled(True)
             
         except Exception as e:
             logger.error(f"Failed to create device session: {e}", exc_info=True)
@@ -4458,6 +4471,11 @@ class RTTMainWindow(QMainWindow):
             logger.info(f"Device disconnected: {session.get_display_name()}")
             self.append_jlink_log(QCoreApplication.translate("main_window", "Device disconnected: %s") % session.get_display_name())
             
+            # 检查是否还有其他连接的设备，如果没有则禁用 RTT Chain Info 菜单
+            if hasattr(self, 'rtt_info_action'):
+                has_connected = any(s.is_connected for s in self.device_sessions if s.rtt2uart)
+                self.rtt_info_action.setEnabled(has_connected)
+            
         except Exception as e:
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
 
@@ -4562,6 +4580,10 @@ class RTTMainWindow(QMainWindow):
                         # 设置为当前会话
                         self.current_session = existing_session
                         session_manager.set_active_session(existing_session)
+                        
+                        # 启用 RTT Chain Info 菜单
+                        if hasattr(self, 'rtt_info_action'):
+                            self.rtt_info_action.setEnabled(True)
                         
                         logger.info(f"✅ Device {device_serial} reconnected")
                         return
@@ -5032,6 +5054,199 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to open config folder: {e}")
             # Show error message
             QMessageBox.warning(self, QCoreApplication.translate("main_window", "Error"), QCoreApplication.translate("main_window", "Cannot open config folder:\n{}").format(e))
+
+    def show_rtt_chain_info(self):
+        """显示 RTT 通道信息对话框 - 使用表格显示"""
+        try:
+            # 检查是否有活动连接
+            if not self.connection_dialog or not hasattr(self.connection_dialog, 'rtt2uart') or not self.connection_dialog.rtt2uart:
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "No Connection"),
+                    QCoreApplication.translate("main_window", "Please connect to a device first.")
+                )
+                return
+            
+            rtt2uart = self.connection_dialog.rtt2uart
+            
+            # 检查 JLink 连接和 RTT 状态
+            if not hasattr(rtt2uart, 'jlink') or not rtt2uart.jlink:
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "No JLink Connection"),
+                    QCoreApplication.translate("main_window", "JLink is not connected.")
+                )
+                return
+            
+            # 检查 JLink 是否真正打开
+            try:
+                if not rtt2uart.jlink.opened():
+                    QMessageBox.warning(
+                        self,
+                        QCoreApplication.translate("main_window", "JLink Not Open"),
+                        QCoreApplication.translate("main_window", "JLink DLL is not open. Please connect to device first.")
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to check JLink open status: {e}")
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "JLink Not Ready"),
+                    QCoreApplication.translate("main_window", "JLink is not ready. Please connect to device first.")
+                )
+                return
+            
+            # 获取 RTT 通道信息
+            try:
+                # 读取真实的 RTT 控制块信息
+                num_up_buffers = rtt2uart.jlink.rtt_get_num_up_buffers()
+                num_down_buffers = rtt2uart.jlink.rtt_get_num_down_buffers()
+                
+                logger.info(f"RTT Info: {num_up_buffers} up buffers, {num_down_buffers} down buffers")
+                
+                # 创建对话框
+                dialog = QDialog(self)
+                dialog.setWindowTitle(QCoreApplication.translate("main_window", "RTT Channel Description"))
+                dialog.setMinimumWidth(500)
+                
+                layout = QVBoxLayout(dialog)
+                
+                # Up channels 标签和表格
+                up_label = QLabel(QCoreApplication.translate("main_window", "Up channels:"))
+                up_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+                layout.addWidget(up_label)
+                
+                up_table = QTableWidget(num_up_buffers, 4)
+                up_table.setHorizontalHeaderLabels([
+                    QCoreApplication.translate("main_window", "Id"),
+                    QCoreApplication.translate("main_window", "Name"),
+                    QCoreApplication.translate("main_window", "Size"),
+                    QCoreApplication.translate("main_window", "Mode")
+                ])
+                up_table.horizontalHeader().setStretchLastSection(True)
+                up_table.setEditTriggers(QTableWidget.NoEditTriggers)
+                up_table.setSelectionBehavior(QTableWidget.SelectRows)
+                
+                # 填充 Up channels 数据
+                for i in range(num_up_buffers):
+                    try:
+                        buf_info = rtt2uart.jlink.rtt_get_buf_descriptor(i, True)
+                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                        size = buf_info.SizeOfBuffer
+                        flags = buf_info.Flags
+                        
+                        # 解析并翻译模式标志
+                        if flags == 0:
+                            mode = QCoreApplication.translate("main_window", "Non-blocking, skip")
+                        elif flags == 1:
+                            mode = QCoreApplication.translate("main_window", "Non-blocking, trim")
+                        elif flags == 2:
+                            mode = QCoreApplication.translate("main_window", "Blocking")
+                        else:
+                            mode = QCoreApplication.translate("main_window", "Mode %s") % flags
+                        
+                        up_table.setItem(i, 0, QTableWidgetItem(f"#{i}"))
+                        up_table.setItem(i, 1, QTableWidgetItem(name))
+                        up_table.setItem(i, 2, QTableWidgetItem(str(size)))
+                        up_table.setItem(i, 3, QTableWidgetItem(mode))
+                        
+                        logger.debug(f"Up buffer {i}: name={name}, size={size}, flags={flags}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get up buffer {i} info: {e}")
+                        up_table.setItem(i, 0, QTableWidgetItem(f"#{i}"))
+                        up_table.setItem(i, 1, QTableWidgetItem("-"))
+                        up_table.setItem(i, 2, QTableWidgetItem("-"))
+                        up_table.setItem(i, 3, QTableWidgetItem("-"))
+                
+                up_table.resizeColumnsToContents()
+                # 设置表格高度自适应行数
+                up_table_height = up_table.horizontalHeader().height() + 2  # 表头高度 + 边框
+                for i in range(num_up_buffers):
+                    up_table_height += up_table.rowHeight(i)
+                up_table.setFixedHeight(up_table_height)
+                layout.addWidget(up_table)
+                
+                # Down channels 标签和表格
+                down_label = QLabel(QCoreApplication.translate("main_window", "Down channels:"))
+                down_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+                layout.addWidget(down_label)
+                
+                down_table = QTableWidget(num_down_buffers, 4)
+                down_table.setHorizontalHeaderLabels([
+                    QCoreApplication.translate("main_window", "Id"),
+                    QCoreApplication.translate("main_window", "Name"),
+                    QCoreApplication.translate("main_window", "Size"),
+                    QCoreApplication.translate("main_window", "Mode")
+                ])
+                down_table.horizontalHeader().setStretchLastSection(True)
+                down_table.setEditTriggers(QTableWidget.NoEditTriggers)
+                down_table.setSelectionBehavior(QTableWidget.SelectRows)
+                
+                # 填充 Down channels 数据
+                for i in range(num_down_buffers):
+                    try:
+                        buf_info = rtt2uart.jlink.rtt_get_buf_descriptor(i, False)
+                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                        size = buf_info.SizeOfBuffer
+                        flags = buf_info.Flags
+                        
+                        # 解析并翻译模式标志
+                        if flags == 0:
+                            mode = QCoreApplication.translate("main_window", "Non-blocking, skip")
+                        elif flags == 1:
+                            mode = QCoreApplication.translate("main_window", "Non-blocking, trim")
+                        elif flags == 2:
+                            mode = QCoreApplication.translate("main_window", "Blocking")
+                        else:
+                            mode = QCoreApplication.translate("main_window", "Mode %s") % flags
+                        
+                        down_table.setItem(i, 0, QTableWidgetItem(f"#{i}"))
+                        down_table.setItem(i, 1, QTableWidgetItem(name))
+                        down_table.setItem(i, 2, QTableWidgetItem(str(size)))
+                        down_table.setItem(i, 3, QTableWidgetItem(mode))
+                        
+                        logger.debug(f"Down buffer {i}: name={name}, size={size}, flags={flags}")
+                    except Exception as e:
+                        logger.warning(f"Failed to get down buffer {i} info: {e}")
+                        down_table.setItem(i, 0, QTableWidgetItem(f"#{i}"))
+                        down_table.setItem(i, 1, QTableWidgetItem("-"))
+                        down_table.setItem(i, 2, QTableWidgetItem("-"))
+                        down_table.setItem(i, 3, QTableWidgetItem("-"))
+                
+                down_table.resizeColumnsToContents()
+                # 设置表格高度自适应行数
+                down_table_height = down_table.horizontalHeader().height() + 2  # 表头高度 + 边框
+                for i in range(num_down_buffers):
+                    down_table_height += down_table.rowHeight(i)
+                down_table.setFixedHeight(down_table_height)
+                layout.addWidget(down_table)
+                
+                # 添加确定按钮
+                button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+                button_box.accepted.connect(dialog.accept)
+                layout.addWidget(button_box)
+                
+                # 调整对话框大小以适应内容
+                dialog.adjustSize()
+                
+                # 显示对话框
+                dialog.exec()
+                
+            except Exception as e:
+                logger.error(f"Failed to get RTT channel info: {e}")
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "Error"),
+                    QCoreApplication.translate("main_window", "Failed to get RTT channel information:\n%s") % str(e)
+                )
+                
+        except Exception as e:
+            logger.error(f"Error showing RTT chain info: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                QCoreApplication.translate("main_window", "Error"),
+                QCoreApplication.translate("main_window", "Failed to show RTT channel information:\n%s") % str(e)
+            )
 
     def populateComboBox(self):
         """统一从配置管理器加载命令历史，避免重复加载"""

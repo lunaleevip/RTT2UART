@@ -748,9 +748,123 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>打开日志文件夹(&amp;O)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="2198"/>
+        <location filename="../main_window.py" line="2185"/>
         <source>Open Config Folder(&amp;F)</source>
-        <translation>打开配置文件夹(&amp;F)</translation>
+        <translation>打開配置文件夾(&amp;F)</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="2192"/>
+        <source>RTT Chain Info(&amp;I)</source>
+        <translation>RTT通道信息(&amp;I)</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5050"/>
+        <source>No Connection</source>
+        <translation>未連接</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5051"/>
+        <source>Please connect to a device first.</source>
+        <translation>請先連接設備。</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5061"/>
+        <source>No JLink Connection</source>
+        <translation>無JLink連接</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5063"/>
+        <source>JLink is not connected.</source>
+        <translation>JLink未連接。</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5072"/>
+        <source>JLink Not Open</source>
+        <translation>JLink未打開</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5073"/>
+        <source>JLink DLL is not open. Please connect to device first.</source>
+        <translation>JLink DLL未打開。請先連接設備。</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5080"/>
+        <source>JLink Not Ready</source>
+        <translation>JLink未就緒</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5081"/>
+        <source>JLink is not ready. Please connect to device first.</source>
+        <translation>JLink未就緒。請先連接設備。</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5079"/>
+        <source>RTT Channel Description</source>
+        <translation>RTT通道描述</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5085"/>
+        <source>Up channels:</source>
+        <translation>上行通道:</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5091"/>
+        <source>Id</source>
+        <translation>Id</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5092"/>
+        <source>Name</source>
+        <translation>名稱</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5093"/>
+        <source>Size</source>
+        <translation>大小</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5094"/>
+        <source>Mode</source>
+        <translation>模式</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5110"/>
+        <source>Non-blocking, skip</source>
+        <translation>非阻塞，跳過</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5112"/>
+        <source>Non-blocking, trim</source>
+        <translation>非阻塞，截斷</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5114"/>
+        <source>Blocking</source>
+        <translation>阻塞</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5116"/>
+        <source>Mode %s</source>
+        <translation>模式 %s</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5135"/>
+        <source>Down channels:</source>
+        <translation>下行通道:</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5132"/>
+        <source>Failed to get RTT channel information:
+%s</source>
+        <translation>獲取RTT通道信息失敗:
+%s</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5140"/>
+        <source>Failed to show RTT channel information:
+%s</source>
+        <translation>顯示RTT通道信息失敗:
+%s</translation>
     </message>
     <message>
         <location filename="../main_window.py" line="2205"/>
