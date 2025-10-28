@@ -356,11 +356,47 @@ class rtt_to_serial():
             # 5. 重新连接
             try:
                 # 重新打开JLink
-                if self._connect_inf == 'USB':
-                    self.jlink.open(self._connect_para)
-                else:
-                    self.jlink.open()
-                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink reopened successfully"))
+                try:
+                    if self._connect_inf == 'USB':
+                        self.jlink.open(self._connect_para)
+                    else:
+                        self.jlink.open()
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink reopened successfully"))
+                except pylink.errors.JLinkException as e:
+                    error_msg = str(e)
+                    # 检测到"already open"错误时，先关闭再重试
+                    if "already open" in error_msg.lower() or "is open" in error_msg.lower():
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already open, closing and retrying..."))
+                        import time
+                        # 尝试关闭
+                        try:
+                            self.jlink.close()
+                            time.sleep(0.3)
+                        except Exception as close_e:
+                            logger.warning(f"Failed to close JLink: {close_e}")
+                        
+                        # 检查是否真的关闭了
+                        try:
+                            if self.jlink.opened():
+                                # 如果仍然打开，强制重新创建 JLink 对象
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink still open, recreating JLink object..."))
+                                del self.jlink
+                                import gc
+                                gc.collect()
+                                time.sleep(0.2)
+                                self.jlink = pylink.JLink()
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink object recreated"))
+                        except Exception as check_e:
+                            logger.debug(f"Cannot check JLink status: {check_e}")
+                        
+                        # 重试打开
+                        if self._connect_inf == 'USB':
+                            self.jlink.open(self._connect_para)
+                        else:
+                            self.jlink.open()
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
+                    else:
+                        raise
                 
                 # 重新设置速率
                 self.jlink.set_speed(self._speed)
@@ -669,13 +705,33 @@ class rtt_to_serial():
                         
                     except pylink.errors.JLinkException as e:
                         error_msg = str(e)
+                        logger.warning(f"JLinkException caught: {error_msg}")
                         # 🔑 检测到"already open"错误时，先关闭再重试
-                        if "already open" in error_msg.lower():
+                        # 支持多种错误消息格式
+                        if "already open" in error_msg.lower() or "is open" in error_msg.lower():
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already open, closing and retrying..."))
                             try:
-                                self.jlink.close()
                                 import time
-                                time.sleep(0.3)  # 等待关闭完成
+                                # 尝试关闭
+                                try:
+                                    self.jlink.close()
+                                    time.sleep(0.3)  # 等待关闭完成
+                                except Exception as close_e:
+                                    logger.warning(f"Failed to close JLink: {close_e}")
+                                
+                                # 检查是否真的关闭了
+                                try:
+                                    if self.jlink.opened():
+                                        # 如果仍然打开，强制重新创建 JLink 对象
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink still open, recreating JLink object..."))
+                                        del self.jlink
+                                        import gc
+                                        gc.collect()
+                                        time.sleep(0.2)
+                                        self.jlink = pylink.JLink()
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink object recreated"))
+                                except Exception as check_e:
+                                    logger.debug(f"Cannot check JLink status: {check_e}")
                                 
                                 # 重试打开
                                 if self._connect_inf == 'USB':
@@ -688,6 +744,30 @@ class rtt_to_serial():
                                 
                                 time.sleep(0.1)
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
+                                
+                                # 重新获取JLink连接详细信息
+                                try:
+                                    if hasattr(self.jlink, 'core_name'):
+                                        core_name = self.jlink.core_name()
+                                        if core_name:
+                                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Core: %s") % core_name)
+                                    
+                                    if hasattr(self.jlink, 'product_name'):
+                                        product = self.jlink.product_name
+                                        if product:
+                                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Product: %s") % product)
+                                    
+                                    if hasattr(self.jlink, 'firmware_version'):
+                                        fw_ver = self.jlink.firmware_version
+                                        if fw_ver:
+                                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Firmware: %s") % fw_ver)
+                                    
+                                    if hasattr(self.jlink, 'hardware_version'):
+                                        hw_ver = self.jlink.hardware_version
+                                        if hw_ver:
+                                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Hardware: %s") % hw_ver)
+                                except Exception as info_e:
+                                    logger.debug(f"Failed to get JLink info after retry: {info_e}")
                             except Exception as retry_e:
                                 error_msg = f"Failed to reopen JLink: {retry_e}"
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to reopen JLink: %s") % str(retry_e))
