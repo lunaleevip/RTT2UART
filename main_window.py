@@ -1044,12 +1044,17 @@ class EditableTabBar(QTabBar):
                 tab_widget = self.parent()
                 mdi_window = None
                 if tab_widget:
-                    # tab_widget.parent() 是 central_widget (QWidget)
-                    # central_widget.parent() 才是 DeviceMdiWindow
-                    central_widget = tab_widget.parent()
-                    if central_widget:
-                        mdi_window = central_widget.parent()
-                    logger.info(f"  找到tab_widget: {tab_widget}, central_widget: {central_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+                    # tab_widget.parent() 是 DeviceMdiWindow
+                    # 因为 tab_widget 是直接添加到 DeviceMdiWindow 的布局中的
+                    mdi_window = tab_widget.parent()
+                    
+                    # 如果 parent 是 QWidget，可能需要再往上找
+                    if mdi_window and not isinstance(mdi_window, DeviceMdiWindow):
+                        # 可能是 QMdiSubWindow，获取其 widget
+                        if hasattr(mdi_window, 'widget'):
+                            mdi_window = mdi_window.widget()
+                    
+                    logger.info(f"  找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
                 
                 if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
                     old_text = self.tabText(index)
@@ -1074,6 +1079,12 @@ class EditableTabBar(QTabBar):
                             mdi_window.last_display_lengths[index] = 0
                             logger.info(f"  ✅ 已清空TAB[{index}]的Worker缓冲区")
                     
+                    # 🔑 先保存空字符串到配置（MDI架构：使用当前设备会话的配置）
+                    # 必须在 update_filter_tab_display() 之前更新配置，否则判断逻辑会读取到旧值
+                    if mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                        mdi_window.device_session.connection_dialog.config.set_filter(index, "")
+                        logger.info(f"  ✅ 已保存空配置到内存")
+                    
                     # 重置标签文本为"+"
                     self.setTabText(index, "+")
                     logger.info(f"  ✅ 已设置TAB[{index}]文本为'+'")
@@ -1082,11 +1093,10 @@ class EditableTabBar(QTabBar):
                     logger.info(f"  🔄 调用update_filter_tab_display()...")
                     mdi_window.update_filter_tab_display()
                     
-                    # 🔑 保存空字符串到配置
-                    if self.main_window and self.main_window.connection_dialog:
-                        self.main_window.connection_dialog.config.set_filter(index, "")
-                        self.main_window.connection_dialog.config.save_config()
-                        logger.info(f"  ✅ 已保存空配置")
+                    # 保存配置到文件
+                    if mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                        mdi_window.device_session.connection_dialog.config.save_config()
+                        logger.info(f"  ✅ 已保存配置到文件")
                     
                     # 恢复原来的标签页（如果不是同一个）
                     if current_index != index:
@@ -1155,24 +1165,40 @@ class EditableTabBar(QTabBar):
         if index >= 17:
             old_text = self.tabText(index)
             
+            # 找到当前的DeviceMdiWindow实例（MDI架构）
+            tab_widget = self.parent()
+            mdi_window = None
+            if tab_widget:
+                # tab_widget.parent() 是 DeviceMdiWindow
+                # 因为 tab_widget 是直接添加到 DeviceMdiWindow 的布局中的
+                mdi_window = tab_widget.parent()
+                
+                # 如果 parent 是 QWidget，可能需要再往上找
+                if mdi_window and not isinstance(mdi_window, DeviceMdiWindow):
+                    # 可能是 QMdiSubWindow，获取其 widget
+                    if hasattr(mdi_window, 'widget'):
+                        mdi_window = mdi_window.widget()
+                
+                logger.info(f"🔍 找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+            
             # 如果是"+"符号,传递空字符串给对话框
             # 如果筛选内容本身就是"+",则传递"+"
             dialog_text = old_text
             if old_text == "+":
-                # 检查配置中的实际内容
+                # 检查配置中的实际内容（MDI架构：使用当前设备会话的配置）
                 actual_filter = ""
-                if self.main_window and self.main_window.connection_dialog:
-                    actual_filter = self.main_window.connection_dialog.config.get_filter(index)
+                if mdi_window and mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                    actual_filter = mdi_window.device_session.connection_dialog.config.get_filter(index)
                 # 如果配置中是空的或也是"+",传空字符串;否则传实际内容
                 if not actual_filter or actual_filter == "+":
                     dialog_text = ""
                 else:
                     dialog_text = actual_filter
             
-            # 获取当前TAB的正则表达式状态
+            # 获取当前TAB的正则表达式状态（MDI架构）
             current_regex_state = False
-            if self.main_window and self.main_window.connection_dialog:
-                current_regex_state = self.main_window.connection_dialog.config.get_tab_regex_filter(index)
+            if mdi_window and mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                current_regex_state = mdi_window.device_session.connection_dialog.config.get_tab_regex_filter(index)
             
             # 显示自定义对话框
             dialog = FilterEditDialog(self, dialog_text, current_regex_state)
@@ -1199,12 +1225,17 @@ class EditableTabBar(QTabBar):
                 # 找到当前的DeviceMdiWindow实例
                 mdi_window = None
                 if tab_widget:
-                    # tab_widget.parent() 是 central_widget (QWidget)
-                    # central_widget.parent() 才是 DeviceMdiWindow
-                    central_widget = tab_widget.parent()
-                    if central_widget:
-                        mdi_window = central_widget.parent()
-                    logger.info(f"🔍 找到tab_widget: {tab_widget}, central_widget: {central_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+                    # tab_widget.parent() 是 DeviceMdiWindow
+                    # 因为 tab_widget 是直接添加到 DeviceMdiWindow 的布局中的
+                    mdi_window = tab_widget.parent()
+                    
+                    # 如果 parent 是 QWidget，可能需要再往上找
+                    if mdi_window and not isinstance(mdi_window, DeviceMdiWindow):
+                        # 可能是 QMdiSubWindow，获取其 widget
+                        if hasattr(mdi_window, 'widget'):
+                            mdi_window = mdi_window.widget()
+                    
+                    logger.info(f"🔍 找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
                 
                 # 如果清空了筛选文本，同时清空该TAB的数据
                 if not new_text:
@@ -1230,37 +1261,34 @@ class EditableTabBar(QTabBar):
                     else:
                         logger.warning(f"  ✗ mdi_window无效或不是DeviceMdiWindow实例")
                 
+                # 🔑 先保存过滤器设置和正则表达式状态（MDI架构：使用当前设备会话的配置）
+                # 必须在 update_filter_tab_display() 之前更新配置，否则判断逻辑会读取到旧值
+                if mdi_window and mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                    config = mdi_window.device_session.connection_dialog.config
+                    
+                    # 🔑 架构改进：config对象在UI初始化时已包含所有筛选值
+                    # 只需要更新当前TAB的值即可
+                    if new_text:
+                        config.set_filter(index, new_text)
+                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '{new_text}'")
+                    else:
+                        config.set_filter(index, "")
+                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '' (用户清空)")
+                    
+                    # 🔧 修改：为单个TAB保存正则表达式状态
+                    config.set_tab_regex_filter(index, regex_enabled)
+                    logger.debug(f"[FILTER EDIT] Updated config in memory")
+                
                 # 更新筛选TAB显示（隐藏多余的空TAB）
                 if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
                     logger.info(f"🔄 调用update_filter_tab_display()...")
                     mdi_window.update_filter_tab_display()
                 
-                # 保存过滤器设置和正则表达式状态
-                if self.main_window and self.main_window.connection_dialog:
-                    # logger.info("🟡" * 40)
-                    # logger.info(f"[FILTER EDIT] 用户双击编辑TAB {index}")
-                    # logger.info(f"[FILTER EDIT] 原文本: '{old_text}'")
-                    # logger.info(f"[FILTER EDIT] 新文本: '{new_text}'")
-                    # logger.info(f"[FILTER EDIT] 正则: {regex_enabled}")
-                    
-                    # 🔑 架构改进：config对象在UI初始化时已包含所有筛选值
-                    # 只需要更新当前TAB的值即可
-                    if new_text:
-                        self.main_window.connection_dialog.config.set_filter(index, new_text)
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '{new_text}'")
-                    else:
-                        self.main_window.connection_dialog.config.set_filter(index, "")
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '' (用户清空)")
-                    
-                    # 🔧 修改：为单个TAB保存正则表达式状态
-                    self.main_window.connection_dialog.config.set_tab_regex_filter(index, regex_enabled)
-                    
-                    # logger.info(f"[FILTER EDIT] 准备调用 save_config()")
-                    self.main_window.connection_dialog.config.save_config()
-                    # logger.info(f"[FILTER EDIT] save_config() 调用完成")
-                    # logger.info("🟡" * 40)
-                    
-                    logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled}")
+                # 保存配置到文件
+                if mdi_window and mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                    config = mdi_window.device_session.connection_dialog.config
+                    config.save_config()
+                    logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled} saved to file")
 
 class DeviceMdiWindow(QWidget):
     """设备MDI子窗口内容 - 每个设备有自己的32个日志TAB"""
@@ -1640,11 +1668,24 @@ class DeviceMdiWindow(QWidget):
             logger.info("=" * 60)
             logger.info("🔍 开始更新筛选TAB显示")
             
+            # 获取配置对象
+            config = None
+            if self.device_session and self.device_session.connection_dialog:
+                config = self.device_session.connection_dialog.config
+            
             for i in range(17, MAX_TAB_SIZE):
                 tab_text = self.tab_widget.tabText(i)
                 is_visible = self.tab_widget.isTabVisible(i)
-                # 判断是否有内容（不是"+"且不为空）
-                has_content = tab_text and tab_text != "+"
+                
+                # 判断是否有内容：优先检查配置，其次检查TAB文本
+                has_content = False
+                if config:
+                    filter_content = config.get_filter(i)
+                    has_content = filter_content and filter_content.strip() and filter_content != "+"
+                
+                # 如果配置中没有内容，再检查TAB文本
+                if not has_content:
+                    has_content = tab_text and tab_text != "+" and tab_text.strip()
                 
                 # logger.info(f"  TAB[{i}]: text='{tab_text}', visible={is_visible}, has_content={has_content}")
                 
@@ -3358,8 +3399,9 @@ class RTTMainWindow(QMainWindow):
                 action.triggered.connect(lambda checked, e=enc: self._on_encoding_selected(e))
                 self.encoding_action_group.addAction(action)
                 self.encoding_menu.addAction(action)
-            # 初始根据连接状态设置可用性
-            self._set_encoding_menu_enabled(not (self.connection_dialog and self.connection_dialog.start_state))
+            # MDI架构：初始根据是否有活动连接设置可用性
+            has_active_connection = bool(self._get_active_device_session())
+            self._set_encoding_menu_enabled(not has_active_connection)
         except Exception:
             pass
 
@@ -3382,7 +3424,8 @@ class RTTMainWindow(QMainWindow):
     def _on_encoding_selected(self, enc: str):
         """选择编码：仅在断开时允许修改"""
         try:
-            if self.connection_dialog and self.connection_dialog.start_state:
+            # MDI架构：检查是否有活动连接
+            if self._get_active_device_session():
                 QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please disconnect first before switching encoding"))
                 # 回退选中状态
                 self._refresh_encoding_menu_checks()
@@ -3524,17 +3567,10 @@ class RTTMainWindow(QMainWindow):
         self.current_session = session
         session_manager.set_active_session(session)
         
-        # 更新连接状态显示，包含设备信息
-        if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'rtt2uart'):
-            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
-        else:
-                    self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected"))
-        
         # 应用保存的设置
         self._apply_saved_settings()
         
-        # 更新状态显示
+        # 更新状态显示（MDI架构：会自动显示活动设备的状态）
         self.update_status_bar()
         
         # 显示成功消息
@@ -3746,16 +3782,19 @@ class RTTMainWindow(QMainWindow):
             # 使用当前工作目录，文件名为JLINK_DEBUG.TXT
             log_file_path = os.path.join(os.getcwd(), "JLINK_DEBUG.TXT")
             
-            # 如果已经有连接，立即启用文件日志
-            if (hasattr(self.connection_dialog, 'rtt2uart') and 
-                self.connection_dialog.rtt2uart and 
-                hasattr(self.connection_dialog.rtt2uart, 'jlink')):
-                try:
-                    self.connection_dialog.rtt2uart.jlink.set_log_file(log_file_path)
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % log_file_path)
-                    self._start_jlink_log_tailer(log_file_path)
-                except Exception as e:
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to enable file logging: %s") % str(e))
+            # MDI架构：为所有已连接的设备会话启用文件日志
+            enabled_count = 0
+            for session in session_manager.get_all_sessions():
+                if session.rtt2uart and hasattr(session.rtt2uart, 'jlink'):
+                    try:
+                        session.rtt2uart.jlink.set_log_file(log_file_path)
+                        enabled_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to enable file logging for session {session.session_id}: {e}")
+            
+            if enabled_count > 0:
+                self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging enabled: %s") % log_file_path)
+                self._start_jlink_log_tailer(log_file_path)
             else:
                 # 如果还没有连接，标记需要在连接时启用
                 self.pending_jlink_log_file = log_file_path
@@ -3771,17 +3810,20 @@ class RTTMainWindow(QMainWindow):
             if hasattr(self, 'pending_jlink_log_file'):
                 delattr(self, 'pending_jlink_log_file')
             
-            # 如果有活动连接，禁用文件日志
-            if (hasattr(self.connection_dialog, 'rtt2uart') and 
-                self.connection_dialog.rtt2uart and 
-                hasattr(self.connection_dialog.rtt2uart, 'jlink')):
-                try:
-                    # 通过设置空字符串来禁用文件日志
-                    self.connection_dialog.rtt2uart.jlink.set_log_file("")
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging disabled"))
-                    self._stop_jlink_log_tailer()
-                except Exception as e:
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to disable file logging: %s") % str(e))
+            # MDI架构：为所有已连接的设备会话禁用文件日志
+            disabled_count = 0
+            for session in session_manager.get_all_sessions():
+                if session.rtt2uart and hasattr(session.rtt2uart, 'jlink'):
+                    try:
+                        # 通过设置空字符串来禁用文件日志
+                        session.rtt2uart.jlink.set_log_file("")
+                        disabled_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to disable file logging for session {session.session_id}: {e}")
+            
+            if disabled_count > 0:
+                self.append_jlink_log(QCoreApplication.translate("main_window", "JLink file logging disabled"))
+                self._stop_jlink_log_tailer()
                     
         except Exception as e:
             self.append_jlink_log(QCoreApplication.translate("main_window", "Error disabling file logging: %s") % str(e))
@@ -4282,17 +4324,16 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Error cleaning UI resources: {e}")
     
     def _cleanup_log_directories(self):
-        """清理日志目录"""
+        """清理日志目录 - MDI架构：清理所有设备会话的日志目录"""
         try:
-            if (self.connection_dialog and 
-                self.connection_dialog.rtt2uart and 
-                self.connection_dialog.rtt2uart.log_directory):
-                
-                log_directory = self.connection_dialog.rtt2uart.log_directory
-                if log_directory and os.path.exists(log_directory):
-                    if not os.listdir(log_directory):
-                        shutil.rmtree(log_directory)
-                        logger.info(f"Deleted empty log directory: {log_directory}")
+            # MDI架构：清理所有设备会话的日志目录
+            for session in session_manager.get_all_sessions():
+                if session.rtt2uart and session.rtt2uart.log_directory:
+                    log_directory = session.rtt2uart.log_directory
+                    if log_directory and os.path.exists(log_directory):
+                        if not os.listdir(log_directory):
+                            shutil.rmtree(log_directory)
+                            logger.info(f"Deleted empty log directory: {log_directory}")
             
         except Exception as e:
             logger.error(f"Error cleaning log directories: {e}")
@@ -4399,11 +4440,14 @@ class RTTMainWindow(QMainWindow):
             enc = 'gbk'
         out_bytes = cmd_text.encode(enc, errors='ignore')
         
-        if self.connection_dialog:
-            bytes_written = self.connection_dialog.jlink.rtt_write(0, out_bytes)
-            self.connection_dialog.rtt2uart.write_bytes0 = bytes_written
+        # MDI 架构：使用当前活动设备的 session
+        session = self._get_active_device_session()
+        if session and session.rtt2uart and session.rtt2uart.jlink:
+            bytes_written = session.rtt2uart.jlink.rtt_write(0, out_bytes)
+            session.rtt2uart.write_bytes0 = bytes_written
         else:
             bytes_written = 0
+            logger.warning("No active device session for sending command")
             
         # 检查发送是否成功
         if(bytes_written == len(out_bytes)):
@@ -4635,8 +4679,8 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.config.set_auto_reconnect_on_no_data(enabled)
             self.connection_dialog.config.save_config()
         
-        # 如果启用且已连接，启动监控定时器
-        if enabled and self.connection_dialog and self.connection_dialog.start_state:
+        # MDI架构：如果启用且有活动连接，启动监控定时器
+        if enabled and self._get_active_device_session():
             self.last_data_time = time.time()
             self.data_check_timer.start(TimerInterval.DATA_CHECK)
             logger.info("Auto reconnect on no data enabled")
@@ -4669,8 +4713,9 @@ class RTTMainWindow(QMainWindow):
             self.data_check_timer.stop()
             return
         
-        # 如果未连接，停止检查
-        if not self.connection_dialog or not self.connection_dialog.start_state:
+        # MDI架构：如果没有活动设备会话或未连接，停止检查
+        session = self._get_active_device_session()
+        if not session or not session.is_connected:
             return
         
         # 获取超时设置
@@ -4698,14 +4743,16 @@ class RTTMainWindow(QMainWindow):
             self._perform_auto_reconnect()
     
     def _perform_auto_reconnect(self):
-        """执行自动重连（不重置文件夹）"""
+        """执行自动重连（不重置文件夹）- MDI架构：针对活动设备会话"""
         try:
-            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
-                logger.warning("Cannot auto reconnect: connection_dialog or rtt2uart not available")
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart:
+                logger.warning("Cannot auto reconnect: no active device session")
                 return
             
             # 使用rtt2uart的重启方法，不会重置日志文件夹
-            rtt_obj = self.connection_dialog.rtt2uart
+            rtt_obj = session.rtt2uart
             
             # 停止RTT连接
             if hasattr(self, 'append_jlink_log'):
@@ -4721,14 +4768,16 @@ class RTTMainWindow(QMainWindow):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect failed: %s") % str(e))
     
     def _auto_reconnect_start(self):
-        """自动重连 - 启动连接"""
+        """自动重连 - 启动连接 - MDI架构：针对活动设备会话"""
         try:
-            if not self.connection_dialog or not self.connection_dialog.rtt2uart:
-                logger.warning("Cannot start auto reconnect: connection_dialog or rtt2uart not available")
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart:
+                logger.warning("Cannot start auto reconnect: no active device session")
                 return
             
             # 重新启动RTT连接
-            rtt_obj = self.connection_dialog.rtt2uart
+            rtt_obj = session.rtt2uart
             if hasattr(self, 'append_jlink_log'):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Restarting RTT connection..."))
             
@@ -4881,14 +4930,15 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to clear TAB: {e}", exc_info=True)
 
     def on_openfolder_clicked(self):
-        """打开日志文件夹 - 复用同一个窗口跳转到新文件夹"""
+        """打开日志文件夹 - 复用同一个窗口跳转到新文件夹 - MDI架构：打开活动设备的日志目录"""
         try:
             import pathlib
             import subprocess
             
-            # 确定要打开的目录
-            if self.connection_dialog and self.connection_dialog.rtt2uart:
-                target_dir = str(self.connection_dialog.rtt2uart.log_directory)  # 🔑 确保转换为字符串
+            # MDI架构：获取活动设备会话的日志目录
+            session = self._get_active_device_session()
+            if session and session.rtt2uart:
+                target_dir = str(session.rtt2uart.log_directory)  # 🔑 确保转换为字符串
             else:
                 # 在断开状态下打开默认的日志目录
                 desktop_path = pathlib.Path.home() / "Desktop/XexunRTT_Log"
@@ -5061,8 +5111,9 @@ class RTTMainWindow(QMainWindow):
     def show_rtt_chain_info(self):
         """显示 RTT 通道信息对话框 - 使用表格显示"""
         try:
-            # 检查是否有活动连接
-            if not self.connection_dialog or not hasattr(self.connection_dialog, 'rtt2uart') or not self.connection_dialog.rtt2uart:
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart:
                 QMessageBox.warning(
                     self,
                     QCoreApplication.translate("main_window", "No Connection"),
@@ -5070,7 +5121,7 @@ class RTTMainWindow(QMainWindow):
                 )
                 return
             
-            rtt2uart = self.connection_dialog.rtt2uart
+            rtt2uart = session.rtt2uart
             
             # 检查 JLink 连接和 RTT 状态
             if not hasattr(rtt2uart, 'jlink') or not rtt2uart.jlink:
@@ -5741,14 +5792,17 @@ class RTTMainWindow(QMainWindow):
             self.ui.pushButton.click()  # 触发 QPushButton 的点击事件
 
     def update_status_bar(self):
-        """更新状态栏信息"""
+        """更新状态栏信息 - MDI架构：显示活动设备的状态"""
         if not hasattr(self, 'status_bar'):
             return
-            
+        
+        # MDI架构：获取活动设备会话
+        session = self._get_active_device_session()
+        
         # 更新连接状态
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None and self.connection_dialog.start_state == True:
+        if session and session.rtt2uart and session.is_connected:
             # 显示设备连接信息：USB_X_SN格式
-            device_info = getattr(self.connection_dialog.rtt2uart, 'device_info', 'Unknown')
+            device_info = getattr(session.rtt2uart, 'device_info', 'Unknown')
             self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
         else:
             self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
@@ -5756,9 +5810,9 @@ class RTTMainWindow(QMainWindow):
         # 更新数据统计
         readed = 0
         writed = 0
-        if self.connection_dialog and self.connection_dialog.rtt2uart is not None:
-            readed = self.connection_dialog.rtt2uart.read_bytes0 + self.connection_dialog.rtt2uart.read_bytes1
-            writed = self.connection_dialog.rtt2uart.write_bytes0
+        if session and session.rtt2uart:
+            readed = session.rtt2uart.read_bytes0 + session.rtt2uart.read_bytes1
+            writed = session.rtt2uart.write_bytes0
         
         self.data_stats_label.setText(
             QCoreApplication.translate("main_window", "Read: {} | Write: {}").format(readed, writed)
@@ -5964,16 +6018,18 @@ class RTTMainWindow(QMainWindow):
             bool: 成功返回True，失败返回False
         """
         try:
-            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart or not session.is_connected:
                 return False
             
-            jlink = self.connection_dialog.rtt2uart.jlink
+            jlink = session.rtt2uart.jlink
             
             # 获取设备名称用于日志显示
-            device_name = self.connection_dialog.target_device if self.connection_dialog else "Unknown"
+            device_name = session.connection_dialog.target_device if session.connection_dialog else "Unknown"
             if not device_name:
                 try:
-                    device_name = self.connection_dialog.ui.comboBox_Device.currentText()
+                    device_name = session.connection_dialog.ui.comboBox_Device.currentText()
                 except:
                     device_name = "Unknown"
             
@@ -6031,10 +6087,12 @@ class RTTMainWindow(QMainWindow):
     def restart_app_via_sfr(self):
         """通过SFR访问触发固件重启（需保持连接）"""
         try:
-            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart or not session.is_connected:
                 QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please connect first, then restart app"))
                 return
-            jlink = self.connection_dialog.rtt2uart.jlink
+            jlink = session.rtt2uart.jlink
             try:
                 # Cortex-M: AIRCR.SYSRESETREQ = 1 -> 写 0x05FA0004 到 0xE000ED0C
                 try:
@@ -6052,10 +6110,12 @@ class RTTMainWindow(QMainWindow):
     def restart_app_via_reset_pin(self):
         """通过硬件复位引脚重启（若调试器支持）"""
         try:
-            if not (self.connection_dialog and self.connection_dialog.rtt2uart and self.connection_dialog.start_state):
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart or not session.is_connected:
                 QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please connect first, then restart app"))
                 return
-            jlink = self.connection_dialog.rtt2uart.jlink
+            jlink = session.rtt2uart.jlink
             try:
                 jlink.reset(halt=False)
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Restart via reset pin executed"))
@@ -6073,8 +6133,8 @@ class RTTMainWindow(QMainWindow):
                 logger.warning("No active device session to restart")
                 return
             
-            # 若未连接，则先自动连接，待连接成功后再执行
-            if not (session.connection_dialog and session.connection_dialog.start_state):
+            # MDI架构：若未连接，则先自动连接，待连接成功后再执行
+            if not session.is_connected:
                 if session.connection_dialog:
                     # 连接成功后回调一次，再断开信号
                     def _once():
@@ -9710,8 +9770,8 @@ class Worker(QObject):
                     tag_text = config.get_filter(i)
                     
                     # 添加调试日志
-                    if tag_text and tag_text.strip() and tag_text != "+":
-                        logger.info(f"[FILTER] TAB[{i}] filter: '{tag_text}'")
+                    # if tag_text and tag_text.strip() and tag_text != "+":
+                    #     logger.info(f"[FILTER] TAB[{i}] filter: '{tag_text}'")
                     
                     # 只处理非空的筛选条件
                     if tag_text and tag_text.strip() and tag_text != "+":
