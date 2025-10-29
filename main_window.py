@@ -139,11 +139,12 @@ class DeviceSession:
         """获取显示名称"""
         # 显示连接类型_索引号 序列号（例如：USB_1 69668156）
         connection_type = self.device_info.get('connection', 'USB')
+        # 如果有索引，显示索引号；否则不显示索引号
         if self.device_index is not None:
             return f"{connection_type}_{self.device_index} {self.device_serial}"
         else:
-            # 如果没有索引，只显示序列号后6位（兼容旧代码）
-            return f"{self.device_serial[-6:]}"
+            # 没有索引时，只显示连接类型和序列号
+            return f"{connection_type} {self.device_serial}"
     
     def connect(self):
         """连接设备"""
@@ -2505,10 +2506,22 @@ class RTTMainWindow(QMainWindow):
                             return
                     
                     # 创建新的设备会话
+                    # 查找设备索引
+                    device_index = None
+                    if hasattr(temp_dialog, 'available_jlinks'):
+                        for idx, dev in enumerate(temp_dialog.available_jlinks):
+                            if dev.get('serial') == device_serial:
+                                device_index = idx
+                                logger.info(f"Found device index: {device_index} for serial {device_serial}")
+                                break
+                        if device_index is None:
+                            logger.warning(f"Device index not found for serial {device_serial}, will display without index")
+                    
                     device_info = {
                         'serial': device_serial,
                         'product_name': getattr(rtt, 'device_info', 'Unknown'),
-                        'connection': 'USB'
+                        'connection': 'USB',
+                        'index': device_index
                     }
                     
                     session = DeviceSession(device_info)
@@ -3557,10 +3570,16 @@ class RTTMainWindow(QMainWindow):
         # 查找设备索引
         device_index = None
         if hasattr(self.connection_dialog, 'available_jlinks'):
+            logger.debug(f"Searching for device {device_serial} in available_jlinks: {self.connection_dialog.available_jlinks}")
             for idx, dev in enumerate(self.connection_dialog.available_jlinks):
-                if dev.get('serial') == device_serial:
+                dev_serial = dev.get('serial', '')
+                logger.debug(f"  Comparing: '{dev_serial}' == '{device_serial}' ? {dev_serial == device_serial}")
+                if dev_serial == device_serial:
                     device_index = idx
+                    logger.info(f"Found device index: {device_index} for serial {device_serial}")
                     break
+            if device_index is None:
+                logger.warning(f"Device index not found for serial {device_serial}, will display without index")
         
         device_info = {
             'serial': device_serial,
@@ -4663,10 +4682,22 @@ class RTTMainWindow(QMainWindow):
                         return
                     else:
                         # 新设备，创建新会话和MDI窗口
+                        # 查找设备索引
+                        device_index = None
+                        if hasattr(temp_dialog, 'available_jlinks'):
+                            for idx, dev in enumerate(temp_dialog.available_jlinks):
+                                if dev.get('serial') == device_serial:
+                                    device_index = idx
+                                    logger.info(f"Found device index: {device_index} for serial {device_serial}")
+                                    break
+                            if device_index is None:
+                                logger.warning(f"Device index not found for serial {device_serial}, will display without index")
+                        
                         device_info = {
                             'serial': device_serial,
                             'product_name': getattr(rtt, 'device_info', 'Unknown'),
-                            'connection': 'USB'
+                            'connection': 'USB',
+                            'index': device_index
                         }
                         
                         session = DeviceSession(device_info)
@@ -7070,6 +7101,11 @@ class ConnectionDialog(QDialog):
                     # 延迟更长时间，确保对话框完全显示后再打开下拉框
                     QTimer.singleShot(300, lambda: self.ui.comboBox_serialno.showPopup() if hasattr(self.ui, 'comboBox_serialno') else None)
                     logger.info(f"[AUTO] Will open device selection dropdown after dialog is fully shown")
+                
+                # 🔑 初始状态：如果没有选择设备，禁用开始按钮
+                if hasattr(self.ui, 'pushButton_Start'):
+                    self.ui.pushButton_Start.setEnabled(False)
+                    logger.info(f"[AUTO] Start button disabled initially: multiple devices, no selection")
 
         try:
             # 导出器件列表文件
@@ -8098,6 +8134,17 @@ class ConnectionDialog(QDialog):
             self.config.set_last_jlink_serial(text)
             self.config.add_preferred_jlink_serial(text)
             self.config.save_config()
+        
+        # 🔑 多设备时，根据选择状态启用/禁用开始按钮
+        if hasattr(self, 'available_jlinks') and len(self.available_jlinks) > 1:
+            if hasattr(self.ui, 'pushButton_Start'):
+                # 如果选择了空项（text为空或只包含空格），禁用开始按钮
+                if not text or text.strip() == "":
+                    self.ui.pushButton_Start.setEnabled(False)
+                    logger.debug("[MULTI-DEVICE] Start button disabled: no device selected")
+                else:
+                    self.ui.pushButton_Start.setEnabled(True)
+                    logger.debug(f"[MULTI-DEVICE] Start button enabled: device {text} selected")
     
     def reset_target_change_slot(self):
         """重置连接选项变更处理"""
@@ -8926,6 +8973,16 @@ class ConnectionDialog(QDialog):
                         from PySide6.QtCore import QTimer
                         QTimer.singleShot(100, lambda: self.ui.comboBox_serialno.showPopup())
                         logger.info(f"[AUTO] Opening device selection dropdown for user")
+                    
+                    # 🔑 检查当前选择，如果是空项则禁用开始按钮
+                    if hasattr(self.ui, 'comboBox_serialno') and hasattr(self.ui, 'pushButton_Start'):
+                        current_text = self.ui.comboBox_serialno.currentText()
+                        if not current_text or current_text.strip() == "":
+                            self.ui.pushButton_Start.setEnabled(False)
+                            logger.info(f"[AUTO] Start button disabled: no device selected (multiple devices available)")
+                        else:
+                            self.ui.pushButton_Start.setEnabled(True)
+                            logger.debug(f"[AUTO] Start button enabled: device selected")
                 
             except Exception as e:
                 logger.error(f"Error adding devices to ComboBox: {e}")
