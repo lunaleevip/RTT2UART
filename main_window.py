@@ -104,7 +104,7 @@ class DeviceSession:
         初始化设备会话
         
         Args:
-            device_info: 设备信息字典 {'serial': '...', 'product_name': '...', 'connection': 'USB'}
+            device_info: 设备信息字典 {'serial': '...', 'product_name': '...', 'connection': 'USB', 'index': 0}
             session_id: 会话ID（可选）
         """
         if session_id is None:
@@ -116,6 +116,7 @@ class DeviceSession:
         self.device_info = device_info
         self.device_serial = device_info.get('serial', 'Unknown')
         self.device_name = device_info.get('product_name', b'Unknown').decode() if isinstance(device_info.get('product_name'), bytes) else device_info.get('product_name', 'Unknown')
+        self.device_index = device_info.get('index', None)  # 设备索引（用于显示）
         
         # 连接相关
         self.connection_dialog = None  # 连接对话框实例
@@ -136,8 +137,13 @@ class DeviceSession:
     
     def get_display_name(self):
         """获取显示名称"""
-        # 只显示设备序列号后6位
-        return f"{self.device_serial[-6:]}"
+        # 显示连接类型_索引号 序列号（例如：USB_1 69668156）
+        connection_type = self.device_info.get('connection', 'USB')
+        if self.device_index is not None:
+            return f"{connection_type}_{self.device_index} {self.device_serial}"
+        else:
+            # 如果没有索引，只显示序列号后6位（兼容旧代码）
+            return f"{self.device_serial[-6:]}"
     
     def connect(self):
         """连接设备"""
@@ -1837,6 +1843,9 @@ class RTTMainWindow(QMainWindow):
         # 禁用自动调整子窗口大小选项，允许手动调整
         self.mdi_area.setOption(QMdiArea.AreaOption.DontMaximizeSubWindowOnActivation, True)
         
+        # 连接 MDI 子窗口激活信号，用于同步暂停/恢复状态等
+        self.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+        
         # 设置 MDI 区域样式
         # 只设置背景色,不覆盖子窗口的原生样式
         self.mdi_area.setStyleSheet("""
@@ -2172,12 +2181,12 @@ class RTTMainWindow(QMainWindow):
         disconnect_action.triggered.connect(self.on_dis_connect_clicked)
         self.connection_menu.addAction(disconnect_action)
         
-        self.connection_menu.addSeparator()
+        # self.connection_menu.addSeparator()
         
-        # 连接设置动作
-        settings_action = QAction(QCoreApplication.translate("main_window", "Connection Settings(&S)..."), self)
-        settings_action.triggered.connect(self._show_connection_settings)
-        self.connection_menu.addAction(settings_action)
+        # # 连接设置动作
+        # settings_action = QAction(QCoreApplication.translate("main_window", "Connection Settings(&S)..."), self)
+        # settings_action.triggered.connect(self._show_connection_settings)
+        # self.connection_menu.addAction(settings_action)
         
         # 窗口菜单
         self.window_menu = menubar.addMenu(QCoreApplication.translate("main_window", "Window(&W)"))
@@ -3544,10 +3553,20 @@ class RTTMainWindow(QMainWindow):
         # 获取当前连接的设备信息
         rtt = self.connection_dialog.rtt2uart
         device_serial = getattr(rtt, '_connect_para', 'Unknown')
+        
+        # 查找设备索引
+        device_index = None
+        if hasattr(self.connection_dialog, 'available_jlinks'):
+            for idx, dev in enumerate(self.connection_dialog.available_jlinks):
+                if dev.get('serial') == device_serial:
+                    device_index = idx
+                    break
+        
         device_info = {
             'serial': device_serial,
             'product_name': getattr(rtt, 'device_info', 'Unknown'),
-            'connection': 'USB'
+            'connection': 'USB',
+            'index': device_index
         }
         
         # 创建新的设备会话
@@ -4539,6 +4558,11 @@ class RTTMainWindow(QMainWindow):
             temp_dialog = ConnectionDialog(self)
             temp_dialog.setWindowTitle(QCoreApplication.translate("main_window", "Select Device to Connect"))
             
+            # 🔑 关键修复：只在重连同一设备时重用 JLink 对象
+            # 不同设备需要不同的 JLink 对象，因为 pylink 不支持一个 JLink 对象同时连接多个设备
+            # 注意：这个检查必须在用户选择设备之前进行，所以我们先不做任何操作
+            # 实际的 JLink 对象重用会在 on_device_selected() 回调中处理
+            
             def on_device_selected():
                 try:
                     if not temp_dialog.rtt2uart:
@@ -4559,6 +4583,7 @@ class RTTMainWindow(QMainWindow):
                         logger.info(f"Device {device_serial} exists, reconnecting...")
                         self.append_jlink_log(QCoreApplication.translate("main_window", "Device %s exists, reconnecting...") % device_serial)
                         
+                        # 注意：JLink 对象重用已经在 ConnectionDialog.start() 中处理了
                         # 保存旧的字节计数
                         old_read_bytes0 = 0
                         old_read_bytes1 = 0
@@ -4574,6 +4599,8 @@ class RTTMainWindow(QMainWindow):
                             try:
                                 logger.info(f"Stopping old RTT connection for device {device_serial}")
                                 existing_session.rtt2uart.stop()
+                                # 注意：不关闭 JLink，因为新的 rtt2uart 会重用它
+                                logger.info(f"Old RTT stopped, JLink will be reused")
                             except Exception as e:
                                 logger.error(f"Failed to stop old RTT: {e}")
                         
@@ -4800,6 +4827,32 @@ class RTTMainWindow(QMainWindow):
             logger.debug(f"[AUTO-RECONNECT] Data timestamp updated: {self.last_data_time:.2f} -> {current_time:.2f}")
         self.last_data_time = current_time
 
+    def _on_mdi_subwindow_activated(self, sub_window):
+        """MDI 子窗口激活时的回调 - 同步暂停/恢复状态等"""
+        if not sub_window:
+            return
+        
+        try:
+            # 获取激活的设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart:
+                return
+            
+            # 同步暂停/恢复刷新状态
+            is_paused = session.rtt2uart.ui_refresh_paused
+            
+            # 更新UI单选按钮状态
+            if hasattr(self.ui, 'radioButton_pause_refresh') and hasattr(self.ui, 'radioButton_resume_refresh'):
+                if is_paused:
+                    self.ui.radioButton_pause_refresh.setChecked(True)
+                else:
+                    self.ui.radioButton_resume_refresh.setChecked(True)
+            
+            logger.debug(f"MDI window activated: {session.get_display_name()}, paused={is_paused}")
+            
+        except Exception as e:
+            logger.error(f"Failed to sync state on MDI activation: {e}", exc_info=True)
+    
     def pause_ui_refresh(self):
         """F5 暂停UI刷新 - 在rtt2uart中暂停数据处理"""
         try:
@@ -6818,15 +6871,11 @@ class ConnectionDialog(QDialog):
     def __init__(self, parent=None):
         super(ConnectionDialog, self).__init__(parent)
         
-        # 强制清理可能残留的JLink实例,防止"already open"错误
-        try:
-            import pylink
-            import gc
-            # 触发垃圾回收,清理未正确关闭的JLink对象
-            gc.collect()
-            logger.info("🧹 Garbage collection triggered to clean up stale JLink instances")
-        except Exception as e:
-            logger.warning(f"Failed to trigger garbage collection: {e}")
+        # 导入需要的模块
+        from PySide6.QtCore import QTimer
+        
+        # 注意：不再需要垃圾回收，因为我们直接重用已存在的 JLink 对象
+        # 这样可以避免不必要的卡顿
         
         # 🚫 暂时禁用进程冲突检测,因为它会阻塞UI响应
         # 用户可以通过日志查看"JLink already open"错误并手动处理
@@ -6895,7 +6944,8 @@ class ConnectionDialog(QDialog):
         for i in range(len(baudrate_list)):
             self.ui.comboBox_baudrate.addItem(str(baudrate_list[i]))
 
-        self.port_scan()
+        # 异步扫描串口，避免阻塞 UI
+        QTimer.singleShot(0, self.port_scan)
 
         # 兼容性：保留settings字典结构用于现有代码
         self.settings = {
@@ -6976,8 +7026,22 @@ class ConnectionDialog(QDialog):
         self.ui.radioButton_SearchRange.clicked.connect(self.rtt_control_block_mode_changed)
         self.ui.lineEdit_RTTAddress.textChanged.connect(self.rtt_control_block_address_changed)
 
+        # 🔑 关键修复：每个物理 JLink 设备需要独立的 JLink() 对象实例
+        # 但是，pylink 库不允许多个 JLink() 对象同时调用 open()
+        # 解决方案：
+        # 1. 如果是重连同一设备（相同序列号），重用该设备的 JLink 对象
+        # 2. 如果是连接新设备，检查是否已有其他设备的 JLink 对象打开
+        #    - 如果有，先关闭它，然后创建新的 JLink 对象
+        #    - 如果没有，直接创建新的 JLink 对象
+        
+        self.jlink = None
+        self.target_device_serial = None  # 将在 start() 中设置
+        
         try:
+            # 暂时创建一个 JLink 对象用于设备检测
+            # 真正的连接会在 start() 中处理
             self.jlink = pylink.JLink()
+            logger.info("Created new JLink object in ConnectionDialog.__init__ for device detection")
         except:
             logger.error('Find jlink dll failed', exc_info=True)
             raise Exception(QCoreApplication.translate("main_window", "Find jlink dll failed !"))
@@ -6988,6 +7052,24 @@ class ConnectionDialog(QDialog):
         
         # 检测可用的JLINK设备
         self._detect_jlink_devices()
+        
+        # 🔑 如果检测到多个设备，自动启用序列号选择功能
+        if len(self.available_jlinks) > 1:
+            if hasattr(self.ui, 'checkBox_serialno'):
+                self.ui.checkBox_serialno.setChecked(True)
+                logger.info(f"[AUTO] Detected {len(self.available_jlinks)} devices on dialog open, auto-enabled serial number selection")
+                
+                # 显示 ComboBox 和刷新按钮
+                if hasattr(self.ui, 'comboBox_serialno'):
+                    self.ui.comboBox_serialno.setVisible(True)
+                if hasattr(self.ui, 'pushButton_refresh_jlink'):
+                    self.ui.pushButton_refresh_jlink.setVisible(True)
+                
+                # 延迟自动打开下拉框，让用户选择设备
+                if hasattr(self.ui, 'comboBox_serialno'):
+                    # 延迟更长时间，确保对话框完全显示后再打开下拉框
+                    QTimer.singleShot(300, lambda: self.ui.comboBox_serialno.showPopup() if hasattr(self.ui, 'comboBox_serialno') else None)
+                    logger.info(f"[AUTO] Will open device selection dropdown after dialog is fully shown")
 
         try:
             # 导出器件列表文件
@@ -7592,6 +7674,41 @@ class ConnectionDialog(QDialog):
                     for i, dev in enumerate(self.available_jlinks):
                         marker = "=>" if i == device_index else "  "
                         logger.debug(f"   {marker} #{i}: {dev['serial']} ({dev['product_name']})")
+                
+                # 🔑 关键修复：在创建 rtt2uart 之前，正确处理 JLink 对象
+                # 策略：
+                # 1. 如果是重连同一设备（相同序列号），重用该设备的 JLink 对象
+                # 2. 如果是连接不同设备，需要创建新的 JLink 对象
+                #    但 pylink 不允许多个 JLink 对象同时打开，所以需要先关闭其他设备的 JLink
+                
+                # 检查是否是重连同一设备
+                existing_session_for_same_device = None
+                if hasattr(self.main_window, 'device_sessions'):
+                    for session in self.main_window.device_sessions:
+                        if session.device_serial == connect_para:
+                            existing_session_for_same_device = session
+                            break
+                
+                if existing_session_for_same_device:
+                    # 重连同一设备，重用其 JLink 对象
+                    if existing_session_for_same_device.connection_dialog and hasattr(existing_session_for_same_device.connection_dialog, 'jlink'):
+                        old_jlink = existing_session_for_same_device.connection_dialog.jlink
+                        # 删除临时创建的 JLink 对象
+                        if hasattr(self, 'jlink') and self.jlink != old_jlink:
+                            try:
+                                # 不要调用 close()，因为这个 JLink 对象还没有 open()
+                                del self.jlink
+                            except:
+                                pass
+                        # 使用已存在的 JLink 对象
+                        self.jlink = old_jlink
+                        logger.info(f"✅ Reusing existing JLink object for same device {connect_para}")
+                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Reusing existing JLink connection for same device"))
+                else:
+                    # 连接不同设备，使用新创建的 JLink 对象（在 __init__ 中创建的）
+                    # pylink 库支持多个 JLink() 对象同时存在，每个对象连接不同的物理设备
+                    logger.info(f"Using new JLink object for device {connect_para}")
+                    self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Connecting new device with independent JLink connection..."))
                 
                 # 获取RTT Control Block配置
                 rtt_cb_mode = self.config.get_rtt_control_block_mode()
@@ -8789,6 +8906,26 @@ class ConnectionDialog(QDialog):
                 
                 logger.info(f"[REFRESH JLINK] Refreshed device list: {len(self.available_jlinks)} devices found")
                 #logger.info("🔄" * 40)
+                
+                # 🔑 多设备时自动启用序列号选择并打开下拉框
+                if len(self.available_jlinks) > 1:
+                    # 自动勾选序列号选择框并显示相关控件
+                    if hasattr(self.ui, 'checkBox_serialno') and not self.ui.checkBox_serialno.isChecked():
+                        self.ui.checkBox_serialno.setChecked(True)
+                        logger.info(f"[AUTO] Multiple devices detected ({len(self.available_jlinks)}), auto-enabled serial number selection")
+                        
+                        # 手动显示 ComboBox 和刷新按钮（避免递归调用 serial_no_change_slot）
+                        if hasattr(self.ui, 'comboBox_serialno'):
+                            self.ui.comboBox_serialno.setVisible(True)
+                        if hasattr(self.ui, 'pushButton_refresh_jlink'):
+                            self.ui.pushButton_refresh_jlink.setVisible(True)
+                    
+                    # 自动打开下拉框让用户选择
+                    if hasattr(self.ui, 'comboBox_serialno'):
+                        # 延迟一点打开，确保UI已经更新
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(100, lambda: self.ui.comboBox_serialno.showPopup())
+                        logger.info(f"[AUTO] Opening device selection dropdown for user")
                 
             except Exception as e:
                 logger.error(f"Error adding devices to ComboBox: {e}")

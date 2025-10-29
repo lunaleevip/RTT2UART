@@ -649,15 +649,53 @@ class rtt_to_serial():
             self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "Connecting device: %s") % self.device_info)
         try:
             if self._connect_inf != 'EXISTING':
-                # 检查并确保 JLink 连接状态
+                # 🔑 关键修复：检查 JLink 对象是否已经打开，以及是否连接到同一设备
+                # 如果连接到不同设备，需要先 close() 再重新 open()
+                is_opened = False
+                need_reopen = False
                 try:
-                    is_connected = self.jlink.connected()
-                except pylink.errors.JLinkException:
-                    # 如果检查连接状态失败，假设未连接
-                    is_connected = False
-                    logger.warning('Failed to check JLink connection status, assuming disconnected')
+                    is_opened = self.jlink.opened()
+                    if is_opened:
+                        # JLink 已打开，检查是否连接到同一设备
+                        # 通过比较设备序列号来判断
+                        current_serial = None
+                        try:
+                            # 尝试获取当前连接的设备序列号
+                            if hasattr(self.jlink, 'serial_number'):
+                                current_serial = str(self.jlink.serial_number)
+                            elif hasattr(self.jlink, '_serial_no'):
+                                current_serial = str(self.jlink._serial_no)
+                        except:
+                            pass
+                        
+                        target_serial = str(self._connect_para) if self._connect_para else None
+                        
+                        if current_serial and target_serial and current_serial != target_serial:
+                            # 连接到不同设备，需要重新打开
+                            logger.info(f'JLink is opened for device {current_serial}, but need to connect to {target_serial}, will reopen')
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Switching to different device, reopening JLink..."))
+                            need_reopen = True
+                        else:
+                            # 连接到同一设备，重用连接
+                            logger.info('JLink is already opened for the same device, skipping open() call')
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already open, reusing connection"))
+                except Exception as e:
+                    # 如果检查失败，假设未打开
+                    logger.debug(f'Failed to check JLink opened status: {e}')
+                    is_opened = False
                 
-                if not is_connected:
+                # 如果需要重新打开（切换设备），先关闭
+                if need_reopen:
+                    try:
+                        logger.info('Closing JLink to switch device...')
+                        self.jlink.close()
+                        import time
+                        time.sleep(0.3)
+                        is_opened = False  # 标记为未打开，需要重新 open
+                    except Exception as e:
+                        logger.warning(f'Failed to close JLink: {e}')
+                
+                if not is_opened:
                     # 加载jlinkARM.dll
                     try:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Opening JLink connection..."))
@@ -779,32 +817,48 @@ class rtt_to_serial():
                             logger.error(error_msg, exc_info=True)
                             raise Exception(error_msg)
 
+                # 🔑 如果 JLink 已经打开（重用的情况），检查是否已经连接到目标设备
+                # 如果已连接，跳过后续的 connect() 调用，避免 "already open" 错误
+                already_connected_to_target = False
+                if is_opened:
+                    try:
+                        if self.jlink.connected():
+                            # JLink 已连接，检查是否连接到同一设备
+                            # 注意：pylink 库没有直接的方法获取当前连接的设备名称
+                            # 我们假设如果 JLink 已打开且已连接，就是连接到同一设备
+                            logger.info(f'JLink is already connected to a target device')
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already connected to target device"))
+                            already_connected_to_target = True
+                    except Exception as e:
+                        logger.debug(f'Failed to check JLink connected status: {e}')
+                
                 # 再次检查连接状态（按配置判定是否需要自动重置并重试一次）
-                try:
-                    if not self.jlink.connected():
-                        # 断开后，根据配置决定是否自动重置
+                if not already_connected_to_target:
+                    try:
+                        if not self.jlink.connected():
+                            # 断开后，根据配置决定是否自动重置
+                            auto_patterns = _get_autoreset_patterns()
+                            err_msg = "JLink connection failed after open"
+                            if any(p in err_msg for p in auto_patterns):
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection failed after open, trying auto reset..."))
+                                if self._auto_reset_jlink_connection():
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
+                                else:
+                                    raise Exception(err_msg)
+                            else:
+                                raise Exception(err_msg)
+                    except pylink.errors.JLinkException:
+                        # 验证异常，根据配置决定是否自动重置
                         auto_patterns = _get_autoreset_patterns()
-                        err_msg = "JLink connection failed after open"
+                        err_msg = "JLink connection verification failed"
                         if any(p in err_msg for p in auto_patterns):
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection failed after open, trying auto reset..."))
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink verification failed, trying auto reset..."))
                             if self._auto_reset_jlink_connection():
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
                             else:
                                 raise Exception(err_msg)
                         else:
                             raise Exception(err_msg)
-                except pylink.errors.JLinkException:
-                    # 验证异常，根据配置决定是否自动重置
-                    auto_patterns = _get_autoreset_patterns()
-                    err_msg = "JLink connection verification failed"
-                    if any(p in err_msg for p in auto_patterns):
-                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink verification failed, trying auto reset..."))
-                        if self._auto_reset_jlink_connection():
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
-                        else:
-                            raise Exception(err_msg)
-                    else:
-                        raise Exception(err_msg)
 
                 # 设置连接速率
                 try:
@@ -850,9 +904,13 @@ class rtt_to_serial():
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Waiting for target stabilization..."))
 
                     # 连接目标芯片
-                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
-                    self.jlink.connect(self.device)
-                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device connected successfully: %s") % self.device)
+                    # 🔑 如果 JLink 已经连接到目标设备（重用的情况），跳过 connect() 调用
+                    if not already_connected_to_target:
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
+                        self.jlink.connect(self.device)
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device connected successfully: %s") % self.device)
+                    else:
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Skipping connect, already connected to target device: %s") % self.device)
                     
                     # 启动RTT，对于RTT的任何操作都需要在RTT启动后进行
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT..."))
