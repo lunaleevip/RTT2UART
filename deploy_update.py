@@ -224,46 +224,98 @@ def deploy_update(new_file: Path,
     patches = version_data.get('patches', {})
     history = version_data.get('history', [])
     
-    # 如果有旧版本，尝试生成补丁
-    if old_file_name and old_version != new_version and BSDIFF_AVAILABLE:
-        old_file_path = output_dir / old_file_name
+    # 🔑 生成最近10个版本到最新版本的补丁
+    if BSDIFF_AVAILABLE:
+        # 收集所有可用的历史版本
+        available_versions = []
         
-        if old_file_path.exists():
-            print(f"正在生成补丁: v{old_version} → v{new_version}")
+        # 添加当前旧版本（如果存在）
+        if old_file_name and old_version != new_version and old_version != '0.0':
+            old_file_path = output_dir / old_file_name
+            if old_file_path.exists():
+                available_versions.append({
+                    'version': old_version,
+                    'file': old_file_path,
+                    'hash': old_hash
+                })
+        
+        # 从历史记录中查找其他版本
+        for hist in history:
+            hist_version = hist.get('version')
+            if hist_version and hist_version != new_version:
+                # 尝试查找历史版本的文件
+                # 可能的文件名格式
+                possible_names = [
+                    f"XexunRTT_v{hist_version}.exe",
+                    f"XexunRTT_{hist_version}.exe",
+                    f"XexunRTT_v{hist_version}_win.exe"
+                ]
+                
+                for name in possible_names:
+                    hist_file = output_dir / name
+                    if hist_file.exists():
+                        # 检查是否已经添加
+                        if not any(v['version'] == hist_version for v in available_versions):
+                            available_versions.append({
+                                'version': hist_version,
+                                'file': hist_file,
+                                'hash': hist.get('hash', calculate_hash(hist_file))
+                            })
+                        break
+        
+        # 按版本号排序，保留最近10个
+        available_versions.sort(key=lambda x: x['version'], reverse=True)
+        available_versions = available_versions[:10]
+        
+        if available_versions:
+            print(f"找到 {len(available_versions)} 个历史版本，生成补丁到 v{new_version}")
+            print()
             
-            try:
-                # 生成补丁文件名
-                patch_name = f"patch_{old_version}_to_{new_version}.patch"
-                patch_file = output_dir / patch_name
+            patch_count = 0
+            for ver_info in available_versions:
+                ver = ver_info['version']
+                ver_file = ver_info['file']
+                ver_hash = ver_info['hash']
                 
-                # 生成补丁
-                patch_size, old_file_hash = generate_patch(old_file_path, new_file, patch_file)
+                print(f"正在生成补丁: v{ver} → v{new_version}")
                 
-                # 计算节省比例
-                save_ratio = (1 - patch_size / new_size) * 100
+                try:
+                    # 生成补丁文件名
+                    patch_name = f"patch_{ver}_to_{new_version}.patch"
+                    patch_file = output_dir / patch_name
+                    
+                    # 生成补丁
+                    patch_size, old_file_hash = generate_patch(ver_file, new_file, patch_file)
+                    
+                    # 计算节省比例
+                    save_ratio = (1 - patch_size / new_size) * 100
+                    
+                    print(f"   ✅ 补丁大小: {format_size(patch_size)}")
+                    print(f"   💰 节省流量: {save_ratio:.1f}%")
+                    print(f"   📄 补丁文件: {patch_name}")
+                    
+                    # 记录补丁信息
+                    patch_key = f"{ver}_{new_version}"
+                    patches[patch_key] = {
+                        'file': patch_name,
+                        'size': patch_size,
+                        'from_version': ver,
+                        'to_version': new_version,
+                        'from_hash': old_file_hash
+                    }
+                    
+                    patch_count += 1
+                    
+                except Exception as e:
+                    print(f"   ⚠️  补丁生成失败: {e}")
                 
-                print(f"   ✅ 补丁大小: {format_size(patch_size)}")
-                print(f"   💰 节省流量: {save_ratio:.1f}%")
-                print(f"   📄 补丁文件: {patch_name}")
-                
-                # 记录补丁信息
-                patch_key = f"{old_version}_{new_version}"
-                patches[patch_key] = {
-                    'file': patch_name,
-                    'size': patch_size,
-                    'from_version': old_version,
-                    'to_version': new_version,
-                    'from_hash': old_file_hash
-                }
-                
-            except Exception as e:
-                print(f"   ⚠️  补丁生成失败: {e}")
+                print()
+            
+            print(f"✅ 成功生成 {patch_count} 个补丁文件")
         else:
-            print(f"   ⚠️  旧版本文件不存在: {old_file_name}")
-    elif not BSDIFF_AVAILABLE:
-        print("   ⚠️  跳过补丁生成 (bsdiff4 未安装)")
+            print("   ℹ️  首次部署或无历史版本文件，无需生成补丁")
     else:
-        print("   ℹ️  首次部署，无需生成补丁")
+        print("   ⚠️  跳过补丁生成 (bsdiff4 未安装)")
     
     print()
     

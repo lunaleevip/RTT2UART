@@ -1589,6 +1589,12 @@ class DeviceMdiWindow(QWidget):
                 current_length = worker.colored_buffer_lengths[channel]
                 last_length = self.last_display_lengths[channel]
                 
+                # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要重置并重新显示
+                if current_length < last_length:
+                    logger.info(f"🔧 [CH{channel}] Buffer trimmed detected, resetting display offset: {last_length} -> 0")
+                    self.last_display_lengths[channel] = 0
+                    last_length = 0
+                
                 if current_length > last_length:
                     # 有新数据，提取增量部分
                     colored_data = ''.join(worker.colored_buffers[channel])
@@ -9733,21 +9739,20 @@ class Worker(QObject):
             self.finished.emit()
     
     def _append_to_buffer(self, index, data):
-        """🚀 智能缓冲区追加：预分配 + 成倍扩容机制 + 重复检查"""
+        """🚀 智能缓冲区追加：预分配 + 成倍扩容机制 + 连续重复检查"""
         if index < len(self.buffers):
             # 防御：如果被外部代码误置为字符串，立即恢复为分块列表
             if not isinstance(self.buffers[index], list):
                 self.buffers[index] = []
                 self.buffer_lengths[index] = 0
             
-            # 🔧 增强重复检查：防止相同数据被添加（检查最近10条记录）
+            # 🔧 连续重复检查：只检查最后一条记录，防止完全相同的连续数据被重复添加
+            # 注意：不检查最近N条，因为周期性日志（如状态报告）可能在不同时间重复，但应该被保留
             if len(self.buffers[index]) > 0:
-                # 检查最近的10条记录，防止非连续重复
-                check_count = min(10, len(self.buffers[index]))
-                recent_data = self.buffers[index][-check_count:]
-                if data in recent_data:
-                    # 检测到重复数据，跳过添加
-                    #logger.debug(f"检测到重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
+                last_data = self.buffers[index][-1]
+                if data == last_data:
+                    # 检测到连续重复数据，跳过添加
+                    #logger.debug(f"检测到连续重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
                     return
             current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
@@ -9779,21 +9784,19 @@ class Worker(QObject):
             self.buffer_lengths[index] += len(data)
     
     def _append_to_colored_buffer(self, index, data):
-        """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制 + 重复检查"""
+        """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制 + 连续重复检查"""
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
             # 防御：如果被误置为字符串，恢复为分块列表
             if not isinstance(self.colored_buffers[index], list):
                 self.colored_buffers[index] = []
                 self.colored_buffer_lengths[index] = 0
             
-            # 🔧 增强重复检查：防止相同数据被添加（检查最近10条记录）
+            # 🔧 连续重复检查：只检查最后一条记录，防止完全相同的连续数据被重复添加
+            # 注意：不检查最近N条，因为周期性日志（如状态报告）可能在不同时间重复，但应该被保留
             if len(self.colored_buffers[index]) > 0:
-                # 检查最近的10条记录，防止非连续重复
-                check_count = min(10, len(self.colored_buffers[index]))
-                recent_data = self.colored_buffers[index][-check_count:]
-                if data in recent_data:
-                    # 检测到重复数据，跳过添加
-                    #logger.debug(f"检测到重复彩色数据，跳过添加到colored_buffer[{index}]: {data[:50]}...")
+                last_data = self.colored_buffers[index][-1]
+                if data == last_data:
+                    # 检测到连续重复数据，跳过添加
                     return
             current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
