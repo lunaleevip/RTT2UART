@@ -1380,6 +1380,15 @@ class DeviceMdiWindow(QWidget):
         # 记录上次显示的长度，用于增量更新
         self.last_display_lengths = [0] * MAX_TAB_SIZE
         
+        # 🔧 修复：监听TAB切换事件，切换时强制刷新当前TAB内容
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        
+        # 🔧 修复：记录每个TAB上次更新的时间，用于低频率刷新非激活TAB
+        self.last_tab_update_times = [0.0] * MAX_TAB_SIZE
+        self.inactive_tab_update_interval = 3.0  # 非激活TAB更新间隔：3秒
+        self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
+        self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
+        
         # 为每个text_edit添加滚动条锁定属性和位置保存
         logger.info(f"🎯 Installing scroll listeners for {MAX_TAB_SIZE} channels...")
         for i, text_edit in enumerate(self.text_edits):
@@ -1561,6 +1570,132 @@ class DeviceMdiWindow(QWidget):
         except Exception as e:
             logger.error(f"Error in horizontal scroll handler: {e}", exc_info=True)
     
+    def _on_tab_changed(self, index):
+        """TAB切换事件处理 - 检查并强制刷新当前TAB内容"""
+        try:
+            if index < 0 or index >= MAX_TAB_SIZE:
+                return
+            
+            if not self.device_session.connection_dialog:
+                return
+            
+            worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            if not worker:
+                return
+            
+            # 检查当前TAB的显示长度是否远小于Worker缓冲区长度
+            current_length = worker.colored_buffer_lengths[index]
+            last_length = self.last_display_lengths[index]
+            
+            # 如果缓冲区有数据但显示长度远小于缓冲区长度，说明有大量数据丢失
+            # 阈值：如果差距超过1KB，强制刷新
+            gap_threshold = 1024
+            if current_length > last_length + gap_threshold:
+                logger.warning(f"🔧 TAB[{index}]切换检测到数据丢失: last_display={last_length}, buffer={current_length}, gap={current_length - last_length}, 强制刷新")
+                
+                # 强制刷新当前TAB的内容
+                self._force_refresh_tab(index)
+        except Exception as e:
+            logger.error(f"Error in tab changed handler: {e}", exc_info=True)
+    
+    def _force_refresh_tab(self, channel):
+        """强制刷新指定TAB的内容 - 从Worker缓冲区重新加载所有数据"""
+        try:
+            if not self.device_session.connection_dialog:
+                return
+            
+            worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            if not worker:
+                return
+            
+            if channel < 0 or channel >= MAX_TAB_SIZE or channel >= len(self.text_edits):
+                return
+            
+            # 获取彩色缓冲区的当前长度
+            current_length = worker.colored_buffer_lengths[channel]
+            last_length = self.last_display_lengths[channel]
+            
+            if current_length <= last_length:
+                # 没有新数据，不需要刷新
+                return
+            
+            # 提取所有未显示的数据
+            colored_data = ''.join(worker.colored_buffers[channel])
+            missing_data = colored_data[last_length:]
+            
+            if not missing_data:
+                return
+            
+            text_edit = self.text_edits[channel]
+            
+            # 获取滚动条
+            v_scrollbar = text_edit.verticalScrollBar()
+            h_scrollbar = text_edit.horizontalScrollBar()
+            
+            # 保存当前滚动条位置
+            vscroll = v_scrollbar.value()
+            hscroll = h_scrollbar.value()
+            was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
+            
+            # 🔧 修复重影问题：如果缺失数据量很大（超过1MB），说明可能已经丢失了大量数据
+            # 此时应该清空显示并重新加载所有数据，避免文本重叠
+            if len(missing_data) > 1024 * 1024:  # 1MB阈值
+                logger.warning(f"🔧 TAB[{channel}] Missing data too large ({len(missing_data)//1024}KB), clearing and reloading all data")
+                # 清空显示
+                text_edit.clear()
+                # 重新加载所有数据
+                all_data = colored_data
+                last_length = 0
+            else:
+                all_data = missing_data
+            
+            # 插入数据（使用正确的光标位置，避免重叠）
+            if hasattr(text_edit, '_parse_ansi_fast'):
+                # 使用FastAnsiTextEdit的解析方法
+                segments = text_edit._parse_ansi_fast(all_data)
+                cursor = text_edit.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                for segment in segments:
+                    if segment['text']:
+                        cursor.insertText(segment['text'], segment['format'])
+                text_edit.setTextCursor(cursor)
+            else:
+                # 降级处理：使用普通追加
+                cursor = text_edit.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                text_edit.setTextCursor(cursor)
+                text_edit.insertPlainText(all_data)
+            
+            # 恢复滚动条位置
+            v_scrollbar.blockSignals(True)
+            h_scrollbar.blockSignals(True)
+            
+            try:
+                # 如果之前滚动条在底部，或者用户没有锁定滚动条，则滚动到底部
+                if was_at_bottom or not text_edit._v_scroll_locked:
+                    v_scrollbar.setValue(v_scrollbar.maximum())
+                    text_edit._v_scroll_locked = False
+                else:
+                    # 保持原位置
+                    v_scrollbar.setValue(vscroll)
+                
+                # 水平滚动条：永远锁定，使用保存的位置
+                h_scrollbar.setValue(hscroll)
+            finally:
+                v_scrollbar.blockSignals(False)
+                h_scrollbar.blockSignals(False)
+            
+            # 更新已显示长度
+            self.last_display_lengths[channel] = current_length
+            
+            # 更新时间戳
+            self.last_tab_update_times[channel] = time.time()
+            
+            logger.info(f"✅ TAB[{channel}]强制刷新完成: 补充了 {len(missing_data)} 字节数据")
+            
+        except Exception as e:
+            logger.error(f"Failed to force refresh tab {channel}: {e}", exc_info=True)
+    
     def _update_from_worker(self):
         """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
         try:
@@ -1583,17 +1718,58 @@ class DeviceMdiWindow(QWidget):
             # if has_new_data:
             #     logger.info(f"[UPDATE] Found new data for session {self.device_session.session_id}")
             
+            # 获取当前激活的TAB索引
+            current_tab = self.tab_widget.currentIndex()
+            current_time = time.time()
+            
             # 遍历所有通道，检查是否有新数据
             for channel in range(MAX_TAB_SIZE):
                 # 获取彩色缓冲区的当前长度
                 current_length = worker.colored_buffer_lengths[channel]
                 last_length = self.last_display_lengths[channel]
                 
-                # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要重置并重新显示
+                # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
+                is_active_tab = (channel == current_tab)
+                if not is_active_tab:
+                    # 检查是否需要更新（距离上次更新超过1秒）
+                    time_since_last_update = current_time - self.last_tab_update_times[channel]
+                    if time_since_last_update < self.inactive_tab_update_interval:
+                        # 跳过本次更新，但继续检查缓冲区裁剪（这是关键问题，必须立即处理）
+                        if current_length < last_length:
+                            trimmed_length = last_length - current_length
+                            logger.warning(f"🔧 [CH{channel}] Inactive TAB buffer trimmed: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
+                            self.last_display_lengths[channel] = 0
+                            last_length = 0
+                        
+                        # 🔧 修复：非激活TAB的数据丢失检测也应该有频率限制（5秒一次）
+                        time_since_last_gap_check = current_time - self.last_inactive_gap_check_times[channel]
+                        if time_since_last_gap_check >= self.inactive_gap_check_interval:
+                            # 只有超过5秒才检查数据丢失
+                            if current_length > last_length + 1024:
+                                logger.warning(f"🔧 [CH{channel}] Inactive TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                                self._force_refresh_tab(channel)
+                            # 更新数据丢失检测时间戳
+                            self.last_inactive_gap_check_times[channel] = current_time
+                        continue
+                    # 更新非激活TAB的时间戳
+                    self.last_tab_update_times[channel] = current_time
+                    # 正常更新时也重置数据丢失检测时间戳
+                    self.last_inactive_gap_check_times[channel] = current_time
+                
+                # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要调整last_display_lengths
                 if current_length < last_length:
-                    logger.info(f"🔧 [CH{channel}] Buffer trimmed detected, resetting display offset: {last_length} -> 0")
+                    # 计算被裁剪的长度
+                    trimmed_length = last_length - current_length
+                    logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
                     self.last_display_lengths[channel] = 0
                     last_length = 0
+                
+                # 🔧 修复：如果数据丢失超过阈值，强制刷新（激活和非激活TAB都需要）
+                if current_length > last_length + 1024:
+                    tab_type = "Current" if is_active_tab else "Inactive"
+                    logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                    self._force_refresh_tab(channel)
+                    continue
                 
                 if current_length > last_length:
                     # 有新数据，提取增量部分
@@ -1662,6 +1838,9 @@ class DeviceMdiWindow(QWidget):
                         
                         # 更新已显示长度
                         self.last_display_lengths[channel] = current_length
+                        
+                        # 更新TAB的时间戳（激活和非激活TAB都更新）
+                        self.last_tab_update_times[channel] = current_time
         except Exception as e:
             logger.error(f"Failed to update from worker: {e}", exc_info=True)
     
@@ -4022,26 +4201,40 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to delayed display TAB 1 content: {e}")
 
     def eventFilter(self, obj, event):
-        """事件过滤器：处理ComboBox的键盘事件"""
-        if obj == self.ui.cmd_buffer and event.type() == event.Type.KeyPress:
-            key = event.key()
+        """事件过滤器：处理ComboBox的键盘事件和鼠标滚轮事件"""
+        if obj == self.ui.cmd_buffer:
+            # 处理键盘事件
+            if event.type() == event.Type.KeyPress:
+                key = event.key()
+                
+                # 处理上方向键
+                if key == Qt.Key_Up:
+                    self._navigate_command_history_up()
+                    return True  # 消费事件
+                    
+                # 处理下方向键
+                elif key == Qt.Key_Down:
+                    self._navigate_command_history_down()
+                    return True  # 消费事件
+                    
+                # 处理其他按键时保存当前输入
+                elif key not in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab]:
+                    # 如果当前不在历史导航模式，保存输入文本
+                    if self.command_history_index == -1:
+                        # 延迟保存，让按键先被处理
+                        QTimer.singleShot(0, self._save_current_input)
             
-            # 处理上方向键
-            if key == Qt.Key_Up:
-                self._navigate_command_history_up()
-                return True  # 消费事件
-                
-            # 处理下方向键
-            elif key == Qt.Key_Down:
-                self._navigate_command_history_down()
-                return True  # 消费事件
-                
-            # 处理其他按键时保存当前输入
-            elif key not in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab]:
-                # 如果当前不在历史导航模式，保存输入文本
-                if self.command_history_index == -1:
-                    # 延迟保存，让按键先被处理
-                    QTimer.singleShot(0, self._save_current_input)
+            # 🔧 修复：处理鼠标滚轮事件，在ComboBox上滚动时导航命令历史
+            elif event.type() == event.Type.Wheel:
+                from PySide6.QtCore import QEvent
+                wheel_delta = event.angleDelta().y()
+                if wheel_delta > 0:
+                    # 向上滚动：显示更早的命令
+                    self._navigate_command_history_up()
+                elif wheel_delta < 0:
+                    # 向下滚动：显示更新的命令
+                    self._navigate_command_history_down()
+                return True  # 消费事件，阻止ComboBox的默认滚轮行为
         
         # 调用父类的事件过滤器
         return super().eventFilter(obj, event)
@@ -4067,12 +4260,17 @@ class RTTMainWindow(QMainWindow):
                 # 向上移动（更早的命令）
                 self.command_history_index = min(self.command_history_index + 1, history_count - 1)
             
-            # 设置ComboBox显示历史命令
-            self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
-            # 选中文本，便于继续输入时替换
-            line_edit = self.ui.cmd_buffer.lineEdit()
-            if line_edit:
-                line_edit.selectAll()
+            # 🔧 修复：阻止信号传播，避免触发activated信号更新"已发送"区域
+            self.ui.cmd_buffer.blockSignals(True)
+            try:
+                # 设置ComboBox显示历史命令（只更新输入框，不触发信号）
+                self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
+                # 选中文本，便于继续输入时替换
+                line_edit = self.ui.cmd_buffer.lineEdit()
+                if line_edit:
+                    line_edit.selectAll()
+            finally:
+                self.ui.cmd_buffer.blockSignals(False)
             
             logger.debug(f"Navigate to history command [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
             
@@ -4089,20 +4287,25 @@ class RTTMainWindow(QMainWindow):
             # 向下移动（更新的命令）
             self.command_history_index -= 1
             
-            if self.command_history_index < 0:
-                # 回到当前输入
-                self.command_history_index = -1
-                self.ui.cmd_buffer.setCurrentText(self.current_input_text)
-                logger.debug(f"Return to current input: {self.current_input_text}")
-            else:
-                # 设置ComboBox显示历史命令
-                self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
-                logger.debug(f"Navigate to history command [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
-            
-            # 选中文本，便于继续输入时替换
-            line_edit = self.ui.cmd_buffer.lineEdit()
-            if line_edit:
-                line_edit.selectAll()
+            # 🔧 修复：阻止信号传播，避免触发activated信号更新"已发送"区域
+            self.ui.cmd_buffer.blockSignals(True)
+            try:
+                if self.command_history_index < 0:
+                    # 回到当前输入
+                    self.command_history_index = -1
+                    self.ui.cmd_buffer.setCurrentText(self.current_input_text)
+                    logger.debug(f"Return to current input: {self.current_input_text}")
+                else:
+                    # 设置ComboBox显示历史命令（只更新输入框，不触发信号）
+                    self.ui.cmd_buffer.setCurrentIndex(self.command_history_index)
+                    logger.debug(f"Navigate to history command [{self.command_history_index}]: {self.ui.cmd_buffer.currentText()}")
+                
+                # 选中文本，便于继续输入时替换
+                line_edit = self.ui.cmd_buffer.lineEdit()
+                if line_edit:
+                    line_edit.selectAll()
+            finally:
+                self.ui.cmd_buffer.blockSignals(False)
             
         except Exception as e:
             logger.error(f"Failed to navigate down command history: {e}")
@@ -9814,10 +10017,18 @@ class Worker(QObject):
                 elif self.colored_buffer_capacities[index] >= self.max_capacity:
                     # 已达最大容量，清理旧数据
                     trim_size = self.max_capacity // 2  # 保留3.2MB
+                    trimmed_length = 0
                     while self.colored_buffer_lengths[index] > trim_size and self.colored_buffers[index]:
                         removed = self.colored_buffers[index].pop(0)
-                        self.colored_buffer_lengths[index] -= len(removed)
-                    logger.info(f"[TRIM] Colored buffer {index} trimmed to {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)")
+                        removed_len = len(removed)
+                        self.colored_buffer_lengths[index] -= removed_len
+                        trimmed_length += removed_len
+                    
+                    # 🔧 修复：通知所有MDI窗口更新last_display_lengths，避免数据丢失
+                    if trimmed_length > 0 and hasattr(self.parent, 'main_window') and self.parent.main_window:
+                        self._notify_mdi_windows_buffer_trimmed(index, trimmed_length)
+                    
+                    logger.info(f"[TRIM] Colored buffer {index} trimmed {trimmed_length//1024}KB, now {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)")
             
             # 分块追加
             self.colored_buffers[index].append(data)
@@ -9873,6 +10084,30 @@ class Worker(QObject):
         
         # 不超过最大容量
         return min(new_capacity, self.max_capacity)
+    
+    def _notify_mdi_windows_buffer_trimmed(self, buffer_index, trimmed_length):
+        """通知所有MDI窗口缓冲区被裁剪，需要更新last_display_lengths"""
+        try:
+            if not hasattr(self.parent, 'main_window') or not self.parent.main_window:
+                return
+            
+            main_window = self.parent.main_window
+            if not hasattr(main_window, 'device_sessions'):
+                return
+            
+            # 遍历所有设备会话，更新对应的MDI窗口
+            for session in main_window.device_sessions:
+                if session.connection_dialog and session.connection_dialog.worker == self:
+                    # 这是当前Worker对应的会话
+                    if session.mdi_window and hasattr(session.mdi_window, 'last_display_lengths'):
+                        if buffer_index < len(session.mdi_window.last_display_lengths):
+                            old_length = session.mdi_window.last_display_lengths[buffer_index]
+                            # 调整last_display_lengths，但不能小于0
+                            new_length = max(0, old_length - trimmed_length)
+                            session.mdi_window.last_display_lengths[buffer_index] = new_length
+                            logger.debug(f"📊 Updated MDI window last_display_lengths[{buffer_index}]: {old_length} -> {new_length} (trimmed {trimmed_length} bytes)")
+        except Exception as e:
+            logger.error(f"Failed to notify MDI windows of buffer trim: {e}", exc_info=True)
     
     def _log_performance_metrics(self):
         """📈 记录性能指标：刷新率和数据量"""
