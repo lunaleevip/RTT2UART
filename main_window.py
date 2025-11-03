@@ -828,6 +828,15 @@ class ColumnSelectTextEdit(QTextEdit):
         
     def mousePressEvent(self, event):
         """鼠标按下事件"""
+        from PySide6.QtCore import Qt
+        # 🔧 修复：右键点击时，如果存在ALT选择块区，不清除选区
+        if event.button() == Qt.RightButton:
+            if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+                # 右键点击且有ALT选择块区，不处理，让contextMenuEvent处理
+                # 不调用父类方法，避免清除选区
+                event.accept()
+                return
+        
         # 检查是否按住ALT键
         if event.modifiers() & Qt.AltModifier:
             self.column_select_mode = True
@@ -841,7 +850,7 @@ class ColumnSelectTextEdit(QTextEdit):
             event.accept()
         else:
             self.column_select_mode = False
-            # 🔧 清除纵向选择的高亮
+            # 🔧 清除纵向选择的高亮（但右键点击时已在上面的检查中处理）
             self._clearColumnSelection()
             super().mousePressEvent(event)
     
@@ -859,6 +868,15 @@ class ColumnSelectTextEdit(QTextEdit):
     
     def mouseReleaseEvent(self, event):
         """鼠标释放事件"""
+        from PySide6.QtCore import Qt
+        # 🔧 修复：右键释放时，如果存在ALT选择块区，不清除选区
+        if event.button() == Qt.RightButton:
+            if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+                # 右键释放且有ALT选择块区，不处理，让contextMenuEvent处理
+                # 不调用父类方法，避免清除选区
+                event.accept()
+                return
+        
         if self.column_select_mode:
             self.column_select_mode = False
             # 保存选择信息以便复制
@@ -866,6 +884,44 @@ class ColumnSelectTextEdit(QTextEdit):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+    
+    def contextMenuEvent(self, event):
+        """🔧 修复：右键菜单事件 - 使用Qt默认菜单，保持ALT选择块区不被清除"""
+        # 创建Qt标准上下文菜单
+        menu = self.createStandardContextMenu()
+        
+        # 如果有ALT选择块区，修改复制动作的行为
+        if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+            # 找到复制动作并替换其行为
+            copy_shortcut = QKeySequence(QKeySequence.Copy).toString()
+            for action in menu.actions():
+                # 检查是否是复制动作（通过快捷键或文本）
+                action_shortcut = action.shortcut().toString() if action.shortcut() else ""
+                action_text = action.text().lower()
+                if copy_shortcut and action_shortcut == copy_shortcut:
+                    # 断开原有的连接，连接新的复制方法
+                    try:
+                        action.triggered.disconnect()
+                    except:
+                        pass  # 如果没有连接，忽略错误
+                    action.triggered.connect(self._copyColumnSelection)
+                    # 🔧 修复：确保复制动作是启用的
+                    action.setEnabled(True)
+                    break
+                elif 'copy' in action_text or '复制' in action_text:
+                    # 也检查文本中包含copy或复制
+                    try:
+                        action.triggered.disconnect()
+                    except:
+                        pass
+                    action.triggered.connect(self._copyColumnSelection)
+                    # 🔧 修复：确保复制动作是启用的
+                    action.setEnabled(True)
+                    break
+        
+        # 显示菜单
+        menu.exec_(event.globalPos())
+        event.accept()
     
     def keyPressEvent(self, event):
         """键盘事件 - 支持Ctrl+C复制纵向选择的文本"""
@@ -3629,23 +3685,29 @@ class RTTMainWindow(QMainWindow):
             pass
 
     def _on_encoding_selected(self, enc: str):
-        """选择编码：仅在断开时允许修改"""
+        """🔧 修复：选择编码 - 允许连接时切换，但提示需要重新连接才生效"""
         try:
-            # MDI架构：检查是否有活动连接
-            if self._get_active_device_session():
-                QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please disconnect first before switching encoding"))
-                # 回退选中状态
-                self._refresh_encoding_menu_checks()
-                return
+            # 设置编码
             if self.connection_dialog:
                 self.connection_dialog.config.set_text_encoding(enc)
                 self.connection_dialog.config.save_config()
+            
             # 同步 UI 旧控件（如存在）
             if hasattr(self, 'ui') and hasattr(self.ui, 'encoder'):
                 idx = self.ui.encoder.findText(enc, Qt.MatchFixedString)
                 if idx >= 0:
                     self.ui.encoder.setCurrentIndex(idx)
-            self.statusBar().showMessage(QCoreApplication.translate("main_window", "Encoding switched to: %s") % enc, 2000)
+            
+            # 检查是否有活动连接
+            if self._get_active_device_session():
+                # 连接时切换编码，提示需要重新连接
+                QMessageBox.information(
+                    self, 
+                    QCoreApplication.translate("main_window", "Info"), 
+                    QCoreApplication.translate("main_window", "Encoding switched to: %s\n\nPlease reconnect for the new encoding to take effect.") % enc
+                )
+            else:
+                self.statusBar().showMessage(QCoreApplication.translate("main_window", "Encoding switched to: %s") % enc, 2000)
         except Exception:
             pass
     
@@ -3733,8 +3795,8 @@ class RTTMainWindow(QMainWindow):
         """连接建立成功后的处理"""
         # 启用RTT相关功能
         self._set_rtt_controls_enabled(True)
-        # 连接中禁止切换编码
-        self._set_encoding_menu_enabled(False)
+        # 🔧 修复：连接中允许切换编码（切换后提示需要重新连接）
+        # self._set_encoding_menu_enabled(False)  # 不再禁用编码菜单
         
         # 启动自动重连监控（如果已启用）
         self.manual_disconnect = False  # 清除手动断开标记
@@ -3803,8 +3865,8 @@ class RTTMainWindow(QMainWindow):
         """连接断开后的处理"""
         # 禁用RTT相关功能
         self._set_rtt_controls_enabled(False)
-        # 断开后可切换编码
-        self._set_encoding_menu_enabled(True)
+        # 🔧 修复：编码菜单现在始终可用，不需要重新启用
+        # self._set_encoding_menu_enabled(True)
         
         # 更新状态显示
         self.update_status_bar()
@@ -10033,6 +10095,11 @@ class Worker(QObject):
             # 分块追加
             self.colored_buffers[index].append(data)
             self.colored_buffer_lengths[index] += len(data)
+            
+            # 🔧 修复：更新数据时间戳（用于自动重连监控）
+            if hasattr(self.parent, 'main_window') and self.parent.main_window:
+                if hasattr(self.parent.main_window, '_update_data_timestamp'):
+                    self.parent.main_window._update_data_timestamp()
             
             # 📈 性能监控：记录数据增长
             self._log_performance_metrics()

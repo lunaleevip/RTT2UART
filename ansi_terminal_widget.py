@@ -265,6 +265,14 @@ class FastAnsiTextEdit(QTextEdit):
     def mousePressEvent(self, event):
         """鼠标按下事件"""
         from PySide6.QtCore import Qt
+        # 🔧 修复：右键点击时，如果存在ALT选择块区，不清除选区
+        if event.button() == Qt.RightButton:
+            if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+                # 右键点击且有ALT选择块区，不处理，让contextMenuEvent处理
+                # 不调用父类方法，避免清除选区
+                event.accept()
+                return
+        
         # 检查是否按住ALT键
         if event.modifiers() & Qt.AltModifier:
             self.column_select_mode = True
@@ -278,7 +286,7 @@ class FastAnsiTextEdit(QTextEdit):
             event.accept()
         else:
             self.column_select_mode = False
-            # 清除纵向选择的高亮
+            # 🔧 清除纵向选择的高亮（但右键点击时已在上面的检查中处理）
             self._clearColumnSelection()
             super().mousePressEvent(event)
     
@@ -296,6 +304,15 @@ class FastAnsiTextEdit(QTextEdit):
     
     def mouseReleaseEvent(self, event):
         """鼠标释放事件"""
+        from PySide6.QtCore import Qt
+        # 🔧 修复：右键释放时，如果存在ALT选择块区，不清除选区
+        if event.button() == Qt.RightButton:
+            if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+                # 右键释放且有ALT选择块区，不处理，让contextMenuEvent处理
+                # 不调用父类方法，避免清除选区
+                event.accept()
+                return
+        
         if self.column_select_mode:
             self.column_select_mode = False
             # 保存选择信息以便复制
@@ -303,6 +320,45 @@ class FastAnsiTextEdit(QTextEdit):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+    
+    def contextMenuEvent(self, event):
+        """🔧 修复：右键菜单事件 - 使用Qt默认菜单，保持ALT选择块区不被清除"""
+        # 创建Qt标准上下文菜单
+        menu = self.createStandardContextMenu()
+        
+        # 如果有ALT选择块区，修改复制动作的行为
+        if hasattr(self, '_column_selection_data') and self._column_selection_data and self.column_select_ranges:
+            # 找到复制动作并替换其行为
+            from PySide6.QtGui import QKeySequence
+            copy_shortcut = QKeySequence(QKeySequence.Copy).toString()
+            for action in menu.actions():
+                # 检查是否是复制动作（通过快捷键或文本）
+                action_shortcut = action.shortcut().toString() if action.shortcut() else ""
+                action_text = action.text().lower()
+                if copy_shortcut and action_shortcut == copy_shortcut:
+                    # 断开原有的连接，连接新的复制方法
+                    try:
+                        action.triggered.disconnect()
+                    except:
+                        pass  # 如果没有连接，忽略错误
+                    action.triggered.connect(self._copyColumnSelection)
+                    # 🔧 修复：确保复制动作是启用的
+                    action.setEnabled(True)
+                    break
+                elif 'copy' in action_text or '复制' in action_text:
+                    # 也检查文本中包含copy或复制
+                    try:
+                        action.triggered.disconnect()
+                    except:
+                        pass
+                    action.triggered.connect(self._copyColumnSelection)
+                    # 🔧 修复：确保复制动作是启用的
+                    action.setEnabled(True)
+                    break
+        
+        # 显示菜单
+        menu.exec_(event.globalPos())
+        event.accept()
     
     def keyPressEvent(self, event):
         """键盘事件 - 支持Ctrl+C复制纵向选择的文本"""
