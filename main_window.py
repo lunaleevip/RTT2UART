@@ -6290,24 +6290,34 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to save format RAM config: {e}")
     
-    def _get_device_ram_info(self):
+    def _get_device_ram_info(self, session=None):
         """从JLink设备配置中获取RAM地址和大小
         
+        Args:
+            session: 可选的设备会话对象，在MDI架构中使用
+            
         Returns:
             tuple: (ram_start_addr, ram_size) 或 (None, None) 如果获取失败
         """
         try:
-            # 从ConnectionDialog获取当前选中的设备名称
-            if not self.connection_dialog:
-                return None, None
+            # 优先使用传入的session获取设备信息（MDI架构）
+            device_name = None
             
-            device_name = self.connection_dialog.target_device
-            if not device_name:
-                # 尝试从comboBox获取
-                try:
-                    device_name = self.connection_dialog.ui.comboBox_Device.currentText()
-                except:
-                    pass
+            if session and hasattr(session, 'connection_dialog') and session.connection_dialog:
+                device_name = session.connection_dialog.target_device
+                if not device_name:
+                    try:
+                        device_name = session.connection_dialog.ui.comboBox_Device.currentText()
+                    except:
+                        pass
+            # 如果没有session或获取失败，回退到全局connection_dialog
+            elif self.connection_dialog:
+                device_name = self.connection_dialog.target_device
+                if not device_name:
+                    try:
+                        device_name = self.connection_dialog.ui.comboBox_Device.currentText()
+                    except:
+                        pass
             
             if not device_name:
                 logger.warning("No device name available for RAM info lookup")
@@ -6370,7 +6380,7 @@ class RTTMainWindow(QMainWindow):
         """格式化RAM（清零）
         
         Returns:
-            bool: 成功返回True，失败返回False
+            bool: 成功启动格式化线程返回True，失败返回False
         """
         try:
             # MDI架构：获取活动设备会话
@@ -6378,59 +6388,35 @@ class RTTMainWindow(QMainWindow):
             if not session or not session.rtt2uart or not session.is_connected:
                 return False
             
-            jlink = session.rtt2uart.jlink
-            
-            # 获取设备名称用于日志显示
-            device_name = session.connection_dialog.target_device if session.connection_dialog else "Unknown"
-            if not device_name:
-                try:
-                    device_name = session.connection_dialog.ui.comboBox_Device.currentText()
-                except:
-                    device_name = "Unknown"
-            
-            # 获取RAM信息
-            ram_start, ram_size = self._get_device_ram_info()
+            # 获取RAM信息（传递session以适配MDI架构）
+            ram_start, ram_size = self._get_device_ram_info(session)
             
             if ram_start is None or ram_size is None:
+                device_name = session.connection_dialog.target_device if session.connection_dialog else "Unknown"
                 self.append_jlink_log(QCoreApplication.translate("main_window", "⚠ Cannot get RAM info for device '%s', skipping RAM format") % device_name)
                 return False
             
-            self.append_jlink_log(QCoreApplication.translate("main_window", "Starting RAM format: 0x%08X, size: %d bytes") % (ram_start, ram_size))
+            # 创建并启动格式化线程
+            format_thread = RamFormatThread(self, session, ram_start, ram_size)
+            format_thread.log_signal.connect(self.append_jlink_log)
+            format_thread.start()
             
-            # 分块清除RAM（每次4KB）
-            block_size = 4096
-            total_blocks = (ram_size + block_size - 1) // block_size
-            cleared_size = 0
+            # 禁用格式化按钮以防止重复点击
+            if hasattr(self, 'action_format_ram'):
+                self.action_format_ram.setEnabled(False)
             
-            try:
-                jlink.halt()
-            except Exception:
-                pass
+            # 连接线程完成信号
+            def on_format_finished(success):
+                # 重新启用格式化按钮
+                if hasattr(self, 'action_format_ram'):
+                    self.action_format_ram.setEnabled(True)
+                # 通知重启操作格式化已完成
+                if hasattr(self, '_format_ram_finished'):
+                    self._format_ram_finished(success)
             
-            for i in range(total_blocks):
-                offset = i * block_size
-                current_addr = ram_start + offset
-                current_size = min(block_size, ram_size - offset)
-                
-                try:
-                    # 创建全零数据块
-                    zero_data = [0] * (current_size // 4)  # memory_write32需要32位数据
-                    jlink.memory_write32(current_addr, zero_data)
-                    cleared_size += current_size
-                    
-                    # 每清除1/4进度输出一次日志
-                    if (i + 1) % (max(1, total_blocks // 4)) == 0 or i == total_blocks - 1:
-                        progress = (cleared_size * 100) // ram_size
-                        self.append_jlink_log(QCoreApplication.translate("main_window", "RAM format progress: %d%%") % progress)
-                    
-                except Exception as e:
-                    # 遇到错误时显示警告并完成操作
-                    error_msg = QCoreApplication.translate("main_window", "⚠ RAM format failed at 0x%08X: %s\nCleared %d/%d bytes") % (current_addr, str(e), cleared_size, ram_size)
-                    self.append_jlink_log(error_msg)
-                    logger.warning(f"RAM format failed at 0x{current_addr:08X}: {e}")
-                    return cleared_size > 0  # 如果清除了部分内存，仍然返回True
+            # 连接自定义的format_finished信号而不是默认的finished信号
+            format_thread.format_finished.connect(on_format_finished)
             
-            self.append_jlink_log(QCoreApplication.translate("main_window", "✓ RAM format completed: %d bytes cleared") % cleared_size)
             return True
             
         except Exception as e:
@@ -6524,16 +6510,62 @@ class RTTMainWindow(QMainWindow):
             format_ram_enabled = hasattr(self, 'action_format_ram') and self.action_format_ram.isChecked()
             if format_ram_enabled:
                 self.append_jlink_log(QCoreApplication.translate("main_window", "--- Format RAM before restart ---"))
+                
+                # 设置格式化完成后的回调函数
+                def on_format_ram_finished(success):
+                    # 即使格式化失败也尝试执行重启操作
+                    self._execute_restart(selected_sfr)
+                    # 移除回调引用以避免内存泄漏
+                    if hasattr(self, '_format_ram_finished'):
+                        delattr(self, '_format_ram_finished')
+                
+                # 存储回调函数引用
+                self._format_ram_finished = on_format_ram_finished
+                
+                # 启动异步RAM格式化
                 self._format_ram()
-            
-            # 执行重启
-            if selected_sfr:
+            else:
+                # 不需要格式化RAM，直接执行重启
+                self._execute_restart(selected_sfr)
+                
+        except Exception as e:
+            logger.error(f"Restart app error: {e}")
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), QCoreApplication.translate("main_window", "Restart app error: %s") % str(e))
+    
+    def _execute_restart(self, use_sfr=True):
+        """执行设备重启操作
+        
+        Args:
+            use_sfr (bool): True使用SFR方式重启，False使用复位引脚方式重启
+        """
+        try:
+            if use_sfr:
                 self.restart_app_via_sfr()
             else:
                 self.restart_app_via_reset_pin()
-                
-            logger.info(f"Restart executed for device: {session.get_display_name()}")
         except Exception as e:
+            logger.error(f"Execute restart error: {e}")
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), QCoreApplication.translate("main_window", "Restart execution error: %s") % str(e))
+    
+    def restart_app_via_reset_pin(self):
+        """通过硬件复位引脚重启（若调试器支持）"""
+        try:
+            # MDI架构：获取活动设备会话
+            session = self._get_active_device_session()
+            if not session or not session.rtt2uart or not session.is_connected:
+                QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Please connect first, then restart app"))
+                return
+            jlink = session.rtt2uart.jlink
+            try:
+                # 尝试使用J-Link API触发复位
+                jlink.reset()
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Reset pin triggered, device should restart"))
+                logger.info(f"Restart executed for device: {session.get_display_name()}")
+            except Exception as e:
+                QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), QCoreApplication.translate("main_window", "Reset pin restart failed: %s") % str(e))
+                logger.error(f"Failed to restart device: {e}", exc_info=True)
+        except Exception as e:
+            QMessageBox.warning(self, QCoreApplication.translate("main_window", "Failed"), str(e))
             logger.error(f"Failed to restart device: {e}", exc_info=True)
 
     def show_find_dialog(self):
@@ -6594,7 +6626,84 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to show find dialog: {e}", exc_info=True)
 
 
-                                    
+class RamFormatThread(QThread):
+    """RAM格式化工作线程，在后台执行RAM清零操作"""
+    log_signal = Signal(str)
+    format_finished = Signal(bool)  # 自定义信号，用于传递格式化结果
+    
+    def __init__(self, parent, session, ram_start, ram_size):
+        super().__init__(parent)
+        self.session = session
+        self.ram_start = ram_start
+        self.ram_size = ram_size
+        # Use global logger instead of parent logger
+        global logger
+        self.logger = logger
+        
+    def run(self):
+        """线程运行函数，执行实际的RAM格式化操作"""
+        try:
+            jlink = self.session.rtt2uart.jlink
+            
+            # 获取设备名称用于日志显示
+            device_name = "Unknown"
+            if hasattr(self.session, 'connection_dialog') and self.session.connection_dialog:
+                device_name = self.session.connection_dialog.target_device or "Unknown"
+                if not device_name:
+                    try:
+                        device_name = self.session.connection_dialog.ui.comboBox_Device.currentText()
+                    except:
+                        pass
+            
+            self.log_signal.emit(QCoreApplication.translate("main_window", "Starting RAM format: 0x%08X, size: %d bytes") % (self.ram_start, self.ram_size))
+            
+            # 分块清除RAM（每次4KB）
+            block_size = 4096
+            total_blocks = (self.ram_size + block_size - 1) // block_size
+            cleared_size = 0
+            success = True
+            
+            try:
+                jlink.halt()
+            except Exception:
+                pass
+            
+            for i in range(total_blocks):
+                offset = i * block_size
+                current_addr = self.ram_start + offset
+                current_size = min(block_size, self.ram_size - offset)
+                
+                try:
+                    # 创建全零数据块
+                    zero_data = [0] * (current_size // 4)  # memory_write32需要32位数据
+                    jlink.memory_write32(current_addr, zero_data)
+                    cleared_size += current_size
+                    
+                    # 每清除1/4进度输出一次日志
+                    if (i + 1) % (max(1, total_blocks // 4)) == 0 or i == total_blocks - 1:
+                        progress = (cleared_size * 100) // self.ram_size
+                        self.log_signal.emit(QCoreApplication.translate("main_window", "RAM format progress: %d%%") % progress)
+                    
+                except Exception as e:
+                    # 遇到错误时显示警告并完成操作
+                    error_msg = QCoreApplication.translate("main_window", "⚠ RAM format failed at 0x%08X: %s\nCleared %d/%d bytes") % (current_addr, str(e), cleared_size, self.ram_size)
+                    self.log_signal.emit(error_msg)
+                    self.logger.warning(f"RAM format failed at 0x{current_addr:08X}: {e}")
+                    success = cleared_size > 0  # 如果清除了部分内存，仍然返回True
+                    break
+            
+            if success:
+                self.log_signal.emit(QCoreApplication.translate("main_window", "✓ RAM format completed: %d bytes cleared") % cleared_size)
+            
+            # 线程完成时发出自定义信号
+            self.format_finished.emit(success)
+            
+        except Exception as e:
+            error_msg = QCoreApplication.translate("main_window", "RAM format error: %s") % str(e)
+            self.log_signal.emit(error_msg)
+            self.logger.error(f"RAM format error: {e}")
+            self.format_finished.emit(False)
+
 class FindDialog(QDialog):
     """Find Dialog"""
     
