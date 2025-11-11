@@ -29,7 +29,7 @@ class ColorConfigDialog(QDialog):
         """
         super().__init__(parent)
         self.config_manager = config_manager
-        self.setWindowTitle("标签页颜色配置")
+        self.setWindowTitle(self.tr("Tab Color Configuration"))
         self.resize(600, 500)
         
         # 存储颜色的临时变量
@@ -55,23 +55,23 @@ class ColorConfigDialog(QDialog):
         
         # 为每个通道创建颜色配置项
         for i in range(16):
-            group_box = QGroupBox(f"通道 {i}")
+            group_box = QGroupBox(self.tr(f"Channel {i}"))
             group_layout = QGridLayout(group_box)
             
             # 前景色配置
-            fg_label = QLabel("前景色:")
+            fg_label = QLabel(self.tr("Foreground:"))
             fg_color_label = QLabel()
             fg_color_label.setFixedSize(40, 25)
             fg_color_label.setStyleSheet("border: 1px solid #CCCCCC;")
-            fg_button = QPushButton("选择")
+            fg_button = QPushButton(self.tr("Select"))
             fg_button.clicked.connect(lambda checked, idx=i, is_fg=True: self._select_color(idx, is_fg))
             
             # 背景色配置
-            bg_label = QLabel("背景色:")
+            bg_label = QLabel(self.tr("Background:"))
             bg_color_label = QLabel()
             bg_color_label.setFixedSize(40, 25)
             bg_color_label.setStyleSheet("border: 1px solid #CCCCCC;")
-            bg_button = QPushButton("选择")
+            bg_button = QPushButton(self.tr("Select"))
             bg_button.clicked.connect(lambda checked, idx=i, is_fg=False: self._select_color(idx, is_fg))
             
             # 添加到布局
@@ -141,7 +141,7 @@ class ColorConfigDialog(QDialog):
         color = QColorDialog.getColor(
             current_color,
             self,
-            f"选择通道 {index} 的{'前景色' if is_foreground else '背景色'}"
+            self.tr(f"Select {'Foreground' if is_foreground else 'Background'} Color for Channel {index}")
         )
         
         if color.isValid():

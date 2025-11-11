@@ -53,7 +53,7 @@ class UpdateDialog(QDialog):
         self.updater = AutoUpdater()
         self.update_thread = None
         
-        self.setWindowTitle("软件更新")
+        self.setWindowTitle(self.tr("Software Update"))
         self.setMinimumWidth(500)
         self.setMinimumHeight(400)
         
@@ -140,7 +140,7 @@ class UpdateDialog(QDialog):
             info_label = QLabel(f"{update_type_text}\n{size_text}\n节省流量: {saved_ratio:.1f}%")
             info_label.setStyleSheet("color: #009900; padding: 5px;")
         else:
-            update_type_text = "完整更新"
+            update_type_text = self.tr("Full Update")
             size_text = f"下载大小: {self._format_size(self.update_info['size'])}"
             info_label = QLabel(f"{update_type_text}\n{size_text}")
             info_label.setStyleSheet("color: #666666; padding: 5px;")
@@ -170,7 +170,7 @@ class UpdateDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
         
-        self.update_button = QPushButton("立即更新")
+        self.update_button = QPushButton(self.tr("Update Now"))
         self.update_button.clicked.connect(self._start_update)
         self.update_button.setStyleSheet("""
             QPushButton {
@@ -190,7 +190,7 @@ class UpdateDialog(QDialog):
         """)
         button_layout.addWidget(self.update_button)
         
-        self.cancel_button = QPushButton("稍后提醒")
+        self.cancel_button = QPushButton(self.tr("Remind Later"))
         self.cancel_button.clicked.connect(self.reject)
         self.cancel_button.setStyleSheet("""
             QPushButton {
@@ -235,7 +235,7 @@ class UpdateDialog(QDialog):
         if success:
             QMessageBox.information(
                 self,
-                "更新成功",
+                self.tr("Update Successful"),
                 "更新已完成!\n\n程序将自动重启以应用更新。",
                 QMessageBox.Ok
             )
@@ -244,7 +244,7 @@ class UpdateDialog(QDialog):
         else:
             QMessageBox.critical(
                 self,
-                "更新失败",
+                self.tr("Update Failed"),
                 "更新过程中发生错误,请稍后重试。",
                 QMessageBox.Ok
             )
@@ -258,7 +258,7 @@ class UpdateDialog(QDialog):
         """更新错误"""
         QMessageBox.critical(
             self,
-            "更新失败",
+            self.tr("Update Failed"),
             f"更新过程中发生错误:\n\n{error}",
             QMessageBox.Ok
         )
@@ -282,7 +282,7 @@ class UpdateDialog(QDialog):
         if self.update_thread and self.update_thread.isRunning():
             reply = QMessageBox.question(
                 self,
-                "确认",
+                self.tr("Confirm"),
                 "更新正在进行中,确定要取消吗?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No

@@ -62,6 +62,8 @@ def update_translations():
         "rtt2uart.py",
         "ansi_terminal_widget.py",
         "ui_constants.py",
+        "update_dialog.py",
+        "color_config_dialog.py",
         "ui/xexunrtt.ui",
         "ui/rtt2uart_updated.ui",
         "ui/sel_device.ui",
