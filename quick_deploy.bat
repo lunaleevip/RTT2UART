@@ -29,9 +29,9 @@ if exist "env\Scripts\activate.bat" (
 
 REM 执行部署
 if "%~2"=="" (
-    python deploy_update.py "%~1"
+    python deploy_update.py "%~1" --max-patches 10
 ) else (
-    python deploy_update.py "%~1" --notes "%~2"
+    python deploy_update.py "%~1" --notes "%~2"  --max-patches 10
 )
 
 REM 显示结果

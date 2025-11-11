@@ -124,7 +124,7 @@ def save_version_json(version_file: Path, data: dict):
 def deploy_update(new_file: Path, 
                  release_notes: str = None,
                  output_dir: Path = None,
-                 max_patches: int = 3) -> bool:
+                 max_patches: int = 10) -> bool:
     """
     智能部署更新
     

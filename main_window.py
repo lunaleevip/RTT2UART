@@ -269,7 +269,7 @@ import auto_updater   # 确保 auto_updater 也被导入
 try:
     from update_dialog import check_for_updates_on_startup
     UPDATE_AVAILABLE = True
-    logger.info("✅ Auto update module loaded successfully")
+    logger.info("Auto update module loaded successfully")
 except ImportError as e:
     UPDATE_AVAILABLE = False
     logger.error(f"❌ Failed to load auto update module: {e}")
@@ -1099,9 +1099,9 @@ class EditableTabBar(QTabBar):
         
         if event.button() == Qt.MiddleButton:
             index = self.tabAt(event.pos())
-            logger.info(f"🖱️ 中键点击TAB索引: {index}")
+            # 中键点击TAB
             if index >= 17:  # 只处理Filters标签
-                logger.info(f"🗑️ 中键清除筛选TAB[{index}]")
+                # 中键清除筛选TAB
                 # 清空该标签页
                 # 找到当前的DeviceMdiWindow实例
                 tab_widget = self.parent()
@@ -1117,11 +1117,11 @@ class EditableTabBar(QTabBar):
                         if hasattr(mdi_window, 'widget'):
                             mdi_window = mdi_window.widget()
                     
-                    logger.info(f"  找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+                    pass
                 
                 if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
                     old_text = self.tabText(index)
-                    logger.info(f"  原文本: '{old_text}'")
+                    pass
                     
                     # 保存当前标签页索引
                     current_index = tab_widget.currentIndex()
@@ -1131,7 +1131,7 @@ class EditableTabBar(QTabBar):
                     # 清空该TAB的文本编辑器
                     if index < len(mdi_window.text_edits):
                         mdi_window.text_edits[index].clear()
-                        logger.info(f"  ✅ 已清空TAB[{index}]的文本编辑器")
+                        pass
                     
                     # 清空Worker的缓冲区
                     if mdi_window.device_session and mdi_window.device_session.connection_dialog:
@@ -1140,38 +1140,38 @@ class EditableTabBar(QTabBar):
                             worker.colored_buffers[index].clear()
                             worker.colored_buffer_lengths[index] = 0
                             mdi_window.last_display_lengths[index] = 0
-                            logger.info(f"  ✅ 已清空TAB[{index}]的Worker缓冲区")
+                            pass
                     
                     # 🔑 先保存空字符串到配置（MDI架构：使用当前设备会话的配置）
                     # 必须在 update_filter_tab_display() 之前更新配置，否则判断逻辑会读取到旧值
                     if mdi_window.device_session and mdi_window.device_session.connection_dialog:
                         mdi_window.device_session.connection_dialog.config.set_filter(index, "")
-                        logger.info(f"  ✅ 已保存空配置到内存")
+                        pass
                     
                     # 重置标签文本为"+"
                     self.setTabText(index, "+")
-                    logger.info(f"  ✅ 已设置TAB[{index}]文本为'+'")
+                    pass
                     
                     # 更新筛选TAB显示（隐藏多余的空TAB）
-                    logger.info(f"  🔄 调用update_filter_tab_display()...")
+                    pass
                     mdi_window.update_filter_tab_display()
                     
                     # 保存配置到文件
                     if mdi_window.device_session and mdi_window.device_session.connection_dialog:
                         mdi_window.device_session.connection_dialog.config.save_config()
-                        logger.info(f"  ✅ 已保存配置到文件")
+                        pass
                     
                     # 恢复原来的标签页（如果不是同一个）
                     if current_index != index:
                         tab_widget.setCurrentIndex(current_index)
                     
-                    logger.info(f"✅ 中键清除完成")
+                    pass
                 else:
-                    logger.warning(f"  ✗ mdi_window无效或不是DeviceMdiWindow实例")
+                    logger.warning(f"mdi_window无效或不是DeviceMdiWindow实例")
                 event.accept()
                 return
             else:
-                logger.info(f"  跳过：TAB[{index}]不是筛选TAB")
+                pass
         super().mousePressEvent(event)
     
     def mouseMoveEvent(self, event):
@@ -1252,18 +1252,18 @@ class EditableTabBar(QTabBar):
                 
                 # 确保配置管理器存在
                 if not config_manager:
-                    logger.error("❌ 无法获取配置管理器，无法打开颜色配置对话框")
+                    logger.error("无法获取配置管理器，无法打开颜色配置对话框")
                     return
                 
                 # 显示颜色配置对话框
                 dialog = ColorConfigDialog(config_manager, parent=mdi_window.main_window)
                 if dialog.exec() == QDialog.Accepted:
                     # 颜色配置已保存，清空ALL标签页数据以重新加载颜色设置
-                    logger.info(f"🧹 准备清空ALL标签页(TAB[0])的数据...")
+                    # 准备清空ALL标签页(TAB[0])的数据
                     if index < len(mdi_window.text_edits):
                         # 清空文本编辑器
                         mdi_window.text_edits[index].clear()
-                        logger.info(f"  ✅ 已清空ALL标签页(TAB[0])的文本编辑器")
+                        pass
                         
                         # 清空Worker的缓冲区
                         if mdi_window.device_session and mdi_window.device_session.connection_dialog:
@@ -1272,10 +1272,10 @@ class EditableTabBar(QTabBar):
                                 worker.colored_buffers[index].clear()
                                 worker.colored_buffer_lengths[index] = 0
                                 mdi_window.last_display_lengths[index] = 0
-                                logger.info(f"  ✅ 已清空ALL标签页(TAB[0])的Worker缓冲区")
+                                pass
                     
                     # 记录日志
-                    logger.info(f"🎨 ALL标签页颜色配置已保存并应用")
+                    pass
             
             return
         if index >= 17:
@@ -1295,7 +1295,7 @@ class EditableTabBar(QTabBar):
                     if hasattr(mdi_window, 'widget'):
                         mdi_window = mdi_window.widget()
                 
-                logger.info(f"🔍 找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+                pass
             
             # 如果是"+"符号,传递空字符串给对话框
             # 如果筛选内容本身就是"+",则传递"+"
@@ -1329,14 +1329,14 @@ class EditableTabBar(QTabBar):
                     # 设置tooltip显示完整内容
                     if tab_widget:
                         tab_widget.setTabToolTip(index, new_text)
-                    logger.info(f"📝 TAB[{index}] 设置筛选文本: '{new_text}'")
+                    # 更新TAB筛选文本
                 else:
                     self.setTabText(index, "+")  # 清空时显示"+"
                     # 设置tooltip提示双击编辑
                     if tab_widget:
                         from PySide6.QtCore import QCoreApplication
                         tab_widget.setTabToolTip(index, QCoreApplication.translate("main_window", "Double-click to edit filter"))
-                    logger.info(f"🗑️ TAB[{index}] 清空筛选文本，设置为'+'")
+                    # 清空TAB筛选文本
                 
                 # 找到当前的DeviceMdiWindow实例
                 mdi_window = None
@@ -1351,18 +1351,18 @@ class EditableTabBar(QTabBar):
                         if hasattr(mdi_window, 'widget'):
                             mdi_window = mdi_window.widget()
                     
-                    logger.info(f"🔍 找到tab_widget: {tab_widget}, mdi_window: {mdi_window}, 类型: {type(mdi_window)}")
+                    pass
                 
                 # 如果清空了筛选文本，同时清空该TAB的数据
                 if not new_text:
-                    logger.info(f"🧹 准备清空TAB[{index}]的数据...")
+                    # 准备清空TAB[{index}]的数据
                     if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
-                        logger.info(f"  ✓ 确认mdi_window是DeviceMdiWindow实例")
+                        pass
                         if index < len(mdi_window.text_edits):
-                            logger.info(f"  ✓ TAB索引{index}有效，text_edits总数: {len(mdi_window.text_edits)}")
+                            pass
                             # 清空文本编辑器
                             mdi_window.text_edits[index].clear()
-                            logger.info(f"  ✅ 已清空TAB[{index}]的文本编辑器")
+                            pass
                             
                             # 清空Worker的缓冲区
                             if mdi_window.device_session and mdi_window.device_session.connection_dialog:
@@ -1371,9 +1371,9 @@ class EditableTabBar(QTabBar):
                                     worker.colored_buffers[index].clear()
                                     worker.colored_buffer_lengths[index] = 0
                                     mdi_window.last_display_lengths[index] = 0
-                                    logger.info(f"  ✅ 已清空TAB[{index}]的Worker缓冲区")
+                                    pass
                         else:
-                            logger.warning(f"  ✗ TAB索引{index}超出范围！text_edits总数: {len(mdi_window.text_edits)}")
+                            logger.warning(f"TAB索引{index}超出范围！text_edits总数: {len(mdi_window.text_edits)}")
                     else:
                         logger.warning(f"  ✗ mdi_window无效或不是DeviceMdiWindow实例")
                 
@@ -1386,25 +1386,25 @@ class EditableTabBar(QTabBar):
                     # 只需要更新当前TAB的值即可
                     if new_text:
                         config.set_filter(index, new_text)
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '{new_text}'")
+                        # 更新配置中的筛选值
                     else:
                         config.set_filter(index, "")
-                        logger.info(f"[FILTER EDIT] Set filter[{index}] = '' (用户清空)")
+                        # 更新配置中的筛选值为空
                     
                     # 🔧 修改：为单个TAB保存正则表达式状态
                     config.set_tab_regex_filter(index, regex_enabled)
-                    logger.debug(f"[FILTER EDIT] Updated config in memory")
+                    pass
                 
                 # 更新筛选TAB显示（隐藏多余的空TAB）
                 if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
-                    logger.info(f"🔄 调用update_filter_tab_display()...")
+                    pass
                     mdi_window.update_filter_tab_display()
                 
                 # 保存配置到文件
                 if mdi_window and mdi_window.device_session and mdi_window.device_session.connection_dialog:
                     config = mdi_window.device_session.connection_dialog.config
                     config.save_config()
-                    logger.debug(f"[SAVE] TAB {index} filter='{new_text}' regex={regex_enabled} saved to file")
+                    pass
 
 class DeviceMdiWindow(QWidget):
     """设备MDI子窗口内容 - 每个设备有自己的32个日志TAB"""
@@ -1506,7 +1506,7 @@ class DeviceMdiWindow(QWidget):
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
         
         # 为每个text_edit添加滚动条锁定属性和位置保存
-        logger.info(f"🎯 Installing scroll listeners for {MAX_TAB_SIZE} channels...")
+        # 安装滚动条监听器
         for i, text_edit in enumerate(self.text_edits):
             # 在text_edit对象上添加自定义属性
             text_edit._channel_idx = i  # 通道索引
@@ -1536,7 +1536,7 @@ class DeviceMdiWindow(QWidget):
             # 水平滚动条监听：保存用户设置的位置
             h_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_horizontal_scroll_changed(te, value))
             
-            logger.debug(f"  ✓ Channel {i} scroll listeners installed")
+            pass
         
         # 设置窗口大小
         self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
@@ -1558,7 +1558,7 @@ class DeviceMdiWindow(QWidget):
         # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
         self.update_filter_tab_display()
         
-        logger.info(f"✅ DeviceMdiWindow created for session: {device_session.session_id} with smart scroll lock")
+        pass
     
     def eventFilter(self, obj, event):
         """事件过滤器：检测鼠标滚轮事件并记录滚动方向"""
@@ -1582,7 +1582,7 @@ class DeviceMdiWindow(QWidget):
                     # angleDelta().y() < 0 表示向上滚（内容向下移动，远离底部）
                     # angleDelta().y() > 0 表示向下滚（内容向上移动，接近底部）
                     text_edit._wheel_delta = event.angleDelta().y()
-                    # logger.info(f"🖱️ Mouse wheel event on channel {text_edit._channel_idx}, delta={text_edit._wheel_delta}")
+                    pass
         except Exception as e:
             logger.error(f"Error in event filter: {e}", exc_info=True)
         
@@ -1592,18 +1592,18 @@ class DeviceMdiWindow(QWidget):
     def _on_slider_pressed(self, text_edit):
         """用户按下滚动条滑块时的处理"""
         text_edit._user_scrolling = True
-        logger.debug(f"🖱️ User pressed slider on channel {text_edit._channel_idx}")
+        pass
     
     def _on_slider_released(self, text_edit):
         """用户释放滚动条滑块时的处理"""
         text_edit._user_scrolling = False
-        logger.debug(f"🖱️ User released slider on channel {text_edit._channel_idx}")
+        pass
     
     def _on_slider_moved(self, text_edit, value):
         """用户拖动滚动条滑块时的处理（包括鼠标滚轮）"""
         # 标记用户正在操作，并立即更新锁定状态
         text_edit._user_scrolling = True
-        logger.debug(f"🖱️ User moved slider on channel {text_edit._channel_idx} to {value}")
+        pass
     
     def _on_vertical_scroll_changed(self, text_edit, value):
         """垂直滚动条位置变化时的处理 - 智能锁定
@@ -4022,7 +4022,7 @@ class RTTMainWindow(QMainWindow):
                 
                 # 🔑 标记：filter已经加载，UI初始化完成
                 self._filters_loaded = True
-                logger.info("✅ UI initialization completed, all filters synced to config object, config saving is now safe")
+                logger.info("UI initialization completed, all filters synced to config object, config saving is now safe")
             else:
                 # MDI 架构：重连时，筛选器已经在 DeviceMdiWindow 中
                 logger.info("🔄 Reconnecting: filters managed by DeviceMdiWindow (MDI architecture)")
@@ -10710,7 +10710,7 @@ if __name__ == "__main__":
         if LOCK_SOCKET:
             try:
                 LOCK_SOCKET.close()
-                logger.info("✅ Single instance lock released")
+                logger.info("Single instance lock released")
             except:
                 pass
             LOCK_SOCKET = None
@@ -10880,7 +10880,7 @@ if __name__ == "__main__":
                             
                             # 重新尝试获取锁
                             if acquire_instance_lock():
-                                logger.info("✅ 成功获取单实例锁,继续启动")
+                                logger.info("成功获取单实例锁,继续启动")
                                 # 继续启动程序(不退出)
                             else:
                                 QMessageBox.critical(

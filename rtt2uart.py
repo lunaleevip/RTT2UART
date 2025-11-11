@@ -559,7 +559,7 @@ class rtt_to_serial():
                 finally:
                     self.paused_buffer_lock.release()
             else:
-                logger.warning("⚠️ 清空暂停缓冲区超时，强制清空")
+                logger.warning("清空暂停缓冲区超时，强制清空")
                 self.paused_data_buffer.clear()
         except Exception as e:
             logger.error(f"清空暂停缓冲区时出错: {e}")

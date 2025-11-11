@@ -261,7 +261,7 @@ class AutoUpdater:
             
             if integrity_check == "modified":
                 # 文件被修改，强制完整更新
-                logger.warning("⚠️  Current file has been modified! Forcing full update.")
+                logger.warning("Current file has been modified! Forcing full update.")
                 logger.warning(f"   Expected hash for v{self.current_version} not found in server records")
                 logger.warning(f"   Current hash: {current_hash}")
                 
@@ -278,7 +278,7 @@ class AutoUpdater:
                     'current_hash': current_hash
                 }
             elif integrity_check == "verified":
-                logger.info("✅ Current file integrity verified")
+                logger.info("Current file integrity verified")
             
             # 3. 比较版本号
             server_version = server_info.get('version', '')
@@ -509,7 +509,7 @@ class AutoUpdater:
             if new_hash != update_info['hash']:
                 raise ValueError(f"Hash verification failed: expected {update_info['hash'][:16]}..., got {new_hash[:16]}...")
             
-            logger.info("✅ Hash verification passed")
+            logger.info("Hash verification passed")
             
             # 4. 替换旧文件
             if progress_callback:
@@ -676,7 +676,7 @@ del /f "%~f0"
                     os.chmod(exe_file, 0o755)
                     logger.info(f"Set executable permission: {exe_file.name}")
             
-            logger.info("✅ .app bundle replaced successfully")
+            logger.info(".app bundle replaced successfully")
             return True
             
         except Exception as e:
@@ -689,9 +689,9 @@ del /f "%~f0"
                     if current_app.exists():
                         shutil.rmtree(current_app)
                     shutil.move(str(backup_app), str(current_app))
-                    logger.info("✅ Restored from backup")
+                    logger.info("Restored from backup")
                 except Exception as restore_error:
-                    logger.error(f"❌ Failed to restore backup: {restore_error}")
+                    logger.error(f"Failed to restore backup: {restore_error}")
             
             return False
     

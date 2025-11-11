@@ -242,7 +242,7 @@ class ConfigManager:
                 for frame in call_stack[-6:-1]:
                     caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
                 
-                debug_logger.info("🔵" * 40)
+                debug_logger.info("=" * 40)
                 debug_logger.info("[CONFIG SAVE] save_config() 被调用")
                 debug_logger.info(f"[CONFIG SAVE] 调用栈:")
                 for i, caller in enumerate(caller_info, 1):
@@ -265,8 +265,8 @@ class ConfigManager:
                     if DEBUG_CONFIG_SAVE:
                         import logging
                         debug_logger = logging.getLogger(__name__)
-                        debug_logger.info("[CONFIG SAVE] ⏭️ 配置未改变，跳过保存")
-                        debug_logger.info("🔵" * 40)
+                        debug_logger.info("[CONFIG SAVE] 配置未改变，跳过保存")
+                        debug_logger.info("=" * 40)
                     return False
             
             # 配置已改变或强制保存，写入文件
@@ -280,8 +280,8 @@ class ConfigManager:
             if DEBUG_CONFIG_SAVE:
                 import logging
                 debug_logger = logging.getLogger(__name__)
-                debug_logger.info(f"[CONFIG SAVE] ✅ 配置保存成功: {self.config_file}")
-                debug_logger.info("🔵" * 40)
+                debug_logger.info(f"[CONFIG SAVE] 配置保存成功: {self.config_file}")
+                debug_logger.info("=" * 40)
             
             return True
         except Exception as e:
@@ -757,7 +757,7 @@ class ConfigManager:
             for frame in call_stack[-4:-1]:
                 caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
             
-            logger.info("🟢" * 40)
+            logger.info("=" * 40)
             logger.info(f"[FILTER SET] set_filter({filter_index}, '{content}')")
             logger.info(f"[FILTER SET] 调用栈:")
             for i, caller in enumerate(caller_info, 1):
@@ -774,7 +774,7 @@ class ConfigManager:
         
         if DEBUG_FILTER_SET:
             logger.info(f"[FILTER SET] 修改后: filter_{filter_index} = '{content}'")
-            logger.info("🟢" * 40)
+            logger.info("=" * 40)
     
     def get_all_filters(self) -> Dict[int, str]:
         """获取所有过滤器设置"""
