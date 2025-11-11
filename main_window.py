@@ -29,7 +29,7 @@ log_file = log_dir / "xexunrtt.log"
 
 # 配置日志处理器
 log_handlers = [
-    logging.FileHandler(log_file, encoding='utf-8', mode='a'),  # 追加模式
+    logging.FileHandler(log_file, encoding='utf-8', mode='w'),
 ]
 
 # 如果是开发环境，也输出到控制台
@@ -37,7 +37,7 @@ if not getattr(sys, 'frozen', False):
     log_handlers.append(logging.StreamHandler())
 
 logging.basicConfig(
-    level=logging.INFO,  # INFO 级别以查看更新日志
+    level=logging.WARN,  # INFO 级别以查看更新日志
     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s',
     handlers=log_handlers,
     force=True  # 强制重新配置
