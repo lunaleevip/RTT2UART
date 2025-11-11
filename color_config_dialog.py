@@ -108,16 +108,17 @@ class ColorConfigDialog(QDialog):
     def _load_colors(self):
         """从配置加载当前颜色设置"""
         for i in range(16):
-            # 获取前景色
-            fg_color_hex = self.config_manager.get_tab_foreground_color(i)
+            # 获取通道颜色
+            fg_color_hex, bg_color_hex = self.config_manager.get_channel_color(i)
+            
+            # 设置前景色
             fg_color = QColor(f"#{fg_color_hex}")
             self.colors[i]['fg_color_label'].setStyleSheet(
                 f"background-color: #{fg_color_hex}; border: 1px solid #CCCCCC;"
             )
             self.colors[i]['fg_color'] = fg_color
             
-            # 获取背景色
-            bg_color_hex = self.config_manager.get_tab_background_color(i)
+            # 设置背景色
             bg_color = QColor(f"#{bg_color_hex}")
             self.colors[i]['bg_color_label'].setStyleSheet(
                 f"background-color: #{bg_color_hex}; border: 1px solid #CCCCCC;"
@@ -161,15 +162,15 @@ class ColorConfigDialog(QDialog):
     def accept(self):
         """接受对话框，保存颜色配置"""
         for i in range(16):
-            # 保存前景色
+            # 获取前景色和背景色
             fg_color = self.colors[i].get('fg_color', QColor("#FFFFFF"))
             fg_color_hex = fg_color.name().replace('#', '').upper()
-            self.config_manager.set_tab_foreground_color(i, fg_color_hex)
             
-            # 保存背景色
             bg_color = self.colors[i].get('bg_color', QColor("#000000"))
             bg_color_hex = bg_color.name().replace('#', '').upper()
-            self.config_manager.set_tab_background_color(i, bg_color_hex)
+            
+            # 保存通道颜色
+            self.config_manager.set_channel_color(i, fg_color_hex, bg_color_hex)
         
         # 保存配置到文件
         self.config_manager.save_config(force=True)

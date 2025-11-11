@@ -140,33 +140,31 @@ class ConfigManager:
             'reset_msg': json.dumps(["JLink connection failed after open"], ensure_ascii=False)
         }
         
-        # 初始化标签页颜色配置
-        if 'TabColors' not in self.config:
-            self.config['TabColors'] = {}
+        # 初始化通道颜色配置
+        if 'ChannelColors' not in self.config:
+            self.config['ChannelColors'] = {}
         # 设置默认的16个通道颜色（循环使用基本颜色）
-        default_colors = [
-            ('FFFFFF', '000000'),  # 白黑
-            ('FF0000', '000000'),  # 红黑
-            ('00FF00', '000000'),  # 绿黑
-            ('FFFF00', '000000'),  # 黄黑
-            ('0000FF', '000000'),  # 蓝黑
-            ('FF00FF', '000000'),  # 洋红黑
-            ('00FFFF', '000000'),  # 青黑
-            ('FF8000', '000000'),  # 橙黑
-            ('000000', 'FFFFFF'),  # 黑白
-            ('000000', 'FF0000'),  # 黑红
-            ('000000', '00FF00'),  # 黑绿
-            ('000000', 'FFFF00'),  # 黑黄
-            ('000000', '0000FF'),  # 黑蓝
-            ('000000', 'FF00FF'),  # 黑洋红
-            ('000000', '00FFFF'),  # 黑青
-            ('000000', 'FF8000'),  # 黑橙
+        default_fg_colors = [
+            'FFFFFF', 'FF0000', '00FF00', 'FFFF00',  # 白、红、绿、黄
+            '0000FF', 'FF00FF', '00FFFF', 'FF8000',  # 蓝、洋红、青、橙
+            '000000', '000000', '000000', '000000',  # 黑底系列
+            '000000', '000000', '000000', '000000'   # 黑底系列
+        ]
+        default_bg_colors = [
+            '000000', '000000', '000000', '000000',  # 黑底系列
+            '000000', '000000', '000000', '000000',  # 黑底系列
+            'FFFFFF', 'FF0000', '00FF00', 'FFFF00',  # 白、红、绿、黄
+            '0000FF', 'FF00FF', '00FFFF', 'FF8000'   # 蓝、洋红、青、橙
         ]
         
-        for i in range(16):
-            fg_color, bg_color = default_colors[i % len(default_colors)]
-            self.config['TabColors'][f'tab_{i}_fg_color'] = fg_color
-            self.config['TabColors'][f'tab_{i}_bg_color'] = bg_color
+        # 检查是否需要初始化前景色数组
+        if 'fgcolors' not in self.config['ChannelColors']:
+            # 将颜色数组转换为逗号分隔的字符串
+            self.config['ChannelColors']['fgcolors'] = ','.join(default_fg_colors)
+        
+        # 检查是否需要初始化背景色数组
+        if 'bgcolors' not in self.config['ChannelColors']:
+            self.config['ChannelColors']['bgcolors'] = ','.join(default_bg_colors)
     
     def load_config(self):
         """从INI文件加载配置"""
@@ -660,53 +658,65 @@ class ConfigManager:
     # ===========================================
     # 标签页颜色配置相关方法
     # ===========================================
-    def get_tab_foreground_color(self, tab_index: int) -> str:
-        """获取指定标签页的前景色
-        
-        Args:
-            tab_index: 标签页索引 (0-15)
+    def get_channel_color(self, channel_index):
+        """获取指定通道的颜色配置"""
+        if 'ChannelColors' in self.config:
+            # 尝试获取前景色数组
+            if 'fgcolors' in self.config['ChannelColors']:
+                fg_colors = self.config['ChannelColors']['fgcolors'].split(',')
+                if channel_index < len(fg_colors):
+                    fg_color = fg_colors[channel_index]
+                else:
+                    fg_color = 'FFFFFF'  # 默认前景色
+            else:
+                fg_color = 'FFFFFF'  # 默认前景色
+                
+            # 尝试获取背景色数组
+            if 'bgcolors' in self.config['ChannelColors']:
+                bg_colors = self.config['ChannelColors']['bgcolors'].split(',')
+                if channel_index < len(bg_colors):
+                    bg_color = bg_colors[channel_index]
+                else:
+                    bg_color = '000000'  # 默认背景色
+            else:
+                bg_color = '000000'  # 默认背景色
+                
+            return (fg_color, bg_color)
+        # 返回默认颜色
+        return ('FFFFFF', '000000')
+
+    def set_channel_color(self, channel_index, fg_color, bg_color):
+        """设置指定通道的颜色配置"""
+        if 'ChannelColors' not in self.config:
+            self.config['ChannelColors'] = {}
             
-        Returns:
-            前景色的RGBHEX值，如 "FF0000"
-        """
-        key = f'tab_{tab_index}_fg_color'
-        return self.config.get('TabColors', key, fallback='FFFFFF')  # 默认白色
-    
-    def set_tab_foreground_color(self, tab_index: int, color: str):
-        """设置指定标签页的前景色
+        # 确保前景色数组存在
+        if 'fgcolors' not in self.config['ChannelColors']:
+            # 创建默认的前景色数组
+            default_fg_colors = ['FFFFFF'] * 16
+            self.config['ChannelColors']['fgcolors'] = ','.join(default_fg_colors)
         
-        Args:
-            tab_index: 标签页索引 (0-15)
-            color: RGBHEX颜色值，如 "FF0000"
-        """
-        if not self.config.has_section('TabColors'):
-            self.config.add_section('TabColors')
-        key = f'tab_{tab_index}_fg_color'
-        self.config.set('TabColors', key, color)
-    
-    def get_tab_background_color(self, tab_index: int) -> str:
-        """获取指定标签页的背景色
+        # 确保背景色数组存在
+        if 'bgcolors' not in self.config['ChannelColors']:
+            # 创建默认的背景色数组
+            default_bg_colors = ['000000'] * 16
+            self.config['ChannelColors']['bgcolors'] = ','.join(default_bg_colors)
         
-        Args:
-            tab_index: 标签页索引 (0-15)
-            
-        Returns:
-            背景色的RGBHEX值，如 "000000"
-        """
-        key = f'tab_{tab_index}_bg_color'
-        return self.config.get('TabColors', key, fallback='000000')  # 默认黑色
-    
-    def set_tab_background_color(self, tab_index: int, color: str):
-        """设置指定标签页的背景色
+        # 更新前景色
+        fg_colors = self.config['ChannelColors']['fgcolors'].split(',')
+        # 确保数组足够大
+        while len(fg_colors) <= channel_index:
+            fg_colors.append('FFFFFF')  # 添加默认颜色
+        fg_colors[channel_index] = fg_color
+        self.config['ChannelColors']['fgcolors'] = ','.join(fg_colors)
         
-        Args:
-            tab_index: 标签页索引 (0-15)
-            color: RGBHEX颜色值，如 "000000"
-        """
-        if not self.config.has_section('TabColors'):
-            self.config.add_section('TabColors')
-        key = f'tab_{tab_index}_bg_color'
-        self.config.set('TabColors', key, color)
+        # 更新背景色
+        bg_colors = self.config['ChannelColors']['bgcolors'].split(',')
+        # 确保数组足够大
+        while len(bg_colors) <= channel_index:
+            bg_colors.append('000000')  # 添加默认颜色
+        bg_colors[channel_index] = bg_color
+        self.config['ChannelColors']['bgcolors'] = ','.join(bg_colors)
     
     def get_tab_regex_filter(self, tab_index: int) -> bool:
         """获取指定TAB的正则表达式筛选开关设置"""

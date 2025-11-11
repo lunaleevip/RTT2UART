@@ -30,9 +30,9 @@
         <translation>背景色：</translation>
     </message>
     <message>
-        <location filename="../color_config_dialog.py" line="145"/>
+        <location filename="../color_config_dialog.py" line="146"/>
         <source>Select {&apos;Foreground&apos; if is_foreground else &apos;Background&apos;} Color for Channel {index}</source>
-        <translation>为通道 {index} 选择{'前景色' if is_foreground else '背景色'}</translation>
+        <translation>为通道 {index} 选择{&apos;前景色&apos; if is_foreground else &apos;背景色&apos;}</translation>
     </message>
 </context>
 <context>
@@ -727,7 +727,7 @@ Please switch to specific RTT channel (0-15) to clear.</source>
     </message>
     <message>
         <location filename="../main_window.py" line="802"/>
-        <location filename="../main_window.py" line="10835"/>
+        <location filename="../main_window.py" line="10840"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -1170,24 +1170,24 @@ RTT调试工具
         <translation type="vanished">关闭前一个设备连接以连接新设备...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10818"/>
+        <location filename="../main_window.py" line="10823"/>
         <source>Unable to detect specific process information
 The port may be occupied or process permission is insufficient</source>
         <translation>无法检测到具体进程信息
 端口可能被占用或进程权限不足</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10820"/>
+        <location filename="../main_window.py" line="10825"/>
         <source>XexunRTT - Already Running</source>
         <translation>XexunRTT - 已在运行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10821"/>
+        <location filename="../main_window.py" line="10826"/>
         <source>XexunRTT is already running!</source>
         <translation>XexunRTT已经在运行!</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10827"/>
+        <location filename="../main_window.py" line="10832"/>
         <source>Another instance of XexunRTT is currently running.
 
 If you don&apos;t see the window, there might be a zombie process.
@@ -1198,13 +1198,13 @@ Please check Task Manager and terminate any XexunRTT processes manually.</source
 请检查任务管理器并手动终止任何XexunRTT进程。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10834"/>
+        <location filename="../main_window.py" line="10839"/>
         <source>Terminate Old Processes and Start</source>
         <translation>终止旧进程并启动</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10951"/>
-        <location filename="../main_window.py" line="10974"/>
+        <location filename="../main_window.py" line="10956"/>
+        <location filename="../main_window.py" line="10979"/>
         <source>JLink Debug Log</source>
         <translation>JLink调试日志</translation>
     </message>

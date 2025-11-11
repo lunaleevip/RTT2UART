@@ -204,8 +204,7 @@ class FastAnsiTextEdit(QTextEdit):
                     if current_is_channel_line:
                         try:
                             # 从配置获取颜色
-                            fg_hex = self.config_manager.get_tab_foreground_color(channel_idx)
-                            bg_hex = self.config_manager.get_tab_background_color(channel_idx)
+                            fg_hex, bg_hex = self.config_manager.get_channel_color(channel_idx)
                             # logger.info(f"[颜色调试] 行{line_idx}：通道{channel_idx}的颜色配置 - 前景色={fg_hex}，背景色={bg_hex}")
                             
                             # 创建QColor对象
