@@ -3004,13 +3004,23 @@ class RTTMainWindow(QMainWindow):
         # 断开连接并清理
         session.cleanup()
         
-        # 关闭该会话的ConnectionDialog
-        if session.connection_dialog:
+        # 安全关闭该会话的ConnectionDialog
+        if hasattr(session, 'connection_dialog') and session.connection_dialog:
             try:
-                session.connection_dialog.close()
-                session.connection_dialog.deleteLater()
+                # 检查QObject是否仍然有效
+                if hasattr(session.connection_dialog, 'isValid') and session.connection_dialog.isValid():
+                    session.connection_dialog.close()
+                    session.connection_dialog.deleteLater()
+                else:
+                    # 对于不支持isValid的对象，我们仍然尝试deleteLater来确保资源被释放
+                    session.connection_dialog.deleteLater()
+                # 清除引用
+                session.connection_dialog = None
             except Exception as e:
-                logger.error(f"Failed to close connection dialog: {e}")
+                logger.warning(f"Connection dialog already deleted or invalid: {e}")
+                # 确保引用被清除
+                if hasattr(session, 'connection_dialog'):
+                    session.connection_dialog = None
         
         # 从列表中移除
         self.device_sessions.pop(index)
@@ -4661,14 +4671,14 @@ class RTTMainWindow(QMainWindow):
                 
                 for thread in active_threads:
                     try:
-                        # 先标记为daemon，确保主线程退出时不会阻塞
-                        thread.daemon = True
+                        # 检查线程是否已经是daemon
+                        is_daemon = thread.daemon
                         
                         # 尝试优雅地停止线程（缩短超时时间）
                         thread.join(timeout=0.5)
                         
                         if thread.is_alive():
-                            logger.warning(f"Thread {thread.name} failed to stop gracefully (marked as daemon)")
+                            logger.warning(f"Thread {thread.name} failed to stop gracefully (daemon={is_daemon})")
                         else:
                             logger.info(f"Thread {thread.name} stopped successfully")
                     except Exception as e:
