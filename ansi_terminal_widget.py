@@ -175,7 +175,7 @@ class FastAnsiTextEdit(QTextEdit):
         
         # 如果是ALL标签页（索引为0）且有配置管理器，需要根据通道前缀应用不同颜色
         is_all_tab = self.tab_index == 0 and self.config_manager is not None
-        logger.info(f"[颜色调试] 当前tab_index={self.tab_index}，config_manager={self.config_manager is not None}，is_all_tab={is_all_tab}")
+        # logger.info(f"[颜色调试] 当前tab_index={self.tab_index}，config_manager={self.config_manager is not None}，is_all_tab={is_all_tab}")
         
         if is_all_tab:
             # 1. 先删除所有原本的颜色标签（ANSI序列）
@@ -194,11 +194,11 @@ class FastAnsiTextEdit(QTextEdit):
                 if line:  # 只处理非空行
                     # 3. 查找通道前缀
                     channel_idx = self._extract_channel_index(line)
-                    logger.info(f"[颜色调试] 行{line_idx}：文本='{line[:50]}...'，提取到通道索引={channel_idx}")
+                    # logger.info(f"[颜色调试] 行{line_idx}：文本='{line[:50]}...'，提取到通道索引={channel_idx}")
                     
                     # 标记是否为有效的通道行
                     current_is_channel_line = 0 <= channel_idx <= 15
-                    logger.info(f"[颜色调试] 行{line_idx}：是否为有效通道行={current_is_channel_line}")
+                    # logger.info(f"[颜色调试] 行{line_idx}：是否为有效通道行={current_is_channel_line}")
                     
                     # 如果是有效的通道行，获取通道颜色
                     if current_is_channel_line:
@@ -206,28 +206,28 @@ class FastAnsiTextEdit(QTextEdit):
                             # 从配置获取颜色
                             fg_hex = self.config_manager.get_tab_foreground_color(channel_idx)
                             bg_hex = self.config_manager.get_tab_background_color(channel_idx)
-                            logger.info(f"[颜色调试] 行{line_idx}：通道{channel_idx}的颜色配置 - 前景色={fg_hex}，背景色={bg_hex}")
+                            # logger.info(f"[颜色调试] 行{line_idx}：通道{channel_idx}的颜色配置 - 前景色={fg_hex}，背景色={bg_hex}")
                             
                             # 创建QColor对象
                             current_channel_fg = QColor(f"#{fg_hex}")
                             current_channel_bg = QColor(f"#{bg_hex}")
-                            logger.info(f"[颜色调试] 行{line_idx}：成功创建通道{channel_idx}的颜色对象")
+                            # logger.info(f"[颜色调试] 行{line_idx}：成功创建通道{channel_idx}的颜色对象")
                         except Exception as e:
                             # 配置获取失败时使用默认颜色
-                            logger.info(f"[颜色调试] 行{line_idx}：获取通道{channel_idx}颜色配置失败 - {str(e)}")
+                            # logger.info(f"[颜色调试] 行{line_idx}：获取通道{channel_idx}颜色配置失败 - {str(e)}")
                             current_is_channel_line = False
                     
                     # 4. 给每行添加当前通道的颜色标签
                     if current_is_channel_line:
                         # 使用通道特定颜色
-                        logger.info(f"[颜色调试] 行{line_idx}：应用通道{channel_idx}的颜色")
+                        # logger.info(f"[颜色调试] 行{line_idx}：应用通道{channel_idx}的颜色")
                         segments.append({
                             'text': line,
                             'format': self._get_cached_format(current_channel_fg, current_channel_bg, False)
                         })
                     else:
                         # 使用默认颜色
-                        logger.info(f"[颜色调试] 行{line_idx}：应用默认颜色")
+                        # logger.info(f"[颜色调试] 行{line_idx}：应用默认颜色")
                         segments.append({
                             'text': line,
                             'format': self._get_cached_format(current_fg, current_bg, current_bold)
@@ -300,7 +300,7 @@ class FastAnsiTextEdit(QTextEdit):
         Returns:
             通道索引（0-15），如果未找到或超出范围则返回-1
         """
-        logger.info(f"[颜色调试] 提取通道索引：输入文本='{text[:50]}...'")
+        # logger.info(f"[颜色调试] 提取通道索引：输入文本='{text[:50]}...'")
         # 1. 首先尝试匹配日志格式中的通道标识，支持多种格式
         # 如 "0x11:11:08:45:721[0x64096852]]" 或 "[8043965]" 或 "ascu_list-receive [80]"
         import re
@@ -363,7 +363,7 @@ class FastAnsiTextEdit(QTextEdit):
                 channel_idx = int(channel_str)
                 # 检查范围
                 if 0 <= channel_idx <= 15:
-                    logger.info(f"[颜色调试] 成功匹配新格式通道前缀：{channel_str}>")
+                    # logger.info(f"[颜色调试] 成功匹配新格式通道前缀：{channel_str}>")
                     return channel_idx
             except ValueError:
                 pass

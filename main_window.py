@@ -126,9 +126,9 @@ class DeviceSession:
         # MDI子窗口
         self.mdi_window = None
         
-        # 日志缓冲区（32个通道）
-        self.log_buffers = [[] for _ in range(32)]
-        self.log_buffer_locks = [threading.Lock() for _ in range(32)]
+        # 日志缓冲区（使用字典格式，与主窗口保持一致）
+        self.log_buffers = {}
+        self.log_buffer_locks = {}  # 每个文件路径对应一个锁
         
         # 筛选器设置（17-31通道）
         self.filters = {}
@@ -10104,6 +10104,11 @@ class Worker(QObject):
     def _process_buffer_data(self, index, string):
         # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
         self.byte_buffer[index] += string
+        
+        # 标准化行尾标记：将所有行尾标记统一为LF（\n）
+        # 1. 先将CRLF替换为LF
+        # 2. 再将单独的CR替换为LF（处理可能的\r\r\n情况）
+        self.byte_buffer[index] = self.byte_buffer[index].replace(b'\r\n', b'\n').replace(b'\r', b'\n')
 
         # 找到第一个 '\n' 的索引
         newline = self.byte_buffer[index].rfind(b'\n')
