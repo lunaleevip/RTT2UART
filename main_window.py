@@ -1225,6 +1225,59 @@ class EditableTabBar(QTabBar):
     
     def mouseDoubleClickEvent(self, event):
         index = self.tabAt(event.pos())
+        
+        # 处理ALL标签页（索引为0）的颜色配置
+        if index == 0:
+            # 找到当前的DeviceMdiWindow实例
+            tab_widget = self.parent()
+            mdi_window = None
+            if tab_widget:
+                # tab_widget.parent() 是 DeviceMdiWindow
+                mdi_window = tab_widget.parent()
+                
+                # 如果 parent 是 QWidget，可能需要再往上找
+                if mdi_window and not isinstance(mdi_window, DeviceMdiWindow):
+                    # 可能是 QMdiSubWindow，获取其 widget
+                    if hasattr(mdi_window, 'widget'):
+                        mdi_window = mdi_window.widget()
+            
+            if mdi_window and isinstance(mdi_window, DeviceMdiWindow):
+                # 导入颜色配置对话框
+                from color_config_dialog import ColorConfigDialog
+                
+                # 从设备会话中获取配置管理器
+                config_manager = None
+                if hasattr(mdi_window, 'device_session') and mdi_window.device_session and hasattr(mdi_window.device_session, 'connection_dialog') and mdi_window.device_session.connection_dialog:
+                    config_manager = mdi_window.device_session.connection_dialog.config
+                
+                # 确保配置管理器存在
+                if not config_manager:
+                    logger.error("❌ 无法获取配置管理器，无法打开颜色配置对话框")
+                    return
+                
+                # 显示颜色配置对话框
+                dialog = ColorConfigDialog(config_manager, parent=mdi_window.main_window)
+                if dialog.exec() == QDialog.Accepted:
+                    # 颜色配置已保存，清空ALL标签页数据以重新加载颜色设置
+                    logger.info(f"🧹 准备清空ALL标签页(TAB[0])的数据...")
+                    if index < len(mdi_window.text_edits):
+                        # 清空文本编辑器
+                        mdi_window.text_edits[index].clear()
+                        logger.info(f"  ✅ 已清空ALL标签页(TAB[0])的文本编辑器")
+                        
+                        # 清空Worker的缓冲区
+                        if mdi_window.device_session and mdi_window.device_session.connection_dialog:
+                            worker = getattr(mdi_window.device_session.connection_dialog, 'worker', None)
+                            if worker and index < len(worker.colored_buffers):
+                                worker.colored_buffers[index].clear()
+                                worker.colored_buffer_lengths[index] = 0
+                                mdi_window.last_display_lengths[index] = 0
+                                logger.info(f"  ✅ 已清空ALL标签页(TAB[0])的Worker缓冲区")
+                    
+                    # 记录日志
+                    logger.info(f"🎨 ALL标签页颜色配置已保存并应用")
+            
+            return
         if index >= 17:
             old_text = self.tabText(index)
             
@@ -1386,8 +1439,15 @@ class DeviceMdiWindow(QWidget):
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
             
-            # 使用FastAnsiTextEdit代替普通QTextEdit
-            text_edit = FastAnsiTextEdit()
+            # 使用FastAnsiTextEdit代替普通QTextEdit，传递标签页索引和配置管理器
+            # 获取配置管理器引用
+            config_manager = None
+            if hasattr(device_session, 'connection_dialog') and device_session.connection_dialog:
+                config_manager = device_session.connection_dialog.config
+                
+            # 创建FastAnsiTextEdit实例，传递标签页索引和配置管理器
+            # 注意：i=0是ALL标签页，i=1-16是通道0-15，i>16是筛选标签页
+            text_edit = FastAnsiTextEdit(tab_index=i, config_manager=config_manager)
             text_edit.setReadOnly(True)
             text_edit.setLineWrapMode(QTextEdit.NoWrap)
             
@@ -10058,6 +10118,11 @@ class Worker(QObject):
                 enc = 'gbk'
             data = new_buffer.decode(enc, errors='ignore')
 
+            # 修复多余换行问题：确保数据不会以多个换行符结尾
+            # 例如：如果数据以两个换行符结尾，只保留一个
+            if data.endswith('\n\n'):
+                data = data.rstrip('\n') + '\n'
+
             # 性能优化：使用列表拼接替代字符串拼接
             buffer_parts = ["%02u> " % index, data]
             
@@ -10065,6 +10130,9 @@ class Worker(QObject):
             try:
                 # 处理ANSI颜色：为UI显示保留颜色，为缓冲区存储纯文本
                 clean_data = ansi_processor.remove_ansi_codes(data)
+                # 对clean_data也进行换行符处理
+                if clean_data.endswith('\n\n'):
+                    clean_data = clean_data.rstrip('\n') + '\n'
                 clean_buffer_parts = ["%02u> " % index, clean_data]
                 
                 # 🚀 智能缓冲区管理：存储纯文本到buffers（用于日志和转发）
