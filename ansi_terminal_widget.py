@@ -143,7 +143,13 @@ class FastAnsiTextEdit(QTextEdit):
         # 🔧 修复QColor hashable问题：将QColor转换为字符串作为键
         fg_key = fg_color.name() if fg_color else None
         bg_key = bg_color.name() if bg_color else None
-        key = (fg_key, bg_key, bold)
+        
+        # 将字体信息也加入缓存键，确保不同字体生成不同的格式缓存
+        # 获取当前字体信息作为键的一部分
+        font = self.font()
+        font_key = (font.family(), font.pointSize())
+        
+        key = (fg_key, bg_key, bold, font_key)
         
         if key not in self._format_cache:
             fmt = QTextCharFormat()
@@ -155,9 +161,7 @@ class FastAnsiTextEdit(QTextEdit):
             if bold:
                 fmt.setFontWeight(QFont.Bold)
                 
-            # 设置等宽字体
-            font = QFont("Consolas", 9)
-            font.setFixedPitch(True)
+            # 使用当前文本编辑器的字体设置
             fmt.setFont(font)
             
             self._format_cache[key] = fmt
@@ -452,6 +456,11 @@ class FastAnsiTextEdit(QTextEdit):
         if len(self._format_cache) > 100:
             self._format_cache.clear()
     
+    def clear_format_cache(self):
+        """清除格式缓存，确保新字体设置能够应用到所有新添加的文本"""
+        self._format_cache.clear()
+        logger.info(f"[FONT UPDATE] Cleared format cache for text edit")
+    
     # ==================== ALT纵向选择功能 ====================
     
     def mousePressEvent(self, event):
@@ -742,8 +751,12 @@ class OptimizedTerminalWidget(QWidget):
         return self.text_edit.setCursorWidth(width)
         
     def setFont(self, font):
-        """设置内部文本编辑器的字体"""
-        return self.text_edit.setFont(font)
+        """设置内部文本编辑器的字体，并清除格式缓存以确保新字体生效"""
+        result = self.text_edit.setFont(font)
+        # 清除格式缓存，确保新字体设置能够应用到所有新添加的文本
+        if hasattr(self.text_edit, 'clear_format_cache'):
+            self.text_edit.clear_format_cache()
+        return result
         
     def font(self):
         """获取内部文本编辑器的字体"""

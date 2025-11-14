@@ -6024,6 +6024,18 @@ class RTTMainWindow(QMainWindow):
                 # 2. 设置文档默认字体（对新增内容生效）
                 text_edit.document().setDefaultFont(font)
                 
+                # 3. 清除格式缓存（如果是FastAnsiTextEdit实例）
+                # 这是关键修复：确保新数据使用新字体而不是缓存的旧格式
+                # 性能优化：只在必要时清除缓存
+                if hasattr(text_edit, 'clear_format_cache') and hasattr(text_edit, '_format_cache'):
+                    # 如果缓存为空或字体没有变化，就不需要清除缓存
+                    if text_edit._format_cache:  # 只在缓存非空时执行
+                        try:
+                            text_edit.clear_format_cache()
+                            logger.info(f"[FONT UPDATE] Cleared format cache for text edit")
+                        except Exception as e:
+                            logger.warning(f"Failed to clear format cache: {e}")
+                
                 # 3. 使用更高效的方式更新现有文本格式
                 cursor = QTextCursor(text_edit.document())
                 cursor.movePosition(QTextCursor.Start)
