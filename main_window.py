@@ -6045,9 +6045,25 @@ class RTTMainWindow(QMainWindow):
                 char_format = QTextCharFormat()
                 char_format.setFont(font)
                 
-                # 使用批量编辑
+                # 使用批量编辑 - 只更新字体属性而不覆盖颜色等其他格式
                 cursor.beginEditBlock()
-                cursor.setCharFormat(char_format)  # 一次性应用到整个选择
+                # 不使用setCharFormat直接设置，而是逐个字符或段落更新字体
+                # 这样可以保留现有的颜色格式
+                document = text_edit.document()
+                block = document.begin()
+                while block.isValid():
+                    # 遍历块中的每个字符
+                    fragment_cursor = QTextCursor(block)
+                    fragment_cursor.movePosition(QTextCursor.StartOfBlock)
+                    while not fragment_cursor.atBlockEnd():
+                        # 选择当前字符
+                        fragment_cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
+                        # 获取现有格式
+                        current_format = fragment_cursor.charFormat()
+                        # 只更新字体，保留其他格式（如颜色）
+                        current_format.setFont(font)
+                        fragment_cursor.setCharFormat(current_format)
+                    block = block.next()
                 cursor.endEditBlock()
                 
                 updated_count += 1
