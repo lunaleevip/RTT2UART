@@ -4326,8 +4326,11 @@ class RTTMainWindow(QMainWindow):
                 recent_lines = lines[-max_lines:] if len(lines) > max_lines else lines
                 
                 # 添加到JLink日志
-                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Command sent')}: {command}")
-                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'RTT Channel 1 Response')}:")
+                msg = QCoreApplication.translate('main_window', 'Command sent: %1')
+                sent_msg = msg.arg(command)
+                self.append_jlink_log(sent_msg)
+                msg = QCoreApplication.translate('main_window', 'RTT Channel 1 Response:')
+                self.append_jlink_log(msg)
                 
                 # 如果内容被截取，显示省略提示
                 if len(lines) > max_lines:
@@ -4895,7 +4898,7 @@ class RTTMainWindow(QMainWindow):
                 pass  # TODO: 实现 MDI 窗口的高亮功能
                     
             # 📋 新功能：命令发送成功后，将TAB 1的输出内容展示到JLink日志框
-            self._display_tab1_content_to_jlink_log(current_text)
+            #self._display_tab1_content_to_jlink_log(current_text)
                     
             # 智能命令历史管理：防止重复，只调整顺序
             self._update_command_history(current_text)
