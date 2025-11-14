@@ -2219,7 +2219,10 @@ class RTTMainWindow(QMainWindow):
         # 初始化JLink日志区的初始大小（延迟设置，等待窗口显示后）
         QTimer.singleShot(TimerInterval.DELAYED_INIT, self._init_splitter_sizes)
         
-        # 创建菜单栏和状态栏（UI文件已创建menubar和statusbar，只需配置内容）
+        # 创建菜单栏和状态栏（UI文件已创建menubar和statusbar，先清空菜单栏再创建自定义菜单以避免重复）
+        # 清空现有菜单栏
+        self.menuBar().clear()
+        # 创建自定义菜单
         self._create_menu_bar()
         self._create_status_bar()
         
@@ -4347,15 +4350,25 @@ class RTTMainWindow(QMainWindow):
                 
                 # 显示统计信息
                 if len(lines) > max_lines:
-                    self.append_jlink_log(f"   {QCoreApplication.translate('main_window', 'Showing recent')} {valid_line_count} {QCoreApplication.translate('main_window', 'lines')} / {QCoreApplication.translate('main_window', 'Total')} {len(lines)} {QCoreApplication.translate('main_window', 'lines')}")
+                    # 使用标准的翻译字符串格式
+                    msg = QCoreApplication.translate('main_window', '   Showing recent %1 lines / Total %2 lines')
+                    sent_msg = msg.arg(valid_line_count).arg(len(lines))
+                    self.append_jlink_log(sent_msg)
                 else:
-                    self.append_jlink_log(f"   {QCoreApplication.translate('main_window', 'Total')} {valid_line_count} {QCoreApplication.translate('main_window', 'lines')}")
+                    # 使用正确的Qt字符串格式化方式
+                    msg = QCoreApplication.translate('main_window', '   Total %1 lines')
+                    sent_msg = msg.arg(valid_line_count)
+                    self.append_jlink_log(sent_msg)
                 
                 self.append_jlink_log("─" * 50)  # 分隔线
             else:
                 # 如果没有内容，显示提示信息
-                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Command sent')}: {command}")
-                self.append_jlink_log(f"{QCoreApplication.translate('main_window', 'RTT Channel 1: No response data')}")
+                msg = QCoreApplication.translate('main_window', 'Command sent: %1')
+                sent_msg = msg.arg(command)
+                self.append_jlink_log(sent_msg)
+                
+                sent_msg = QCoreApplication.translate('main_window', 'RTT Channel 1: No response data')
+                self.append_jlink_log(sent_msg)
                 self.append_jlink_log("─" * 50)  # 分隔线
                 
         except Exception as e:
