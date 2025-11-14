@@ -176,6 +176,7 @@ class FastAnsiTextEdit(QTextEdit):
         current_fg = None
         current_bg = None
         current_bold = False
+        self._current_channel = 0
         
         # 如果是ALL标签页（索引为0）且有配置管理器，需要根据通道前缀应用不同颜色
         is_all_tab = self.tab_index == 0 and self.config_manager is not None
@@ -367,7 +368,11 @@ class FastAnsiTextEdit(QTextEdit):
                 # 检查范围
                 if 0 <= channel_idx <= 15:
                     # logger.info(f"[颜色调试] 成功匹配新格式通道前缀：{channel_str}>")
+                    self._current_channel = channel_idx
                     return channel_idx
+                else:
+                    # 通道号超出范围，保持当前通道
+                    pass
             except ValueError:
                 pass
         
@@ -385,7 +390,7 @@ class FastAnsiTextEdit(QTextEdit):
             except ValueError:
                 pass
                 
-        return -1
+        return self._current_channel
         
     def append_ansi_text(self, text, force_flush=False, on_complete=None):
         """添加ANSI文本 - 支持批处理
