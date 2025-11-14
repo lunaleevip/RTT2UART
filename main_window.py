@@ -3931,12 +3931,41 @@ class RTTMainWindow(QMainWindow):
         # 显示成功消息
         self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection established successfully"), 3000)
     
+    def flush_all_log_buffers(self):
+        """刷新所有设备会话中的日志缓冲区
+        
+        用于连接断开时确保所有缓存数据都被保存，防止数据丢失
+        """
+        try:
+            total_flushed = 0
+            total_bytes = 0
+            
+            # 遍历所有设备会话
+            for session in self.device_sessions:
+                # 检查会话是否有worker并且worker有flush_all_log_buffers方法
+                if hasattr(session, 'worker') and session.worker and hasattr(session.worker, 'flush_all_log_buffers'):
+                    # 调用worker的flush_all_log_buffers方法
+                    try:
+                        session.worker.flush_all_log_buffers()
+                        total_flushed += 1
+                    except Exception as e:
+                        logger.error(f"Failed to flush log buffers for session {session.device_id}: {e}")
+            
+            if total_flushed > 0:
+                logger.info(f"Successfully triggered flush for {total_flushed} device sessions")
+                
+        except Exception as e:
+            logger.error(f"Error in RTTMainWindow.flush_all_log_buffers: {e}")
+    
     def on_connection_disconnected(self):
         """连接断开后的处理"""
         # 禁用RTT相关功能
         self._set_rtt_controls_enabled(False)
         # 🔧 修复：编码菜单现在始终可用，不需要重新启用
         # self._set_encoding_menu_enabled(True)
+        
+        # 🔄 连接断开时立即刷新所有日志缓冲区，确保所有缓存数据都被保存
+        self.flush_all_log_buffers()
         
         # 更新状态显示
         self.update_status_bar()
@@ -9801,8 +9830,17 @@ class Worker(QObject):
             logger.error(f"Error in _cleanup_oversized_buffers: {e}")
 
     def write_to_log_buffer(self, filepath, content):
-        """写入日志缓冲而不是直接写文件（增强版本）"""
+        """写入日志缓冲而不是直接写文件（增强版本）
+        
+        Args:
+            filepath: 日志文件路径
+            content: 要写入的内容
+            
+        该方法实现了4KB批量写入的缓存机制，减少磁盘I/O操作频率。
+        """
         try:
+            
+            # 常规缓冲写入逻辑
             if filepath not in self.log_buffers:
                 self.log_buffers[filepath] = ""
             
@@ -9824,9 +9862,9 @@ class Worker(QObject):
             
             self.log_buffers[filepath] += content
             
-            # 🚀 实时刷新机制：当缓冲区达到一定大小时立即刷新，提高TAB日志实时性
-            immediate_flush_threshold = 8192  # 8KB阈值，确保及时刷新
-            if len(self.log_buffers[filepath]) >= immediate_flush_threshold:
+            # 🚀 批量写入机制：当缓冲区达到4KB时才写入，减少I/O操作频率
+            batch_flush_threshold = 4096  # 4KB阈值，按用户要求进行批量写入
+            if len(self.log_buffers[filepath]) >= batch_flush_threshold:
                 try:
                     import os
                     os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -9835,7 +9873,7 @@ class Worker(QObject):
                         f.flush()
                     self.log_buffers[filepath] = ""
                 except Exception as e:
-                    logger.error(f"Immediate flush failed for {filepath}: {e}")
+                    logger.error(f"Batch flush failed for {filepath}: {e}")
             
             # 🔧 检查总缓冲区数量，避免文件过多
             if len(self.log_buffers) > BufferConfig.MAX_LOG_BUFFERS:  # 限制同时缓冲的文件数量
@@ -9843,6 +9881,41 @@ class Worker(QObject):
                 
         except Exception as e:
             logger.error(f"Error in write_to_log_buffer for {filepath}: {e}")
+    
+    def flush_all_log_buffers(self):
+        """刷新所有日志缓冲区，将所有缓存数据写入文件
+        
+        用于连接断开时确保所有数据都被保存，防止数据丢失
+        """
+        try:
+            flushed_count = 0
+            total_bytes = 0
+            
+            # 遍历所有日志缓冲区
+            for filepath, buffer_content in list(self.log_buffers.items()):
+                if buffer_content:
+                    try:
+                        import os
+                        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                        with open(filepath, 'a', encoding='utf-8') as f:
+                            f.write(buffer_content)
+                            f.flush()
+                        
+                        # 统计写入的数据量
+                        total_bytes += len(buffer_content)
+                        flushed_count += 1
+                        
+                        # 清空缓冲区
+                        self.log_buffers[filepath] = ""
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to flush buffer for {filepath} during connection disconnect: {e}")
+            
+            if flushed_count > 0:
+                logger.info(f"Successfully flushed {flushed_count} log buffers ({total_bytes} bytes) during connection disconnect")
+                
+        except Exception as e:
+            logger.error(f"Error in flush_all_log_buffers: {e}")
     
     def _emergency_flush_oldest_buffers(self):
         """紧急刷新最老的缓冲区"""
@@ -9935,7 +10008,7 @@ class Worker(QObject):
             return f"获取缓冲区信息失败: {e}"
 
     def write_data_to_buffer_log(self, buffer_index, data, log_suffix=""):
-        """📋 统一日志写入方法：将数据写入指定buffer对应的日志文件
+        """📋 统一日志写入方法：将数据直接传递给write_to_log_buffer进行处理
         
         Args:
             buffer_index: buffer索引 (0=ALL页面, 1-16=通道页面, 17+=筛选页面)
@@ -9944,7 +10017,7 @@ class Worker(QObject):
         """
         try:
             if (hasattr(self.parent, 'rtt2uart') and 
-                self.parent.rtt2uart):
+                self.parent.rtt2uart and data):
                 
                 # 构造日志文件路径
                 if log_suffix:
@@ -9952,9 +10025,8 @@ class Worker(QObject):
                 else:
                     log_filepath = f"{self.parent.rtt2uart.rtt_log_filename}_{buffer_index}.log"
                 
-                # 直接写入数据，确保与buffer内容一致
-                if data:
-                    self.write_to_log_buffer(log_filepath, data)
+                # 直接调用write_to_log_buffer方法，由该方法内部处理缓存和批量写入逻辑
+                self.write_to_log_buffer(log_filepath, data)
                     
         except Exception as e:
             logger.error(f"Failed to write data to buffer {buffer_index} log: {e}")

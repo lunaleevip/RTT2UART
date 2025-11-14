@@ -60,9 +60,9 @@ class FastAnsiTextEdit(QTextEdit):
         # 设置大小策略为扩展，确保充分利用可用空间
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # 设置滚动条策略 - 根据需要显示
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # 设置滚动条策略 - 始终显示
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         
         # 设置最小大小，确保组件可见
         self.setMinimumSize(100, 100)
