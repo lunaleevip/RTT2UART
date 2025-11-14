@@ -1431,6 +1431,11 @@ class rtt_to_serial():
                             time.sleep(0.5)
                             continue
                     
+                    # 优化：暂停模式下直接跳过数据获取和处理，大幅降低CPU占用
+                    if self.ui_refresh_paused:
+                        time.sleep(0.3)  # 暂停模式下休眠300ms
+                        continue
+                    
                     # 使用 bytearray 累积数据，避免 list 拼接与后续多次拷贝
                     rtt_recv_log = bytearray()
                     # 优化：一次性读取更多数据，减少系统调用
@@ -1543,8 +1548,15 @@ class rtt_to_serial():
                                 temp_buff.extend(seg[1:])
                     # 循环结束后，temp_buff 保留未完整结束的一段，等待下一批拼接
                     else:
-                        # 没有数据时短暂休眠，避免过度占用CPU
-                        time.sleep(0.001)  # 1ms
+                        # 根据暂停状态调整休眠时间和数据处理策略
+                        if self.ui_refresh_paused:
+                            # 暂停模式下：
+                            # 1. 使用更长的休眠时间
+                            # 2. 不获取新数据，避免频繁添加到暂停缓冲区
+                            time.sleep(0.3)  # 300ms，进一步降低暂停时CPU占用
+                        else:
+                            # 正常模式下短暂休眠
+                            time.sleep(0.001)  # 1ms
                     
                 except pylink.errors.JLinkException as e:
                     logger.error(f"JLink error in RTT thread: {e}")
@@ -1685,6 +1697,11 @@ class rtt_to_serial():
                             time.sleep(0.5)
                             continue
                     
+                    # 优化：暂停模式下直接跳过数据获取和处理，大幅降低CPU占用
+                    if self.ui_refresh_paused:
+                        time.sleep(0.3)  # 暂停模式下休眠300ms
+                        continue
+                    
                     try:
                         rtt_recv_data = self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE)
                         self.read_bytes1 += len(rtt_recv_data)
@@ -1714,8 +1731,15 @@ class rtt_to_serial():
                             # else:
                             #     logger.debug(f'RTT2UART thread: not forwarding - mode={self.serial_forward_mode}, tab={self.serial_forward_tab}')
                         else:
-                            # 没有数据时短暂休眠
-                            time.sleep(0.001)
+                            # 根据暂停状态调整休眠时间和数据处理策略
+                            if self.ui_refresh_paused:
+                                # 暂停模式下：
+                                # 1. 使用更长的休眠时间
+                                # 2. 减少数据获取频率，避免频繁操作暂停缓冲区
+                                time.sleep(0.3)  # 300ms，进一步降低暂停时CPU占用
+                            else:
+                                # 正常模式下短暂休眠
+                                time.sleep(0.001)  # 1ms
                             
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')

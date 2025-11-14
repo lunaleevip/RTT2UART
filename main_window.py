@@ -9650,34 +9650,62 @@ class ConnectionDialog(QDialog):
             
         # current_index = self.main_window.ui.tem_switch.currentIndex()
         
-        # 优先更新当前显示的页面
+        # 增加时间戳跟踪，用于限制UI更新频率
+        current_time_ms = int(time.time() * 1000)
+        
+        # 优先更新当前显示的页面 - 添加更新间隔限制
         if self.main_window.page_dirty_flags[current_index]:
-            self.switchPage(current_index)
-            self.main_window.page_dirty_flags[current_index] = False
+            # 检查是否需要立即更新当前页面
+            if current_time_ms - self.main_window._last_ui_update_ms >= self.main_window.min_ui_update_interval_ms:
+                self.switchPage(current_index)
+                self.main_window.page_dirty_flags[current_index] = False
+                self.main_window._last_ui_update_ms = current_time_ms
         
-        # 🎨 修复：确保所有TAB都能显示高亮 - 更新所有脏标记的TAB
-        # 使用更积极的更新策略，确保高亮在所有TAB中都能及时显示
-        if hasattr(self.worker, 'get_buffer_memory_usage'):
-            memory_info = self.worker.get_buffer_memory_usage()
-            utilization = memory_info.get('capacity_utilization', 0)
+        # 🎨 优化：智能UI更新策略，减少不必要的刷新
+        # 1. 只有在处理完当前页面且有足够时间间隔时才更新其他页面
+        # 2. 实现基于重要性的更新优先级
+        # 3. 批量合并小更新
+        if current_time_ms - self.main_window._last_ui_update_ms >= self.main_window.min_ui_update_interval_ms:
+            # 收集所有需要更新的页面
+            dirty_pages = []
+            for i in range(MAX_TAB_SIZE):
+                if i != current_index and self.main_window.page_dirty_flags[i]:
+                    # 这里可以添加更多优先级逻辑，如基于数据量、时间等
+                    dirty_pages.append(i)
             
-            # 根据容量利用率调整更新策略，但确保高亮显示优先级
-            if utilization > 80:  # 高利用率，减少更新
-                max_updates = 3  # 增加更新数量确保高亮显示
-            elif utilization > 60:  # 中等利用率
-                max_updates = 5
-            else:  # 低利用率，正常更新
-                max_updates = 8  # 更多TAB可以同时更新
-        else:
-            max_updates = 8
+            # 智能批量更新策略
+            if dirty_pages:
+                # 根据系统负载动态调整更新数量
+                if hasattr(self.worker, 'get_buffer_memory_usage'):
+                    memory_info = self.worker.get_buffer_memory_usage()
+                    utilization = memory_info.get('capacity_utilization', 0)
+                    
+                    # 更保守的更新策略，减少CPU占用
+                    if utilization > 85:  # 非常高的利用率
+                        max_updates = 1  # 只更新1个页面
+                    elif utilization > 70:  # 高利用率
+                        max_updates = 2  # 更新2个页面
+                    elif utilization > 50:  # 中等利用率
+                        max_updates = 3  # 更新3个页面
+                    else:  # 低利用率
+                        max_updates = 5  # 更新5个页面
+                else:
+                    max_updates = 3  # 默认保守策略
+                
+                # 限制同时更新的页面数量
+                pages_to_update = min(len(dirty_pages), max_updates)
+                
+                # 批量更新优先级最高的页面
+                for i in range(pages_to_update):
+                    page_index = dirty_pages[i]
+                    self.switchPage(page_index)
+                    self.main_window.page_dirty_flags[page_index] = False
+                
+                # 更新最后UI更新时间
+                self.main_window._last_ui_update_ms = current_time_ms
         
-        updated_count = 0
-        for i in range(MAX_TAB_SIZE):
-            if i != current_index and self.main_window.page_dirty_flags[i] and updated_count < max_updates:
-                # 🎨 为每个TAB更新内容和高亮
-                self.switchPage(i)
-                self.main_window.page_dirty_flags[i] = False
-                updated_count += 1
+        # 清理策略：当页面过多时，标记低优先级页面为干净以避免内存积压
+        # 但保留脏标记直到有足够资源更新它们
    
 
 class Worker(QObject):
@@ -10031,54 +10059,55 @@ class Worker(QObject):
         except Exception as e:
             logger.error(f"Failed to write data to buffer {buffer_index} log: {e}")
 
+    # 类级别预编译的正则表达式，避免每次调用都重新编译
+    _ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    _color_replacements = [
+        # 优化的ANSI颜色替换模式，使用更简单的正则表达式
+        (re.compile(r'\x1B\[31m([^\x1B]*)'), r'<span style="color: red;">\1</span>'),
+        (re.compile(r'\x1B\[1;31m([^\x1B]*)'), r'<span style="color: #FF0000;">\1</span>'),
+        (re.compile(r'\x1B\[32m([^\x1B]*)'), r'<span style="color: green;">\1</span>'),
+        (re.compile(r'\x1B\[1;32m([^\x1B]*)'), r'<span style="color: #00FF00;">\1</span>'),
+        (re.compile(r'\x1B\[33m([^\x1B]*)'), r'<span style="color: #808000;">\1</span>'),
+        (re.compile(r'\x1B\[1;33m([^\x1B]*)'), r'<span style="color: #FFFF00;">\1</span>'),
+        (re.compile(r'\x1B\[34m([^\x1B]*)'), r'<span style="color: blue;">\1</span>'),
+        (re.compile(r'\x1B\[1;34m([^\x1B]*)'), r'<span style="color: #0000FF;">\1</span>'),
+        (re.compile(r'\x1B\[0m'), '</span>')  # 重置代码
+    ]
+
     def _has_ansi_codes(self, text):
         """检查文本是否包含ANSI控制符"""
         try:
-            # 使用正则表达式检测ANSI控制符
-            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            return bool(ansi_pattern.search(text))
+            # 使用预编译的正则表达式
+            return bool(self._ansi_pattern.search(text))
         except Exception:
             return False
 
     def _convert_ansi_to_html(self, text):
-        """将ANSI控制符转换为HTML格式"""
+        """将ANSI控制符转换为HTML格式 - 性能优化版本"""
         try:
-            # 简化的ANSI到HTML转换
-            # 这里可以根据需要扩展更多颜色支持
+            # 首先快速检查是否包含ANSI控制符
+            if not self._has_ansi_codes(text):
+                return text
             
-            # 移除ANSI控制符并保留纯文本（简化版本）
-            # 实际项目中可以实现完整的ANSI到HTML转换
-            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            
-            # 简单的颜色替换示例
+            # 使用预编译的正则表达式进行颜色替换
             html_text = text
             
-            # 改进的ANSI匹配：处理更多结束符情况
-            # 红色文本  
-            html_text = re.sub(r'\x1B\[31m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: red;">\1</span>', html_text)
-            html_text = re.sub(r'\x1B\[1;31m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #FF0000;">\1</span>', html_text)
+            # 分两步处理：先处理颜色开始标记，再处理重置标记
+            for pattern, replacement in self._color_replacements:
+                html_text = pattern.sub(replacement, html_text)
             
-            # 绿色文本
-            html_text = re.sub(r'\x1B\[32m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: green;">\1</span>', html_text)
-            html_text = re.sub(r'\x1B\[1;32m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #00FF00;">\1</span>', html_text)
+            # 移除剩余的ANSI控制符
+            html_text = self._ansi_pattern.sub('', html_text)
             
-            # 黄色文本
-            html_text = re.sub(r'\x1B\[33m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #808000;">\1</span>', html_text)
-            html_text = re.sub(r'\x1B\[1;33m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #FFFF00;">\1</span>', html_text)
-            
-            # 蓝色文本
-            html_text = re.sub(r'\x1B\[34m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: blue;">\1</span>', html_text)
-            html_text = re.sub(r'\x1B\[1;34m([^\x1B]*?)(?:\x1B\[0m|\x1B\[\d*m|$)', r'<span style="color: #0000FF;">\1</span>', html_text)
-            
-            # 移除其他未处理的ANSI控制符
-            html_text = ansi_pattern.sub('', html_text)
+            # 修复可能的未闭合标签（简单的修复）
+            if '<span' in html_text and '</span>' not in html_text:
+                html_text += '</span>'
             
             return html_text
             
         except Exception as e:
-            # 如果转换失败，返回移除ANSI后的纯文本
-            ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            return ansi_pattern.sub('', text)
+            # 如果转换失败，使用预编译的正则表达式返回纯文本
+            return self._ansi_pattern.sub('', text)
 
 
 
@@ -10130,77 +10159,82 @@ class Worker(QObject):
                 # handleBufferUpdate 已废弃
     
     def _process_buffer_data(self, index, string):
-        # 添加数据到指定索引的缓冲区，如果超出缓冲区大小则删除最早的字符
+        # 批量处理优化：减少重复操作，提高性能
+        
+        # 添加数据到指定索引的缓冲区
         self.byte_buffer[index] += string
         
         # 标准化行尾标记：将所有行尾标记统一为LF（\n）
-        # 1. 先将CRLF替换为LF
-        # 2. 再将单独的CR替换为LF（处理可能的\r\r\n情况）
         self.byte_buffer[index] = self.byte_buffer[index].replace(b'\r\n', b'\n').replace(b'\r', b'\n')
 
-        # 找到第一个 '\n' 的索引
+        # 找到最后一个 '\n' 的索引（只处理完整行）
         newline = self.byte_buffer[index].rfind(b'\n')
-        if newline != -1:  # 如果找到了 '\n'
-            # 分割数据
-            new_buffer = self.byte_buffer[index][:newline + 1]
-            self.byte_buffer[index] = self.byte_buffer[index][newline + 1:]
-            # 使用配置的编码进行解码
-            try:
-                enc = self.parent.config.get_text_encoding() if hasattr(self.parent, 'config') else 'gbk'
-            except Exception:
-                enc = 'gbk'
+        if newline == -1:  # 如果没有找到完整行，直接返回
+            return
+            
+        # 分割数据：只处理完整的行，剩余部分保留在byte_buffer中
+        new_buffer = self.byte_buffer[index][:newline + 1]
+        self.byte_buffer[index] = self.byte_buffer[index][newline + 1:]
+        
+        # 使用配置的编码进行解码
+        try:
+            enc = self.parent.config.get_text_encoding() if hasattr(self.parent, 'config') else 'gbk'
+            data = new_buffer.decode(enc, errors='ignore')
+        except Exception:
+            enc = 'gbk'
             data = new_buffer.decode(enc, errors='ignore')
 
-            # 修复多余换行问题：确保数据不会以多个换行符结尾
-            # 例如：如果数据以两个换行符结尾，只保留一个
-            if data.endswith('\n\n'):
-                data = data.rstrip('\n') + '\n'
+        # 修复多余换行问题
+        if data.endswith('\n\n'):
+            data = data.rstrip('\n') + '\n'
 
-            # 性能优化：使用列表拼接替代字符串拼接
-            buffer_parts = ["%02u> " % index, data]
-            
-            # 重新启用ANSI处理，使用安全的错误处理
-            try:
-                # 处理ANSI颜色：为UI显示保留颜色，为缓冲区存储纯文本
+        # 预构建缓冲区前缀
+        prefix = "%02u> " % index
+        
+        # 优化的ANSI处理和缓冲区管理
+        try:
+            # 批量处理：只在必要时进行ANSI处理
+            if self._has_ansi_codes(data):
+                # 只在数据包含ANSI控制符时才调用ansi_processor
                 clean_data = ansi_processor.remove_ansi_codes(data)
-                # 对clean_data也进行换行符处理
                 if clean_data.endswith('\n\n'):
                     clean_data = clean_data.rstrip('\n') + '\n'
-                clean_buffer_parts = ["%02u> " % index, clean_data]
-                
-                # 🚀 智能缓冲区管理：存储纯文本到buffers（用于日志和转发）
-                self._append_to_buffer(index+1, clean_data)
-                self._append_to_buffer(0, ''.join(clean_buffer_parts))
-                
-                # 为彩色显示保留原始ANSI文本（供 QTextEdit 渲染）
-                if hasattr(self, 'colored_buffers'):
-                    self._append_to_colored_buffer(index+1, data)
-                    self._append_to_colored_buffer(0, ''.join(buffer_parts))
+            else:
+                # 快速路径：当没有ANSI控制符时，直接使用原始数据
+                clean_data = data
+            
+            # 批量缓冲区追加：避免重复调用
+            self._append_to_buffer(index+1, clean_data)
+            self._append_to_buffer(0, prefix + clean_data)
+            
+            # 为彩色显示保留原始ANSI文本
+            if hasattr(self, 'colored_buffers'):
+                self._append_to_colored_buffer(index+1, data)
+                self._append_to_colored_buffer(0, prefix + data)
                     
-            except Exception as e:
-                # 🔧 修复重复问题：如果ANSI处理失败，使用原始数据但避免重复添加
-                logger.warning(f"ANSI处理失败，使用原始数据: {e}")
-                # 只有在之前没有成功添加数据时才添加原始数据
-                # 由于异常发生，之前的数据添加可能没有完成，所以这里需要添加
-                self._append_to_buffer(index+1, data)
-                self._append_to_buffer(0, ''.join(buffer_parts))
-                if hasattr(self, 'colored_buffers'):
-                    self._append_to_colored_buffer(index+1, data)
-                    self._append_to_colored_buffer(0, ''.join(buffer_parts))
+        except Exception as e:
+            # 错误处理：使用更简单的回退机制
+            logger.warning(f"ANSI处理失败，使用原始数据: {e}")
+            self._append_to_buffer(index+1, data)
+            self._append_to_buffer(0, prefix + data)
+            if hasattr(self, 'colored_buffers'):
+                self._append_to_colored_buffer(index+1, data)
+                self._append_to_colored_buffer(0, prefix + data)
             
-            # 使用滑动文本块机制，不需要激进的缓冲区大小限制
-            
-            # 标记页面需要更新（恢复原行为：当前页 + ALL）
-            self.update_counter += 1
-            if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+        # 标记页面需要更新（延迟更新策略）
+        self.update_counter += 1
+        if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
+            # 只在累积一定数量的更新后才标记脏标志，减少UI更新频率
+            if self.update_counter % 2 == 0 or len(data) > 1024:  # 要么每2次更新，要么大数据包立即更新
                 self.parent.main_window.page_dirty_flags[index+1] = True
                 self.parent.main_window.page_dirty_flags[0] = True
-            
-            # 串口转发功能：将指定TAB的数据转发到串口
+        
+        # 串口转发功能：将指定TAB的数据转发到串口
             if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
                 # 转发单个通道的数据（index+1对应TAB索引）
                 self.parent.rtt2uart.add_tab_data_for_forwarding(index+1, data)
                 # 转发所有数据（TAB 0）包含通道前缀
+                buffer_parts = ["%02u> " % index, data]
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
             # 📋 统一日志处理：通道数据写入对应的日志文件（使用通道号0~15）

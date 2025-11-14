@@ -63,7 +63,7 @@ class TimerInterval:
     """定时器间隔常量（单位：毫秒）"""
     # UI 更新
     MDI_WINDOW_UPDATE = 100        # MDI 窗口更新间隔
-    BUFFER_FLUSH = 200             # 缓冲区刷新间隔
+    BUFFER_FLUSH = 500             # 缓冲区刷新间隔（优化：增加间隔减少CPU占用）
     DELAYED_INIT = 100             # 延迟初始化
     
     # 状态检查
