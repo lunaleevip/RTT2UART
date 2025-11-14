@@ -5862,56 +5862,30 @@ class RTTMainWindow(QMainWindow):
         self._update_jlink_log_style()
     
     def _init_font_combo(self):
-        """初始化字体选择下拉框，列出所有系统等宽字体"""
-        from PySide6.QtGui import QFontDatabase
-        
-        # 获取系统所有字体
-        font_db = QFontDatabase()
-        all_fonts = sorted(font_db.families())
-        
-        # 常见等宽字体关键词（用于优先排序）
-        monospace_keywords = [
-            'mono', 'code', 'console', 'courier', 'terminal', 'fixed',
-            'sarasa', '等距', 'cascadia', 'consolas', 'menlo', 'monaco',
-            'dejavu', 'ubuntu', 'liberation', 'jetbrains', 'fira', 'source code'
+        """初始化字体选择下拉框，列出常用等宽字体"""
+        # 预定义常用等宽字体列表，避免获取系统所有字体的性能开销
+        common_monospace_fonts = [
+            "Consolas", "Courier New", "SimSun", "Monaco", "Menlo",
+            "Cascadia Code", "DejaVu Sans Mono", "Ubuntu Mono", "Liberation Mono",
+            "JetBrains Mono", "Fira Code", "Source Code Pro", "Sarasa Mono SC",
+            "等距更纱黑体 SC", "Fixedsys"
         ]
-        
-        # 分类字体：可能的等宽字体 vs 其他字体
-        likely_monospace = []
-        other_fonts = []
-        
-        for font_name in all_fonts:
-            # 检查是否包含等宽关键词
-            font_lower = font_name.lower()
-            if any(keyword in font_lower for keyword in monospace_keywords):
-                likely_monospace.append(font_name)
-            else:
-                # 使用QFontDatabase检查是否为固定宽度字体
-                if font_db.isFixedPitch(font_name):
-                    likely_monospace.append(font_name)
-                else:
-                    other_fonts.append(font_name)
-        
-        # 合并列表：优先显示等宽字体
-        available_fonts = likely_monospace + other_fonts
-        
-        # 如果没有找到任何字体，使用系统默认
-        if not available_fonts:
-            import sys
-            default_font = "Consolas" if sys.platform == "win32" else "Monaco"
-            available_fonts = [default_font]
-            #logger.warning(f"[FONT] No fonts found, using default: {default_font}")
         
         # 填充字体下拉框，并为每个项设置对应的字体样式
         self.ui.font_combo.clear()
-        for font_name in available_fonts:
-            self.ui.font_combo.addItem(font_name)
-            # 🔑 关键：为该项设置对应的字体，让用户直观看到字体效果
-            item_index = self.ui.font_combo.count() - 1
-            font = QFont(font_name, 10)  # 使用固定大小10pt用于显示
-            self.ui.font_combo.setItemData(item_index, font, Qt.FontRole)
         
-        #logger.info(f"[FONT] Loaded {len(available_fonts)} fonts ({len(likely_monospace)} monospace)")
+        # 字体对象缓存，避免重复创建
+        self._font_cache = {}
+        
+        for font_name in common_monospace_fonts:
+            self.ui.font_combo.addItem(font_name)
+            # 为该项设置对应的字体，让用户直观看到字体效果
+            item_index = self.ui.font_combo.count() - 1
+            if font_name not in self._font_cache:
+                self._font_cache[font_name] = QFont(font_name, 10)
+            self.ui.font_combo.setItemData(item_index, self._font_cache[font_name], Qt.FontRole)
+        
+        logger.info(f"[FONT] Initialized with {len(common_monospace_fonts)} common monospace fonts")
         
         # 从配置加载保存的字体
         if self.connection_dialog:
@@ -5920,24 +5894,24 @@ class RTTMainWindow(QMainWindow):
             index = self.ui.font_combo.findText(saved_font)
             if index >= 0:
                 self.ui.font_combo.setCurrentIndex(index)
-                #logger.info(f"[FONT] Loaded saved font: {saved_font}")
+                logger.info(f"[FONT] Loaded saved font: {saved_font}")
             else:
                 # 如果保存的字体不存在，使用默认字体：SimSun -> Consolas -> Courier New
                 default_fonts = ["SimSun", "Consolas", "Courier New"]
                 selected_font = None
                 
                 for default_font in default_fonts:
-                    index = self.ui.font_combo.findText(default_font, Qt.MatchFixedString)
+                    index = self.ui.font_combo.findText(default_font)
                     if index >= 0:
                         selected_font = default_font
                         self.ui.font_combo.setCurrentIndex(index)
-                        #logger.info(f"[FONT] Using default font: {default_font}")
+                        logger.info(f"[FONT] Using default font: {default_font}")
                         break
                 
                 # 如果所有默认字体都不存在，使用第一个字体
-                if not selected_font and available_fonts:
+                if not selected_font and common_monospace_fonts:
                     self.ui.font_combo.setCurrentIndex(0)
-                    #logger.info(f"[FONT] No default font found, using: {available_fonts[0]}")
+                    logger.info(f"[FONT] No default font found, using: {common_monospace_fonts[0]}")
     
     def on_font_changed(self, font_name):
         """字体变更时的处理 - 检测变化并全局刷新"""
@@ -5946,7 +5920,7 @@ class RTTMainWindow(QMainWindow):
             
         # 🔑 检测字体是否真的改变了
         if self._current_font_name == font_name:
-            logger.debug(f"[FONT] Font unchanged: {font_name}, skipping refresh")
+            logger.info(f"[FONT] Font unchanged: {font_name}, skipping refresh")
             return
         
         logger.info(f"[FONT] Font changed from '{self._current_font_name}' to '{font_name}' - forcing全局刷新")
@@ -5963,117 +5937,81 @@ class RTTMainWindow(QMainWindow):
         self._current_font_name = font_name
     
     def _update_all_tabs_font(self):
-        """全局更新所有TAB的字体 - 增强兼容性版本"""
+        """全局更新所有TAB的字体 - 优化性能版本"""
         try:
             # 获取字体设置
-            if hasattr(self.ui, 'font_combo'):
-                font_name = self.ui.font_combo.currentText()
-            else:
-                font_name = "Consolas"
-            
+            font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
             font_size = self.ui.fontsize_box.value()
             
-            # 创建字体对象 - 使用更严格的等宽字体设置
-            font = QFont(font_name, font_size)
-            font.setFixedPitch(True)
-            font.setStyleHint(QFont.TypeWriter)  # 使用TypeWriter而不是Monospace，更严格
-            font.setStyleStrategy(QFont.PreferDefault)  # 使用默认策略
-            font.setKerning(False)  # 禁用字距调整
+            # 构建缓存键
+            font_cache_key = f"{font_name}_{font_size}"
             
-            # MDI 架构：遍历所有 MDI 窗口并更新字体
-            from PySide6.QtWidgets import QPlainTextEdit
+            # 字体对象缓存检查
+            if not hasattr(self, '_font_cache'):
+                self._font_cache = {}
+            
+            # 如果缓存中没有此字体配置，创建并缓存
+            if font_cache_key not in self._font_cache:
+                # 创建字体对象 - 使用更严格的等宽字体设置
+                font = QFont(font_name, font_size)
+                font.setFixedPitch(True)
+                font.setStyleHint(QFont.TypeWriter)  # 使用TypeWriter而不是Monospace
+                font.setStyleStrategy(QFont.PreferDefault)
+                font.setKerning(False)  # 禁用字距调整
+                self._font_cache[font_cache_key] = font
+            
+            # 从缓存获取字体对象
+            font = self._font_cache[font_cache_key]
+            
+            # 跟踪更新计数
             updated_count = 0
             
-            # 遍历所有设备会话的 MDI 窗口
+            # 批量处理所有文本编辑控件
+            all_text_edits = []
+            
+            # 收集所有需要更新的文本编辑控件
             for session in session_manager.get_all_sessions():
-                if not session.mdi_window:
-                    continue
+                if session.mdi_window:
+                    all_text_edits.extend([te for te in session.mdi_window.text_edits if te])
+            
+            # 批量更新 - 避免在循环中处理事件
+            for text_edit in all_text_edits:
+                # 1. 设置控件字体
+                text_edit.setFont(font)
                 
-                # 更新该设备的所有标签页
-                current_tab_index = session.mdi_window.tab_widget.currentIndex()
-                for i, text_edit in enumerate(session.mdi_window.text_edits):
-                    if text_edit:
-                        # 🔑 关键改进：对于不可见的TAB，需要临时切换到该TAB才能触发更新
-                        is_current = (i == current_tab_index)
-                        
-                        # 1. 设置控件字体
-                        text_edit.setFont(font)
-                        
-                        # 2. 设置文档默认字体（这对新增内容生效）
-                        text_edit.document().setDefaultFont(font)
-                        
-                        # 3. 🔑 关键修复：强制更新所有已存在文本的字体
-                        # 因为已插入的文本有自己的QTextCharFormat，需要遍历并更新
-                        doc = text_edit.document()
-                        
-                        # 🔑 新方法：保存当前HTML，修改字体后重新设置
-                        # 这会强制Qt认为内容改变了，从而触发完整重绘
-                        old_html = text_edit.toHtml()
-                        
-                        cursor = QTextCursor(doc)
-                        cursor.select(QTextCursor.Document)  # 选择整个文档
-                        
-                        # 获取当前选择的格式并只更新字体，保留颜色等其他格式
-                        cursor.beginEditBlock()  # 开始批量编辑，提高性能
-                        
-                        # 遍历文档的所有块
-                        block = doc.begin()
-                        while block.isValid():
-                            # 遍历块中的所有fragment
-                            it = block.begin()
-                            while not it.atEnd():
-                                fragment = it.fragment()
-                                if fragment.isValid():
-                                    # 获取fragment的格式
-                                    char_format = fragment.charFormat()
-                                    # 只更新字体，保留其他格式（颜色、背景等）
-                                    char_format.setFont(font)
-                                    # 应用新格式
-                                    frag_cursor = QTextCursor(doc)
-                                    frag_cursor.setPosition(fragment.position())
-                                    frag_cursor.setPosition(fragment.position() + fragment.length(), QTextCursor.KeepAnchor)
-                                    frag_cursor.setCharFormat(char_format)
-                                it += 1
-                            block = block.next()
-                        
-                        cursor.endEditBlock()  # 结束批量编辑
-                        
-                        # 🔑 强制触发文档变更信号，让Qt知道内容已改变
-                        doc.contentsChange.emit(0, doc.characterCount(), doc.characterCount())
-                        
-                        # 4. 触发文档重新布局
-                        doc.setModified(True)
-                        
-                        # 5. 🔑 对于不可见的TAB，需要额外处理
-                        if not is_current:
-                            # 强制设置widget可见性状态，触发更新
-                            text_edit.setVisible(True)
-                            # 强制刷新layout
-                            if hasattr(text_edit, 'updateGeometry'):
-                                text_edit.updateGeometry()
-                        
-                        # 6. 🔑 强制立即重绘：多重刷新策略
-                        # 策略1: 更新视口
-                        text_edit.viewport().update()
-                        text_edit.update()
-                        
-                        # 策略2: 强制完整重绘（不是增量更新）
-                        text_edit.viewport().repaint()
-                        
-                        # 策略3: 触发布局更新
-                        text_edit.updateGeometry()
-                        
-                        # 策略4: 处理所有待处理事件，确保立即刷新
-                        QApplication.processEvents()
-                        
-                        updated_count += 1
+                # 2. 设置文档默认字体（对新增内容生效）
+                text_edit.document().setDefaultFont(font)
+                
+                # 3. 使用更高效的方式更新现有文本格式
+                cursor = QTextCursor(text_edit.document())
+                cursor.movePosition(QTextCursor.Start)
+                cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+                
+                # 创建格式对象
+                char_format = QTextCharFormat()
+                char_format.setFont(font)
+                
+                # 使用批量编辑
+                cursor.beginEditBlock()
+                cursor.setCharFormat(char_format)  # 一次性应用到整个选择
+                cursor.endEditBlock()
+                
+                updated_count += 1
+            
+            # 一次性处理所有待处理事件
+            QApplication.processEvents()
+            
+            # 触发所有文本编辑控件更新
+            for text_edit in all_text_edits:
+                text_edit.updateGeometry()
+                text_edit.viewport().update()
             
             logger.info(f"[FONT] Updated font for {updated_count} text edits to: {font_name} {font_size}pt")
             
-            # 🔑 延迟再次刷新一次，确保在某些系统上也能生效
-            # 同时遍历所有TAB并触发重绘
-            QTimer.singleShot(TimerInterval.DELAYED_FONT_REFRESH, lambda: self._delayed_font_refresh_all())
-            
+            # 延迟刷新一次 - 但避免过度刷新
+            if updated_count > 0:
+                QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
+                
         except Exception as e:
             logger.warning(f"Failed to update all tabs font: {e}")
     
@@ -6082,39 +6020,34 @@ class RTTMainWindow(QMainWindow):
         self._delayed_font_refresh_all()
     
     def _delayed_font_refresh_all(self):
-        """延迟刷新所有TAB的字体 - 确保不可见TAB也能更新（MDI架构）"""
+        """延迟刷新所有TAB的字体 - 优化版本，减少不必要的操作"""
         try:
-            from PySide6.QtWidgets import QPlainTextEdit
+            # 收集所有需要延迟刷新的文本编辑控件
+            delayed_refresh_edits = []
             
-            # MDI 架构：遍历所有设备会话的 MDI 窗口
+            # 遍历所有设备会话的MDI窗口
             for session in session_manager.get_all_sessions():
-                if not session.mdi_window:
-                    continue
-                
-                # 遍历该设备的所有标签页进行二次刷新
-                for text_edit in session.mdi_window.text_edits:
-                    if text_edit:
-                        # 🔑 关键：强制刷新文档布局
-                        doc = text_edit.document()
-                        
-                        # 触发文档contentsChanged信号
-                        doc.markContentsDirty(0, doc.characterCount())
-                        
-                        # 强制viewport完整重绘
-                        text_edit.viewport().repaint()  # 使用repaint而不是update，立即重绘
-                        text_edit.update()
+                if session.mdi_window:
+                    delayed_refresh_edits.extend([te for te in session.mdi_window.text_edits if te])
             
-            # 处理所有待处理的事件
+            # 批量处理延迟刷新
+            for text_edit in delayed_refresh_edits:
+                # 只需要标记文档为脏并触发更新，避免过多的重绘操作
+                doc = text_edit.document()
+                doc.markContentsDirty(0, doc.characterCount())
+                text_edit.update()  # 使用update而非repaint，让Qt优化刷新过程
+            
+            # 一次性处理所有待处理事件
             QApplication.processEvents()
             
-            logger.debug("[FONT] Delayed font refresh completed for all TABs")
+            logger.info(f"[FONT] Delayed font refresh completed for {len(delayed_refresh_edits)} text edits")
         except Exception as e:
-            logger.debug(f"Delayed font refresh error: {e}")
+            logger.info(f"Delayed font refresh error: {e}")
     
     def _update_current_tab_font(self):
-        """更新当前TAB的字体（MDI架构）"""
+        """更新当前TAB的字体（MDI架构） - 优化版本"""
         try:
-            # MDI 架构：获取当前活动的 MDI 窗口
+            # MDI架构：获取当前活动的MDI窗口
             mdi_window = self._get_active_mdi_window()
             if not mdi_window:
                 return
@@ -6123,18 +6056,31 @@ class RTTMainWindow(QMainWindow):
             if current_index < len(mdi_window.text_edits):
                 text_edit = mdi_window.text_edits[current_index]
                 if text_edit:
-                    # 获取字体名称
-                    if hasattr(self.ui, 'font_combo'):
-                        font_name = self.ui.font_combo.currentText()
-                    else:
-                        font_name = "Consolas"
-                    
+                    # 获取字体设置
+                    font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
                     font_size = self.ui.fontsize_box.value()
-                    font = QFont(font_name, font_size)
-                    font.setFixedPitch(True)
-                    font.setStyleHint(QFont.Monospace)  # 🔑 设置字体提示为等宽
-                    font.setKerning(False)  # 🔑 禁用字距调整
+                    
+                    # 构建缓存键并使用字体缓存
+                    font_cache_key = f"{font_name}_{font_size}"
+                    
+                    if not hasattr(self, '_font_cache'):
+                        self._font_cache = {}
+                    
+                    # 从缓存获取或创建字体对象
+                    if font_cache_key not in self._font_cache:
+                        font = QFont(font_name, font_size)
+                        font.setFixedPitch(True)
+                        font.setStyleHint(QFont.TypeWriter)  # 使用更严格的等宽字体设置
+                        font.setKerning(False)  # 禁用字距调整
+                        self._font_cache[font_cache_key] = font
+                    
+                    # 应用字体
+                    font = self._font_cache[font_cache_key]
                     text_edit.setFont(font)
+                    text_edit.document().setDefaultFont(font)
+                    
+                    # 只更新当前可见的文本
+                    text_edit.update()
         except Exception as e:
             logger.warning(f"Failed to update current tab font: {e}")
     
@@ -6144,7 +6090,7 @@ class RTTMainWindow(QMainWindow):
         
         # 🔑 检测字号是否真的改变了
         if self._current_font_size == font_size:
-            logger.debug(f"[FONT] Font size unchanged: {font_size}pt, skipping refresh")
+            logger.info(f"[FONT] Font size unchanged: {font_size}pt, skipping refresh")
             return
         
         logger.info(f"[FONT] Font size changed from {self._current_font_size}pt to {font_size}pt - forcing全局刷新")
