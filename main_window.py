@@ -10116,11 +10116,11 @@ class Worker(QObject):
     @Slot(int, str)
     def addToBuffer(self, index, string):
         # 🚀 Turbo模式：智能批量处理
-        if self.turbo_mode and len(string) < 1024:  # 小数据包使用批量处理
+        if self.turbo_mode and len(string) < 2048:  # 增大阈值，更多数据使用批量处理
             self.batch_buffers[index] += string
             
             # 🚀 优化：如果批量缓冲区太大，立即处理避免延迟过久
-            if len(self.batch_buffers[index]) > 4096:  # 4KB阈值
+            if len(self.batch_buffers[index]) > 8192:  # 增加批量处理阈值到8KB
                 self._process_batch_buffer(index)
                 return
             
@@ -10134,7 +10134,13 @@ class Worker(QObject):
                     lambda idx=index: self._process_batch_buffer(idx)
                 )
             
-            self.batch_timers[index].start(self.batch_delay)
+            # 增加批量处理延迟，减少处理频率
+            current_delay = self.batch_delay
+            # 根据缓冲区大小动态调整延迟
+            if len(self.batch_buffers[index]) > 4096:
+                current_delay = max(10, self.batch_delay // 2)  # 缓冲区较大时，缩短延迟
+            
+            self.batch_timers[index].start(current_delay)
             return
         
         # 标准模式或大数据包：直接处理
@@ -10225,7 +10231,8 @@ class Worker(QObject):
         self.update_counter += 1
         if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'page_dirty_flags'):
             # 只在累积一定数量的更新后才标记脏标志，减少UI更新频率
-            if self.update_counter % 2 == 0 or len(data) > 1024:  # 要么每2次更新，要么大数据包立即更新
+            # 增加阈值，从每2次更新一次改为每3次更新一次，大数据包阈值从1KB增加到2KB
+            if self.update_counter % 3 == 0 or len(data) > 2048:  # 减少UI更新频率
                 self.parent.main_window.page_dirty_flags[index+1] = True
                 self.parent.main_window.page_dirty_flags[0] = True
         
@@ -10238,7 +10245,9 @@ class Worker(QObject):
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
             # 📋 统一日志处理：通道数据写入对应的日志文件（使用通道号0~15）
-            self.write_data_to_buffer_log(index+1, clean_data, str(index))
+            # 减少日志写入频率：只在数据量较大或周期性写入
+            if len(clean_data) > 1024 or self.update_counter % 5 == 0:
+                self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
             # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
             if clean_data.strip():  # 只处理非空数据

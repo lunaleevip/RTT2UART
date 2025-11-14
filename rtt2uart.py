@@ -1436,6 +1436,9 @@ class rtt_to_serial():
                         time.sleep(0.3)  # 暂停模式下休眠300ms
                         continue
                     
+                    # 初始化数据标志，用于后续休眠策略调整
+                    has_data = False
+                    
                     # 使用 bytearray 累积数据，避免 list 拼接与后续多次拷贝
                     rtt_recv_log = bytearray()
                     # 优化：一次性读取更多数据，减少系统调用
@@ -1524,30 +1527,38 @@ class rtt_to_serial():
                             self._last_buffer_size = 0
 
                     # 处理原始RTT数据以解析通道信息（零拷贝分帧优化）
-                    if not hasattr(self, '_pending_chunk_buf'):
-                        self._pending_chunk_buf = bytearray()
-                    temp_buff = self._pending_chunk_buf
-                    # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
-                    parts = bytes(rtt_recv_log).split(b'\xff')
-                    # 第一段是延续的 payload
-                    if parts:
-                        temp_buff.extend(parts[0])
-                        # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
-                        for seg in parts[1:]:
-                            if len(temp_buff) > 0:
-                                try:
-                                    # 传递 bytes，避免主线程把 bytearray 当作 str 处理
-                                    self.insert_char(self.tem, bytes(temp_buff))
-                                finally:
-                                    temp_buff.clear()
-                            if not seg:
-                                continue
-                            # 切换通道
-                            self.tem = chr(seg[0])
-                            if len(seg) > 1:
-                                temp_buff.extend(seg[1:])
-                    # 循环结束后，temp_buff 保留未完整结束的一段，等待下一批拼接
+                    if rtt_log_len > 0:
+                        has_data = True
+                        if not hasattr(self, '_pending_chunk_buf'):
+                            self._pending_chunk_buf = bytearray()
+                        temp_buff = self._pending_chunk_buf
+                        # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
+                        parts = bytes(rtt_recv_log).split(b'\xff')
+                        # 第一段是延续的 payload
+                        if parts:
+                            temp_buff.extend(parts[0])
+                            # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
+                            for seg in parts[1:]:
+                                if len(temp_buff) > 0:
+                                    try:
+                                        # 传递 bytes，避免主线程把 bytearray 当作 str 处理
+                                        self.insert_char(self.tem, bytes(temp_buff))
+                                    finally:
+                                        temp_buff.clear()
+                                if not seg:
+                                    continue
+                                # 切换通道
+                                self.tem = chr(seg[0])
+                                if len(seg) > 1:
+                                    temp_buff.extend(seg[1:])
+                    
+                    # 根据是否有数据调整休眠策略
+                    if not has_data and rtt_log_len == 0:
+                        # 无数据时，使用更长的休眠时间
+                        time.sleep(0.01)  # 10ms休眠，大幅降低CPU占用
                     else:
+                        # 有数据时，短暂休眠
+                        time.sleep(0.005)  # 5ms休眠
                         # 根据暂停状态调整休眠时间和数据处理策略
                         if self.ui_refresh_paused:
                             # 暂停模式下：
@@ -1738,8 +1749,8 @@ class rtt_to_serial():
                                 # 2. 减少数据获取频率，避免频繁操作暂停缓冲区
                                 time.sleep(0.3)  # 300ms，进一步降低暂停时CPU占用
                             else:
-                                # 正常模式下短暂休眠
-                                time.sleep(0.001)  # 1ms
+                                # 正常模式下休眠时间优化，从1ms增加到5ms，大幅降低CPU占用
+                                time.sleep(0.005)  # 5ms
                             
                     except pylink.errors.JLinkException as e:
                         logger.warning(f'RTT2UART read failed: {e}')
