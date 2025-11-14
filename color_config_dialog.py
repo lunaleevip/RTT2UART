@@ -55,7 +55,7 @@ class ColorConfigDialog(QDialog):
         
         # 为每个通道创建颜色配置项
         for i in range(16):
-            group_box = QGroupBox(self.tr(f"Channel {i}"))
+            group_box = QGroupBox(self.tr("Channel %1").replace("%1", str(i)))
             group_layout = QGridLayout(group_box)
             
             # 前景色配置

@@ -1471,7 +1471,7 @@ class DeviceMdiWindow(QWidget):
             
             # 设置TAB标签名称
             if i == 0:
-                tab_name = "ALL"
+                tab_name = self.tr("ALL")
             elif i <= 16:
                 tab_name = str(i - 1)  # 1-16显示为0-15
             else:
@@ -1554,7 +1554,7 @@ class DeviceMdiWindow(QWidget):
                     # 空内容时设置tooltip提示双击编辑
                     from PySide6.QtCore import QCoreApplication
                     self.tab_widget.setTabToolTip(i, QCoreApplication.translate("main_window", "Double-click to edit filter"))
-        
+        self.tab_widget.setTabToolTip(0, QCoreApplication.translate("main_window", "Double-click to edit colorsetting"))
         # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
         self.update_filter_tab_display()
         
@@ -5124,7 +5124,8 @@ class RTTMainWindow(QMainWindow):
             self.connection_dialog.config.save_config()
         
         # MDI架构：如果启用且有活动连接，启动监控定时器
-        if enabled and self._get_active_device_session():
+        session = self._get_active_device_session()
+        if enabled and session and hasattr(session, 'is_connected') and session.is_connected:
             self.last_data_time = time.time()
             self.data_check_timer.start(TimerInterval.DATA_CHECK)
             logger.info("Auto reconnect on no data enabled")
