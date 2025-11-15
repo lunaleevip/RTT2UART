@@ -1767,6 +1767,14 @@ class DeviceMdiWindow(QWidget):
             
             # 插入数据（使用正确的光标位置，避免重叠）
             if hasattr(text_edit, '_parse_ansi_fast'):
+                # 检查数据中是否包含清屏序列，如果有则先清屏
+                if '\x1B[2J' in all_data:
+                    text_edit.clear_content()
+                    # 重置已显示长度
+                    self.last_display_lengths[channel] = 0
+                    # 更新数据为清屏序列之后的部分
+                    all_data = all_data.split('\x1B[2J')[-1]
+                
                 # 使用FastAnsiTextEdit的解析方法
                 segments = text_edit._parse_ansi_fast(all_data)
                 cursor = text_edit.textCursor()
@@ -5117,21 +5125,42 @@ class RTTMainWindow(QMainWindow):
     def _on_auto_reconnect_changed(self, state):
         """自动重连复选框状态改变"""
         enabled = (state == Qt.CheckState.Checked.value) if hasattr(Qt.CheckState, 'Checked') else (state == 2)
+        logger.debug(f"[AUTO-RECONNECT] State changed: state={state}, enabled={enabled}")
         
         # 保存到配置（🔑 只在UI初始化完成后保存）
         if self.connection_dialog and self._ui_initialization_complete:
             self.connection_dialog.config.set_auto_reconnect_on_no_data(enabled)
             self.connection_dialog.config.save_config()
+            logger.debug("[AUTO-RECONNECT] Configuration saved to connection dialog")
         
-        # MDI架构：如果启用且有活动连接，启动监控定时器
+        # MDI架构：获取活动设备会话并检查连接状态
         session = self._get_active_device_session()
-        if enabled and session and hasattr(session, 'is_connected') and session.is_connected:
-            self.last_data_time = time.time()
-            self.data_check_timer.start(TimerInterval.DATA_CHECK)
-            logger.info("Auto reconnect on no data enabled")
+        session_connected = False
+        
+        if session:
+            session_connected = hasattr(session, 'is_connected') and session.is_connected
+            logger.debug(f"[AUTO-RECONNECT] Active session: connected={session_connected}")
         else:
+            logger.debug("[AUTO-RECONNECT] No active device session")
+        
+        # 根据启用状态和连接状态启动或停止监控定时器
+        if enabled and session and session_connected:
+            # 初始化last_data_time
+            self.last_data_time = time.time()
+            logger.debug(f"[AUTO-RECONNECT] Initialized last_data_time: {self.last_data_time:.2f}")
+            # 启动定时器，使用DATA_CHECK间隔
+            self.data_check_timer.start(TimerInterval.DATA_CHECK)
+            logger.info("[AUTO-RECONNECT] Auto-reconnect monitoring enabled")
+            # 显示启动状态到JLink日志
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto-reconnect monitoring started"))
+        else:
+            # 停止定时器
             self.data_check_timer.stop()
-            logger.info("Auto reconnect on no data disabled")
+            logger.info(f"[AUTO-RECONNECT] Auto-reconnect monitoring disabled: enabled={enabled}, session_connected={session_connected}")
+            # 显示停止状态到JLink日志
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto-reconnect monitoring stopped"))
     
     def _on_reconnect_timeout_changed(self, text):
         """超时时间文本框改变"""
@@ -5152,16 +5181,22 @@ class RTTMainWindow(QMainWindow):
             self.ui.auto_reconnect_checkbox.setChecked(not current_state)
     
     def _check_data_timeout(self):
-        """检查数据超时"""
-        # 如果手动断开，停止检查
+        """检查数据超时并执行自动重连"""
+        # 跳过手动断开的情况，但不要停止定时器
         if self.manual_disconnect:
-            self.data_check_timer.stop()
+            logger.debug("[AUTO-RECONNECT] Skipping timeout check: manual disconnect active")
             return
         
-        # MDI架构：如果没有活动设备会话或未连接，停止检查
+        # 获取活动设备会话
         session = self._get_active_device_session()
-        if not session or not session.is_connected:
+        if not session:
+            logger.debug("[AUTO-RECONNECT] Skipping timeout check: no active device session")
             return
+        
+        # 获取RTT对象并检查连接状态
+        rtt_obj = session.rtt2uart if hasattr(session, 'rtt2uart') else None
+        session_connected = hasattr(session, 'is_connected') and session.is_connected
+        rtt_connected = hasattr(rtt_obj, 'is_connected') and rtt_obj.is_connected if rtt_obj else False
         
         # 获取超时设置
         try:
@@ -5173,76 +5208,151 @@ class RTTMainWindow(QMainWindow):
         current_time = time.time()
         time_since_last_data = current_time - self.last_data_time if self.last_data_time > 0 else 0
         
-        # 调试日志
-        #logger.debug(f"[AUTO-RECONNECT] Timeout check: last_data_time={self.last_data_time:.2f}, current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
+        # 增加详细调试日志
+        logger.debug(f"[AUTO-RECONNECT] Timeout check: session_connected={session_connected}, "
+                   f"rtt_connected={rtt_connected}, last_data_time={self.last_data_time:.2f}, "
+                   f"current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
+        
+        # 重连条件：
+        # 1. 有数据时间戳
+        # 2. 无数据时间超过设置的超时时间
+        should_reconnect = False
+        reconnect_reason = ""
         
         if self.last_data_time > 0 and time_since_last_data > timeout:
-            logger.warning(f"No data received for {timeout} seconds, auto reconnecting...")
+            should_reconnect = True
+            reconnect_reason = f"No data received for {timeout} seconds"
+        
+        if should_reconnect:
+            logger.warning(f"[AUTO-RECONNECT] {reconnect_reason}, auto reconnecting...")
             if hasattr(self, 'append_jlink_log'):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
             
             # 重置时间戳，避免重复触发
-            self.last_data_time = time.time()
+            self.last_data_time = current_time
             
             # 执行自动重连
-            self._perform_auto_reconnect()
+            try:
+                self._perform_auto_reconnect()
+                logger.info("[AUTO-RECONNECT] Reconnection process initiated")
+            except Exception as e:
+                logger.error(f"[AUTO-RECONNECT] Failed to initiate reconnection: {e}")
     
     def _perform_auto_reconnect(self):
         """执行自动重连（不重置文件夹）- MDI架构：针对活动设备会话"""
+        logger.info("[AUTO-RECONNECT] Starting auto-reconnection process")
         try:
             # MDI架构：获取活动设备会话
             session = self._get_active_device_session()
-            if not session or not session.rtt2uart:
-                logger.warning("Cannot auto reconnect: no active device session")
+            if not session:
+                logger.warning("[AUTO-RECONNECT] Cannot reconnect: no active device session")
+                return
+            
+            # 检查rtt2uart属性
+            if not hasattr(session, 'rtt2uart') or not session.rtt2uart:
+                logger.warning("[AUTO-RECONNECT] Cannot reconnect: session missing rtt2uart object")
                 return
             
             # 使用rtt2uart的重启方法，不会重置日志文件夹
             rtt_obj = session.rtt2uart
+            logger.debug("[AUTO-RECONNECT] Got RTT object, proceeding with reconnection")
             
             # 停止RTT连接
             if hasattr(self, 'append_jlink_log'):
-                self.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection..."))
-            rtt_obj.stop(keep_folder=True)  # 保留日志文件夹
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Stopping RTT connection for reconnection..."))
+            
+            try:
+                rtt_obj.stop(keep_folder=True)  # 保留日志文件夹
+                logger.info("[AUTO-RECONNECT] RTT connection stopped successfully")
+            except Exception as stop_error:
+                logger.error(f"[AUTO-RECONNECT] Failed to stop RTT connection: {stop_error}")
+                if hasattr(self, 'append_jlink_log'):
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to stop RTT connection: %s") % str(stop_error))
+                # 即使停止失败，仍然尝试启动，可能会恢复连接
             
             # 等待停止完成后重新启动
-            QTimer.singleShot(TimerInterval.AUTO_RECONNECT, self._auto_reconnect_start)
+            delay = TimerInterval.AUTO_RECONNECT
+            logger.info(f"[AUTO-RECONNECT] Waiting {delay}ms before starting reconnection")
+            QTimer.singleShot(delay, self._auto_reconnect_start)
             
         except Exception as e:
-            logger.error(f"Auto reconnect failed: {e}")
+            logger.error(f"[AUTO-RECONNECT] Reconnection process failed: {e}", exc_info=True)
             if hasattr(self, 'append_jlink_log'):
-                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect failed: %s") % str(e))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect process failed: %s") % str(e))
     
     def _auto_reconnect_start(self):
         """自动重连 - 启动连接 - MDI架构：针对活动设备会话"""
+        logger.info("[AUTO-RECONNECT] Attempting to restart RTT connection")
         try:
             # MDI架构：获取活动设备会话
             session = self._get_active_device_session()
-            if not session or not session.rtt2uart:
-                logger.warning("Cannot start auto reconnect: no active device session")
+            if not session:
+                logger.warning("[AUTO-RECONNECT] Cannot restart: no active device session")
+                return
+            
+            # 检查rtt2uart属性
+            if not hasattr(session, 'rtt2uart') or not session.rtt2uart:
+                logger.warning("[AUTO-RECONNECT] Cannot restart: session missing rtt2uart object")
                 return
             
             # 重新启动RTT连接
             rtt_obj = session.rtt2uart
+            logger.debug("[AUTO-RECONNECT] Got RTT object for restart")
+            
             if hasattr(self, 'append_jlink_log'):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "Restarting RTT connection..."))
             
-            rtt_obj.start()
-            
-            logger.info("Auto reconnect completed")
-            if hasattr(self, 'append_jlink_log'):
-                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed"))
+            # 尝试启动RTT连接
+            try:
+                rtt_obj.start()
+                logger.info("[AUTO-RECONNECT] RTT connection restarted successfully")
                 
+                # 重置数据时间戳
+                self.last_data_time = time.time()
+                logger.debug(f"[AUTO-RECONNECT] Reset last_data_time: {self.last_data_time:.2f}")
+                
+                # 确保定时器仍然运行
+                if not self.data_check_timer.isActive():
+                    self.data_check_timer.start(TimerInterval.DATA_CHECK)
+                    logger.debug("[AUTO-RECONNECT] Re-started data check timer")
+                
+                # 显示完成消息
+                logger.info("[AUTO-RECONNECT] Auto-reconnection completed successfully")
+                if hasattr(self, 'append_jlink_log'):
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed successfully"))
+                    
+            except Exception as start_error:
+                logger.error(f"[AUTO-RECONNECT] Failed to start RTT connection: {start_error}", exc_info=True)
+                if hasattr(self, 'append_jlink_log'):
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to restart RTT connection: %s") % str(start_error))
+                # 即使启动失败，也尝试重新初始化时间戳和定时器，为下次重连做准备
+                self.last_data_time = time.time()
+                if not self.data_check_timer.isActive():
+                    self.data_check_timer.start(TimerInterval.DATA_CHECK)
+                    
         except Exception as e:
-            logger.error(f"Auto reconnect start failed: {e}")
+            logger.error(f"[AUTO-RECONNECT] Reconnection startup process failed: {e}", exc_info=True)
             if hasattr(self, 'append_jlink_log'):
-                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect start failed: %s") % str(e))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect startup process failed: %s") % str(e))
     
     def _update_data_timestamp(self):
         """更新数据时间戳（在收到数据时调用）"""
         current_time = time.time()
+        previous_time = self.last_data_time
+        
         # 只在第一次或超过5秒没更新时记录日志（避免日志刷屏）
-        if self.last_data_time == 0 or (current_time - self.last_data_time) > 5:
-            logger.debug(f"[AUTO-RECONNECT] Data timestamp updated: {self.last_data_time:.2f} -> {current_time:.2f}")
+        if previous_time == 0:
+            logger.info("[AUTO-RECONNECT] Initial data timestamp set")
+        elif (current_time - previous_time) > 5:
+            logger.debug(f"[AUTO-RECONNECT] Data timestamp updated: {previous_time:.2f} -> {current_time:.2f}")
+        
+        # 检查数据接收是否恢复
+        if hasattr(self, 'is_auto_reconnect_enabled') and self.is_auto_reconnect_enabled():
+            # 检查上次数据接收是否已经超时
+            timeout = self._get_auto_reconnect_timeout()
+            if timeout > 0 and (previous_time > 0) and (current_time - previous_time) > timeout:
+                logger.info("[AUTO-RECONNECT] Data reception restored after potential timeout")
+        
         self.last_data_time = current_time
 
     def _on_mdi_subwindow_activated(self, sub_window):

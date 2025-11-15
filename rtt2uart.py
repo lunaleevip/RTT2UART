@@ -304,8 +304,18 @@ class rtt_to_serial():
 
 
     def __del__(self):
-        logger.debug(QCoreApplication.translate("rtt2uart", "关闭应用"))
-        self.stop()
+        try:
+            # 检查Python解释器是否正在关闭
+            import sys
+            if sys.meta_path is None:
+                # Python正在关闭，避免执行可能导致错误的操作
+                return
+                
+            logger.debug(QCoreApplication.translate("rtt2uart", "关闭应用"))
+            self.stop()
+        except Exception:
+            # 忽略所有在析构过程中可能发生的异常
+            pass
     
     def set_jlink_log_callback(self, callback):
         """设置JLink日志回调函数"""

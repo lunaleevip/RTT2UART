@@ -136,7 +136,7 @@ class FastAnsiTextEdit(QTextEdit):
         }
         
         # 预编译正则表达式
-        self._ansi_regex = re.compile(r'\x1B\[[0-9;]*m')
+        self._ansi_regex = re.compile(r'\x1B\[[0-9;]*[mJ]')
         
     def _get_cached_format(self, fg_color=None, bg_color=None, bold=False):
         """获取缓存的文本格式"""
@@ -266,6 +266,12 @@ class FastAnsiTextEdit(QTextEdit):
                 # 处理ANSI序列
                 if i < len(ansi_codes):
                     code = ansi_codes[i]
+                    # 检查是否为清屏命令 \x1B[2J
+                    if code == '\x1B[2J':
+                        # 执行清屏操作
+                        self.clear_content()
+                        continue
+                    
                     # 解析数字序列
                     numbers = []
                     try:

@@ -142,7 +142,10 @@ class ColorConfigDialog(QDialog):
         color = QColorDialog.getColor(
             current_color,
             self,
-            self.tr(f"Select {'Foreground' if is_foreground else 'Background'} Color for Channel {index}")
+            self.tr("Select Channel {} {} Color").format(
+                index,
+                self.tr("Foreground") if is_foreground else self.tr("Background")
+            )
         )
         
         if color.isValid():
