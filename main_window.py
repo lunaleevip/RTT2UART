@@ -6073,7 +6073,7 @@ class RTTMainWindow(QMainWindow):
                     logger.info(f"[FONT] No default font found, using: {common_monospace_fonts[0]}")
     
     def on_font_changed(self, font_name):
-        """字体变更时的处理 - 检测变化并全局刷新"""
+        """字体变更时的处理 - 添加用户选择更新方式"""
         if not font_name:
             return
             
@@ -6082,21 +6082,58 @@ class RTTMainWindow(QMainWindow):
             logger.info(f"[FONT] Font unchanged: {font_name}, skipping refresh")
             return
         
-        logger.info(f"[FONT] Font changed from '{self._current_font_name}' to '{font_name}' - forcing全局刷新")
+        logger.info(f"[FONT] Font changed from '{self._current_font_name}' to '{font_name}' - prompting user for update mode")
         
         # 保存到配置（只在UI初始化完成后保存）
         if self.connection_dialog and self._ui_initialization_complete:
             self.connection_dialog.config.set_fontfamily(font_name)
             self.connection_dialog.config.save_config()
         
-        # 🔑 全局更新：遍历所有TAB并强制刷新已有文本的字体
-        self._update_all_tabs_font()
+        # 导入QMessageBox
+        from PySide6.QtWidgets import QMessageBox
+        
+        # 只在UI初始化完成后（用户修改时）才显示对话框
+        if self._ui_initialization_complete:
+            # 显示用户选择提示对话框
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(self.tr("Font Update Options"))
+            msg_box.setText(self.tr("Font has been changed, select update method:"))
+            msg_box.setInformativeText(self.tr("Update All: Update all displayed text\nNew Content Only: Apply new font only to new content"))
+            
+            # 添加自定义按钮
+            update_all_btn = msg_box.addButton(self.tr("Update All"), QMessageBox.AcceptRole)
+            new_content_btn = msg_box.addButton(self.tr("New Content Only"), QMessageBox.YesRole)
+            cancel_btn = msg_box.addButton(self.tr("Cancel"), QMessageBox.RejectRole)
+            
+            # 设置默认按钮
+            msg_box.setDefaultButton(update_all_btn)
+            
+            # 显示对话框并获取用户选择
+            msg_box.exec()
+            
+            # 根据用户选择执行相应操作
+            if msg_box.clickedButton() == update_all_btn:
+                # 全量更新字体（将在后面任务中实现异步更新）
+                self._update_all_tabs_font()
+            elif msg_box.clickedButton() == new_content_btn:
+                # 只更新默认字体，对新内容生效
+                self._update_default_font_only()
+            else:  # 取消操作
+                # 恢复原字体设置
+                if self._current_font_name:
+                    index = self.ui.font_combo.findText(self._current_font_name)
+                    if index >= 0:
+                        self.ui.font_combo.setCurrentIndex(index)
+                return
+        else:
+            # 初始化阶段自动应用字体变更
+            self._update_default_font_only()
         
         # 更新当前字体变量
         self._current_font_name = font_name
     
-    def _update_all_tabs_font(self):
-        """全局更新所有TAB的字体 - 优化性能版本"""
+    def _update_default_font_only(self):
+        """仅更新默认字体，只对新内容生效 - 快速更新模式"""
         try:
             # 获取字体设置
             font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
@@ -6114,7 +6151,7 @@ class RTTMainWindow(QMainWindow):
                 # 创建字体对象 - 使用更严格的等宽字体设置
                 font = QFont(font_name, font_size)
                 font.setFixedPitch(True)
-                font.setStyleHint(QFont.TypeWriter)  # 使用TypeWriter而不是Monospace
+                font.setStyleHint(QFont.TypeWriter)
                 font.setStyleStrategy(QFont.PreferDefault)
                 font.setKerning(False)  # 禁用字距调整
                 self._font_cache[font_cache_key] = font
@@ -6125,82 +6162,137 @@ class RTTMainWindow(QMainWindow):
             # 跟踪更新计数
             updated_count = 0
             
-            # 批量处理所有文本编辑控件
-            all_text_edits = []
-            
-            # 收集所有需要更新的文本编辑控件
+            # 只更新默认字体，不处理现有文本内容
             for session in session_manager.get_all_sessions():
                 if session.mdi_window:
-                    all_text_edits.extend([te for te in session.mdi_window.text_edits if te])
+                    for text_edit in session.mdi_window.text_edits:
+                        if text_edit:
+                            # 只设置文档默认字体（对新增内容生效）
+                            text_edit.document().setDefaultFont(font)
+                            # 设置控件字体
+                            text_edit.setFont(font)
+                            updated_count += 1
             
-            # 批量更新 - 避免在循环中处理事件
-            for text_edit in all_text_edits:
+            logger.info(f"[FONT] Updated default font only for {updated_count} text edits to: {font_name} {font_size}pt")
+            
+        except Exception as e:
+            logger.warning(f"Failed to update default font only: {e}")
+            
+    def _update_all_tabs_font(self):
+        """全局更新所有TAB的字体 - 使用异步方式和进度条"""
+        # 创建字体更新进度对话框
+        from PySide6.QtWidgets import QProgressDialog, QApplication
+        from PySide6.QtCore import Qt
+        
+        # 获取字体设置
+        font_name = self.ui.font_combo.currentText() if hasattr(self.ui, 'font_combo') else "Consolas"
+        font_size = self.ui.fontsize_box.value()
+        
+        # 收集所有需要更新的文本编辑控件
+        all_text_edits = []
+        for session in session_manager.get_all_sessions():
+            if session.mdi_window:
+                all_text_edits.extend([te for te in session.mdi_window.text_edits if te])
+        
+        total_edits = len(all_text_edits)
+        if total_edits == 0:
+            logger.info("[FONT] No text edits to update")
+            return
+        
+        # 创建进度对话框
+        progress_dialog = QProgressDialog(self.tr("Updating font..."), self.tr("Cancel"), 0, total_edits, self)
+        progress_dialog.setWindowTitle(self.tr("Font Update Progress"))
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(500)  # 500ms后显示进度条
+        progress_dialog.setValue(0)
+        
+        # 构建缓存键
+        font_cache_key = f"{font_name}_{font_size}"
+        
+        # 字体对象缓存检查
+        if not hasattr(self, '_font_cache'):
+            self._font_cache = {}
+        
+        # 如果缓存中没有此字体配置，创建并缓存
+        if font_cache_key not in self._font_cache:
+            # 创建字体对象
+            font = QFont(font_name, font_size)
+            font.setFixedPitch(True)
+            font.setStyleHint(QFont.TypeWriter)
+            font.setStyleStrategy(QFont.PreferDefault)
+            font.setKerning(False)
+            self._font_cache[font_cache_key] = font
+        
+        # 从缓存获取字体对象
+        font = self._font_cache[font_cache_key]
+        
+        # 跟踪更新计数
+        updated_count = 0
+        
+        # 异步更新每个文本编辑控件
+        # 使用分块处理，每处理一个控件更新一次进度条，避免UI卡死
+        for i, text_edit in enumerate(all_text_edits):
+            # 检查是否取消
+            if progress_dialog.wasCanceled():
+                logger.info("[FONT] Font update canceled by user")
+                break
+            
+            try:
                 # 1. 设置控件字体
                 text_edit.setFont(font)
                 
-                # 2. 设置文档默认字体（对新增内容生效）
+                # 2. 设置文档默认字体
                 text_edit.document().setDefaultFont(font)
                 
-                # 3. 清除格式缓存（如果是FastAnsiTextEdit实例）
-                # 这是关键修复：确保新数据使用新字体而不是缓存的旧格式
-                # 性能优化：只在必要时清除缓存
+                # 3. 清除格式缓存
                 if hasattr(text_edit, 'clear_format_cache') and hasattr(text_edit, '_format_cache'):
-                    # 如果缓存为空或字体没有变化，就不需要清除缓存
-                    if text_edit._format_cache:  # 只在缓存非空时执行
+                    if text_edit._format_cache:
                         try:
                             text_edit.clear_format_cache()
-                            logger.info(f"[FONT UPDATE] Cleared format cache for text edit")
                         except Exception as e:
                             logger.warning(f"Failed to clear format cache: {e}")
                 
-                # 3. 使用更高效的方式更新现有文本格式
+                # 4. 优化的文本格式更新 - 段落级别而非字符级别
                 cursor = QTextCursor(text_edit.document())
-                cursor.movePosition(QTextCursor.Start)
-                cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
-                
-                # 创建格式对象
-                char_format = QTextCharFormat()
-                char_format.setFont(font)
-                
-                # 使用批量编辑 - 只更新字体属性而不覆盖颜色等其他格式
                 cursor.beginEditBlock()
-                # 不使用setCharFormat直接设置，而是逐个字符或段落更新字体
-                # 这样可以保留现有的颜色格式
+                
+                # 优化：按段落更新而不是按字符更新，大幅提高性能
                 document = text_edit.document()
                 block = document.begin()
                 while block.isValid():
-                    # 遍历块中的每个字符
-                    fragment_cursor = QTextCursor(block)
-                    fragment_cursor.movePosition(QTextCursor.StartOfBlock)
-                    while not fragment_cursor.atBlockEnd():
-                        # 选择当前字符
-                        fragment_cursor.movePosition(QTextCursor.NextCharacter, QTextCursor.KeepAnchor)
-                        # 获取现有格式
-                        current_format = fragment_cursor.charFormat()
-                        # 只更新字体，保留其他格式（如颜色）
-                        current_format.setFont(font)
-                        fragment_cursor.setCharFormat(current_format)
+                    # 一次性获取并更新整个段落的格式
+                    block_cursor = QTextCursor(block)
+                    block_cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    current_format = block_cursor.charFormat()
+                    current_format.setFont(font)
+                    block_cursor.setCharFormat(current_format)
                     block = block.next()
+                
                 cursor.endEditBlock()
                 
                 updated_count += 1
-            
-            # 一次性处理所有待处理事件
-            QApplication.processEvents()
-            
-            # 触发所有文本编辑控件更新
-            for text_edit in all_text_edits:
-                text_edit.updateGeometry()
-                text_edit.viewport().update()
-            
-            logger.info(f"[FONT] Updated font for {updated_count} text edits to: {font_name} {font_size}pt")
-            
-            # 延迟刷新一次 - 但避免过度刷新
-            if updated_count > 0:
-                QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
                 
-        except Exception as e:
-            logger.warning(f"Failed to update all tabs font: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to update font for text edit: {e}")
+            
+            # 更新进度条
+            progress_dialog.setValue(i + 1)
+            # 处理事件以避免UI卡死
+            QApplication.processEvents()
+        
+        # 触发所有文本编辑控件更新
+        for text_edit in all_text_edits[:updated_count]:
+            text_edit.updateGeometry()
+            text_edit.viewport().update()
+        
+        # 关闭进度对话框
+        progress_dialog.close()
+        
+        logger.info(f"[FONT] Updated font for {updated_count} text edits to: {font_name} {font_size}pt")
+        
+        # 延迟刷新一次
+        if updated_count > 0:
+            QTimer.singleShot(100, lambda: self._delayed_font_refresh_all())
     
     def _delayed_font_refresh(self):
         """延迟刷新字体 - 用于某些系统的兼容性（向后兼容）"""
@@ -6272,7 +6364,7 @@ class RTTMainWindow(QMainWindow):
             logger.warning(f"Failed to update current tab font: {e}")
     
     def on_fontsize_changed(self):
-        """字体大小变更时的处理 - 检测变化并全局刷新"""
+        """字体大小变更时的处理 - 添加用户选择更新方式"""
         font_size = self.ui.fontsize_box.value()
         
         # 🔑 检测字号是否真的改变了
@@ -6280,7 +6372,7 @@ class RTTMainWindow(QMainWindow):
             logger.info(f"[FONT] Font size unchanged: {font_size}pt, skipping refresh")
             return
         
-        logger.info(f"[FONT] Font size changed from {self._current_font_size}pt to {font_size}pt - forcing全局刷新")
+        logger.info(f"[FONT] Font size changed from {self._current_font_size}pt to {font_size}pt - prompting user for update mode")
         
         if self.connection_dialog:
             self.connection_dialog.settings['fontsize'] = font_size
@@ -6289,8 +6381,43 @@ class RTTMainWindow(QMainWindow):
                 self.connection_dialog.config.set_fontsize(font_size)
                 self.connection_dialog.config.save_config()
         
-        # 🔑 全局更新：遍历所有TAB并强制刷新已有文本的字号
-        self._update_all_tabs_font()
+        # 导入QMessageBox
+        from PySide6.QtWidgets import QMessageBox
+        
+        # 只在UI初始化完成后（用户修改时）才显示对话框
+        if self._ui_initialization_complete:
+            # 显示用户选择提示对话框
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(self.tr("Font Size Update Options"))
+            msg_box.setText(self.tr("Font size has been changed to {0}pt, select update method:").format(font_size))
+            msg_box.setInformativeText(self.tr("Update All: Update all displayed text\nNew Content Only: Apply new font size only to new content"))
+            
+            # 添加自定义按钮
+            update_all_btn = msg_box.addButton(self.tr("Update All"), QMessageBox.AcceptRole)
+            new_content_btn = msg_box.addButton(self.tr("New Content Only"), QMessageBox.YesRole)
+            cancel_btn = msg_box.addButton(self.tr("Cancel"), QMessageBox.RejectRole)
+            
+            # 设置默认按钮
+            msg_box.setDefaultButton(update_all_btn)
+            
+            # 显示对话框并获取用户选择
+            msg_box.exec()
+            
+            # 根据用户选择执行相应操作
+            if msg_box.clickedButton() == update_all_btn:
+                # 🔑 全局更新：遍历所有TAB并强制刷新已有文本的字号
+                self._update_all_tabs_font()
+            elif msg_box.clickedButton() == new_content_btn:
+                # 只更新默认字体，对新内容生效
+                self._update_default_font_only()
+            else:  # 取消操作
+                # 恢复原字体大小设置
+                if self._current_font_size:
+                    self.ui.fontsize_box.setValue(self._current_font_size)
+                return
+        else:
+            # 初始化阶段自动应用字体大小变更
+            self._update_default_font_only()
         
         # 更新当前字号变量
         self._current_font_size = font_size
