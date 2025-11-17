@@ -4,6 +4,7 @@
 
 import sys
 from pathlib import Path
+from PyInstaller.building.api import Splash
 
 # 添加当前目录到路径
 sys.path.insert(0, str(Path.cwd()))
@@ -87,6 +88,9 @@ a = Analysis(
         'dis',  # Python 反汇编模块，inspect依赖
         'inspect',  # 代码检查模块
         'opcode',  # dis模块依赖
+        # 仅保留最基本的tkinter模块（用于splash screen图片显示）
+        'tkinter',
+        'tkinter._tkinter',
         # Windows COM 自动化（用于复用资源管理器窗口）
         'win32com',
         'win32com.client',
@@ -239,7 +243,7 @@ a = Analysis(
         'resources_rc',
         'auto_updater',
         'update_dialog',
-        'version',
+        'version'
     ],
     hookspath=[],
     hooksconfig={},
@@ -248,7 +252,7 @@ a = Analysis(
         # 不要排除dis和inspect相关模块
         # 'dis', 'inspect',  # 注释掉，确保这些模块被包含
         # 排除不需要的模块以减小文件大小
-        'tkinter',
+        # 'tkinter',  # 保留tkinter，用于splash screen
         'matplotlib',
         'numpy',
         'pandas',
@@ -319,8 +323,17 @@ a = Analysis(
 # 生成PYZ文件
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
+# 创建splash screen，只显示图片
+splash = Splash(
+    'xexunrtt.png', 
+    binaries=a.binaries, 
+    datas=a.datas, 
+    minify_script=True
+)
+
 # 生成单文件EXE
 exe = EXE(
+    splash,
     pyz,
     a.scripts,
     a.binaries,
@@ -341,5 +354,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='xexunrtt.ico',
-    version=f'version_info_v{VERSION}.txt'
+    version=f'version_info_v{VERSION}.txt',
+    splash=splash
 )
