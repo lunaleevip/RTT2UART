@@ -1769,10 +1769,13 @@ class DeviceMdiWindow(QWidget):
             if hasattr(text_edit, '_parse_ansi_fast'):
                 # 检查数据中是否包含清屏序列，如果有则先清屏
                 if '\x1B[2J' in all_data:
-                    text_edit.clear_content()
-                    # 重置已显示长度
-                    self.last_display_lengths[channel] = 0
-                    # 更新数据为清屏序列之后的部分
+                    # 只有RTT通道（索引1-16）才允许清屏，ALL窗口（索引0）不允许
+                    tab_index = text_edit.tab_index if hasattr(text_edit, 'tab_index') else None
+                    if tab_index is not None and tab_index >= 1 and tab_index <= 16:
+                        text_edit.clear_content()
+                        # 重置已显示长度
+                        self.last_display_lengths[channel] = 0
+                    # 无论是否清屏，都更新数据为清屏序列之后的部分
                     all_data = all_data.split('\x1B[2J')[-1]
                 
                 # 使用FastAnsiTextEdit的解析方法

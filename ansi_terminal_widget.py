@@ -268,8 +268,9 @@ class FastAnsiTextEdit(QTextEdit):
                     code = ansi_codes[i]
                     # 检查是否为清屏命令 \x1B[2J
                     if code == '\x1B[2J':
-                        # 执行清屏操作
-                        self.clear_content()
+                        # 只在 TAB 1-TAB16 执行清屏操作
+                        if 1 <= self.tab_index <= 16:
+                            self.clear_content()
                         continue
                     
                     # 解析数字序列
@@ -464,8 +465,8 @@ class FastAnsiTextEdit(QTextEdit):
         """清空内容 - 同时清理缓存"""
         self.clear()
         # 清理部分缓存以释放内存
-        if len(self._format_cache) > 100:
-            self._format_cache.clear()
+        # if len(self._format_cache) > 100:
+        #     self._format_cache.clear()
     
     def clear_format_cache(self):
         """清除格式缓存，确保新字体设置能够应用到所有新添加的文本"""
