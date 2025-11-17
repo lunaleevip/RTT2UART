@@ -4728,7 +4728,7 @@ class RTTMainWindow(QMainWindow):
                         is_daemon = thread.daemon
                         
                         # 尝试优雅地停止线程（缩短超时时间）
-                        thread.join(timeout=0.5)
+                        thread.join(timeout=0.2)
                         
                         if thread.is_alive():
                             logger.warning(f"Thread {thread.name} failed to stop gracefully (daemon={is_daemon})")
@@ -6527,7 +6527,21 @@ class RTTMainWindow(QMainWindow):
             
             # 解析JLink设备数据库文件
             import xml.etree.ElementTree as ET
-            xml_path = 'JLinkDevicesBuildIn.xml'
+            # 获取XML文件路径
+            try:
+                # 尝试从connection_dialog获取（如果可用）
+                if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'get_jlink_devices_list_file'):
+                    xml_path = self.connection_dialog.get_jlink_devices_list_file()
+                else:
+                    raise AttributeError("Neither self nor connection_dialog has get_jlink_devices_list_file method")
+                
+                if not xml_path:
+                    raise ValueError("get_jlink_devices_list_file returned empty path")
+                    
+            except (AttributeError, ValueError) as e:
+                logger.error(f"Failed to get device list file path: {e}")
+                # 不再使用硬编码路径，让错误能够被检测到
+                return None, None
             
             try:
                 with open(xml_path, 'r', encoding='utf-8') as f:
