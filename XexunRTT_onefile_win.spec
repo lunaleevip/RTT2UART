@@ -56,6 +56,7 @@ a = Analysis(
         ('qt_zh_CN.qm', '.'),                # Qt 简体中文翻译
         ('qt_zh_TW.qm', '.'),                # Qt 繁体中文翻译
         ('JLinkDevicesBuildIn.xml', '.'),
+        ('JLinkCommandFile.jlink', '.'),     # JLink命令文件
         ('ui/*.ui', 'ui'),                   # UI 文件
     ],
     hiddenimports=[

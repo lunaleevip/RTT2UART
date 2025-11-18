@@ -33,6 +33,8 @@ class FastAnsiTextEdit(QTextEdit):
         # 标签页索引和配置管理器
         self.tab_index = tab_index  # -1表示普通标签页，0表示ALL标签页，1-15表示通道标签页
         self.config_manager = config_manager
+        # 当前通道索引，用于连续行的通道颜色继承
+        self._current_channel = 0
         
         # 性能优化设置
         self.setUndoRedoEnabled(False)
@@ -176,7 +178,7 @@ class FastAnsiTextEdit(QTextEdit):
         current_fg = None
         current_bg = None
         current_bold = False
-        self._current_channel = 0
+        # 移除重置_current_channel的操作，保持通道颜色的连续性
         
         # 如果是ALL标签页（索引为0）且有配置管理器，需要根据通道前缀应用不同颜色
         is_all_tab = self.tab_index == 0 and self.config_manager is not None
