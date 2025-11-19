@@ -302,8 +302,9 @@ class rtt_to_serial():
             log_directory.mkdir(parents=True, exist_ok=True)
             
         self.log_directory = log_directory
-        self.rtt_log_filename = os.path.join(log_directory, "rtt_log.log")
-        self.rtt_data_filename = os.path.join(log_directory, "rtt_data.log")
+        self.rtt_log_filename = os.path.join(log_directory, "rtt_log.raw")
+        self.rtt_data_filename = os.path.join(log_directory, "rtt_data.raw")
+        self.rtt_log_prefix = os.path.join(log_directory, "rtt_log")
 
 
     def __del__(self):
@@ -1393,7 +1394,7 @@ class rtt_to_serial():
             enc = self.main.config.get_text_encoding() if hasattr(self.main, 'config') else 'gbk'
         except Exception:
             enc = 'gbk'
-        with open(self.rtt_log_filename, 'a', encoding=enc, buffering=8192) as log_file:
+        with open(self.rtt_log_filename, 'ab') as log_file:
             # 性能优化：添加短暂延迟避免过度占用CPU
             import time
             
@@ -1492,53 +1493,6 @@ class rtt_to_serial():
                         first_data_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
                         logger.info(f"⏱️ 首次数据到达时间: {first_data_time} (接收 {rtt_log_len} 字节)")
 
-                    # 写入ALL页面的日志数据（包含通道前缀，与ALL标签页内容一致）
-                    if hasattr(self.main, 'buffers') and len(self.main.buffers) > 0:
-                        try:
-                            # 兼容分块缓冲结构：self.main.buffers[0] 为 List[str]
-                            all_chunks = self.main.buffers[0]
-
-                            # 计算总长度并基于上次长度取增量
-                            def _extract_increment(chunks, last_size):
-                                remaining = last_size
-                                total_len = 0
-                                out_parts = []
-                                for part in chunks:
-                                    plen = len(part)
-                                    total_len += plen
-                                    if remaining >= plen:
-                                        remaining -= plen
-                                        continue
-                                    if remaining > 0:
-                                        out_parts.append(part[remaining:])
-                                        remaining = 0
-                                    else:
-                                        out_parts.append(part)
-                                return ''.join(out_parts), total_len
-
-                            last_size = getattr(self, '_last_buffer_size', 0)
-                            new_data, current_total_size = _extract_increment(all_chunks, last_size)
-
-                            if new_data.strip():
-                                try:
-                                    # ALL页面的buffer已经是清理过的纯文本，直接写入
-                                    log_file.write(new_data)
-                                    log_file.flush()
-                                except Exception as e:
-                                    logger.error(f"Failed to write ALL buffer data: {e}")
-
-                            self._last_buffer_size = current_total_size
-                            
-                            # 文件写入后检查停止标志,快速响应停止请求
-                            if not self.thread_switch:
-                                break
-                        except Exception as e:
-                            logger.error(f"ALL buffer incremental write failed: {e}")
-                    else:
-                        # 首次运行时初始化
-                        if not hasattr(self, '_last_buffer_size'):
-                            self._last_buffer_size = 0
-
                     # 处理原始RTT数据以解析通道信息（使用新的process_byte函数）
                     if rtt_log_len > 0:
                         has_data = True
@@ -1547,6 +1501,8 @@ class rtt_to_serial():
                             self._processing_channel = '0'  # 默认通道0
                         # 直接使用process_byte函数处理整个数据块
                         # process_byte函数内部会逐字节处理并正确识别通道分隔符
+                        log_file.write(rtt_recv_log)
+                        log_file.flush()
                         self.rtt_data_processor.process_bytes(rtt_recv_log)
                     
                     # 根据是否有数据调整休眠策略

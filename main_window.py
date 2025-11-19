@@ -10496,9 +10496,13 @@ class Worker(QObject):
                 
                 # 构造日志文件路径
                 if log_suffix:
-                    log_filepath = f"{self.parent.rtt2uart.rtt_log_filename}_{log_suffix}.log"
+                    log_filepath = f"{self.parent.rtt2uart.rtt_log_prefix}_{log_suffix}.log"
                 else:
-                    log_filepath = f"{self.parent.rtt2uart.rtt_log_filename}_{buffer_index}.log"
+                    # 为ALL页面(buffer_index=0)设置独特的标识
+                    if buffer_index == 0:
+                        log_filepath = f"{self.parent.rtt2uart.rtt_log_prefix}_all.log"
+                    else:
+                        log_filepath = f"{self.parent.rtt2uart.rtt_log_prefix}_{buffer_index}.log"
                 
                 # 直接调用write_to_log_buffer方法，由该方法内部处理缓存和批量写入逻辑
                 self.write_to_log_buffer(log_filepath, data)
@@ -10691,10 +10695,16 @@ class Worker(QObject):
                 buffer_parts = ["%02u> " % index, data]
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
 
-            # 📋 统一日志处理：通道数据写入对应的日志文件（使用通道号0~15）
-            # 减少日志写入频率：只在数据量较大或周期性写入
+            # 📋 统一日志处理：
+            # 1. ALL页面日志 - 每次都写入，确保完整记录
+            all_data = ''.join(buffer_parts)
+            self.write_data_to_buffer_log(0, all_data, "all")
+            
+            # 2. 通道页面日志 - 减少写入频率：只在数据量较大或周期性写入
             if len(clean_data) > 1024 or self.update_counter % 5 == 0:
                 self.write_data_to_buffer_log(index+1, clean_data, str(index))
+
+
 
             # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
             if clean_data.strip():  # 只处理非空数据
