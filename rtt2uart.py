@@ -248,6 +248,9 @@ class rtt_to_serial():
         self.serial_forward_buffer = {}  # 存储各个TAB的数据缓冲
         self.current_tab_index = 0  # 当前显示的标签页索引
         
+        # 初始化RTT数据处理器
+        self.rtt_data_processor = RTTDataProcessor(main)
+        
         # UI刷新暂停标志（用于暂停/恢复刷新功能）
         self.ui_refresh_paused = False
         self.paused_data_buffer = []  # 暂停期间的数据缓冲 [(tem_num, string), ...]
@@ -1536,31 +1539,15 @@ class rtt_to_serial():
                         if not hasattr(self, '_last_buffer_size'):
                             self._last_buffer_size = 0
 
-                    # 处理原始RTT数据以解析通道信息（零拷贝分帧优化）
+                    # 处理原始RTT数据以解析通道信息（使用新的process_byte函数）
                     if rtt_log_len > 0:
                         has_data = True
-                        if not hasattr(self, '_pending_chunk_buf'):
-                            self._pending_chunk_buf = bytearray()
-                        temp_buff = self._pending_chunk_buf
-                        # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
-                        parts = bytes(rtt_recv_log).split(b'\xff')
-                        # 第一段是延续的 payload
-                        if parts:
-                            temp_buff.extend(parts[0])
-                            # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
-                            for seg in parts[1:]:
-                                if len(temp_buff) > 0:
-                                    try:
-                                        # 传递 bytes，避免主线程把 bytearray 当作 str 处理
-                                        self.insert_char(self.tem, bytes(temp_buff))
-                                    finally:
-                                        temp_buff.clear()
-                                if not seg:
-                                    continue
-                                # 切换通道
-                                self.tem = chr(seg[0])
-                                if len(seg) > 1:
-                                    temp_buff.extend(seg[1:])
+                        # 确保内部状态已初始化
+                        if not hasattr(self, '_processing_channel'):
+                            self._processing_channel = '0'  # 默认通道0
+                        # 直接使用process_byte函数处理整个数据块
+                        # process_byte函数内部会逐字节处理并正确识别通道分隔符
+                        self.rtt_data_processor.process_bytes(rtt_recv_log)
                     
                     # 根据是否有数据调整休眠策略
                     if not has_data and rtt_log_len == 0:
@@ -1585,6 +1572,9 @@ class rtt_to_serial():
                 except Exception as e:
                     logger.error(f"Unexpected error in RTT thread: {e}")
                     time.sleep(0.01)  # 发生错误时稍长休眠
+
+
+
 
     def _initialize_rtt_buffers(self):
         """初始化RTT缓冲区，清理首次启动时的垃圾数据"""
@@ -1812,33 +1802,7 @@ class rtt_to_serial():
                     time.sleep(1)
 
 
-    def insert_char(self, tem, string, new_line=False):
-        if '0' <= tem <= '9':
-            tem_num = int(tem)
-        elif 'A' <= tem <= 'F':
-            tem_num = ord(tem) - ord('A') + 10
-        else:
-            # 处理非法输入的情况
-            tem_num = 0
-        
-        # DATA模式下的原始数据转发由RTT2UART线程处理
-        # 这里不需要重复调用，避免数据混乱
-        # if (tem_num == 1 and 
-        #     self.serial_forward_mode == 'DATA' and 
-        #     self.serial_forward_tab == 'rtt_channel_1'):
-        #     self.add_raw_rtt_data_for_forwarding(1, string)
-        
-        # 🔄 检查UI刷新暂停标志
-        if self.ui_refresh_paused:
-            # 暂停时：将数据保存到暂停缓冲区，不发送给Worker
-            with self.paused_buffer_lock:
-                self.paused_data_buffer.append((tem_num, string))
-        else:
-            # 正常时：直接发送给Worker
-            self.main.addToBuffer(tem_num, string)
 
-        # if tem == ord('1'):
-        #     cursor = self.ui.textEdit.textCursor()
         #     cursor.movePosition(QTextCursor.End)
         #     if new_line:
         #         cursor.insertText('\n')
@@ -1853,3 +1817,77 @@ class rtt_to_serial():
 
 #     test = rtt_to_serial(0, 'AMAPH1KK-KBR', serial_name, 115200)
 #     test.start()
+
+
+class RTTDataProcessor:
+    """
+    RTT数据处理器，用于处理RTT接收的数据，识别通道并添加到相应的缓冲区
+    """
+    def __init__(self, main_window):
+        """
+        初始化RTT数据处理器
+        
+        Args:
+            main_window: 主窗口对象，需要提供addToBuffer方法
+        """
+        self.main = main_window
+        self.tem = '0'  # 默认通道
+        if not hasattr(self, '_pending_chunk_buf'):
+            self._pending_chunk_buf = bytearray()
+        
+    def process_bytes(self, rtt_recv_log):
+        """
+        处理RTT接收到的字节数据，识别通道并分发
+        
+        Args:
+            rtt_recv_log: bytes类型，RTT接收到的原始数据
+        """
+        temp_buff = self._pending_chunk_buf
+        # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
+        parts = bytes(rtt_recv_log).split(b'\xff')
+        # 第一段是延续的 payload
+        if parts:
+            temp_buff.extend(parts[0])
+            # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
+            for seg in parts[1:]:
+                if len(temp_buff) > 0:
+                    try:
+                        # 传递 bytes，避免主线程把 bytearray 当作 str 处理
+                        self.insert_char(self.tem, bytes(temp_buff))
+                    finally:
+                        temp_buff.clear()
+                if not seg:
+                    continue
+                # 切换通道
+                self.tem = chr(seg[0])
+                if len(seg) > 1:
+                    temp_buff.extend(seg[1:])
+    
+    def insert_char(self, tem, string, new_line=False):
+        """
+        将数据添加到指定通道的缓冲区
+        
+        Args:
+            tem: str或int，通道标识
+            string: bytes，要添加的数据
+            new_line: bool，是否添加换行符
+        """
+        # 将通道标识转换为数字索引
+        if isinstance(tem, str):
+            if '0' <= tem <= '9':
+                tem_num = int(tem)
+            elif 'A' <= tem <= 'F':
+                tem_num = ord(tem) - ord('A') + 10
+            else:
+                # 处理非法输入的情况，默认为通道0
+                tem_num = 0
+        else:
+            # 如果已经是数字，直接使用
+            tem_num = int(tem)
+        
+        # 确保通道索引在有效范围内（0-15）
+        if tem_num < 0 or tem_num > 15:
+            tem_num = 0
+        
+        # 将数据添加到相应通道的缓冲区
+        self.main.addToBuffer(tem_num, string)
