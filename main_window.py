@@ -2148,9 +2148,10 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         # 从device_info中获取文件路径
         self.playback_file_path = device_session.device_info.get('file_path')
         
-        # 创建模拟的worker对象，包含colored_buffers，与DeviceMdiWindow保持一致
-        self.worker = type('obj', (), {})
-        self.worker.colored_buffers = [''] * 32  # 32个通道的彩色缓冲区
+        # 创建一个真正的Worker类实例
+        self.worker = Worker()
+        # 确保colored_buffers是列表的列表结构，与Worker类保持一致
+        self.worker.colored_buffers = [[] for _ in range(32)]  # 32个通道的彩色缓冲区
         
         # 初始化last_display_lengths，与DeviceMdiWindow保持一致
         self.last_display_lengths = [0] * 32
@@ -2301,22 +2302,43 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                         vscroll = v_scrollbar.value()
                         hscroll = h_scrollbar.value()
                         
+                        # 处理new_data，确保是字符串类型
+                        # 检查new_data是否为列表，如果是则连接成字符串
+                        if isinstance(new_data, list):
+                            # 如果列表中的元素是字典（已格式化的文本段），则直接使用
+                            if new_data and isinstance(new_data[0], dict) and 'text' in new_data[0]:
+                                formatted_segments = new_data
+                            else:
+                                # 否则将列表连接成字符串
+                                new_data_str = ''.join(new_data)
+                        else:
+                            new_data_str = new_data
+                        
                         # 使用同步方式插入文本
                         if hasattr(text_edit, '_parse_ansi_fast'):
                             # 使用FastAnsiTextEdit的解析方法
-                            segments = text_edit._parse_ansi_fast(new_data)
-                            cursor = text_edit.textCursor()
-                            cursor.movePosition(QTextCursor.End)
-                            for segment in segments:
-                                if segment['text']:
-                                    cursor.insertText(segment['text'], segment['format'])
-                            text_edit.setTextCursor(cursor)
+                            if 'formatted_segments' in locals():
+                                # 直接使用已格式化的段
+                                cursor = text_edit.textCursor()
+                                cursor.movePosition(QTextCursor.End)
+                                for segment in formatted_segments:
+                                    if segment['text']:
+                                        cursor.insertText(segment['text'], segment['format'])
+                                text_edit.setTextCursor(cursor)
+                            else:
+                                segments = text_edit._parse_ansi_fast(new_data_str)
+                                cursor = text_edit.textCursor()
+                                cursor.movePosition(QTextCursor.End)
+                                for segment in segments:
+                                    if segment['text']:
+                                        cursor.insertText(segment['text'], segment['format'])
+                                text_edit.setTextCursor(cursor)
                         else:
                             # 降级处理：使用普通追加
                             cursor = text_edit.textCursor()
                             cursor.movePosition(QTextCursor.End)
                             text_edit.setTextCursor(cursor)
-                            text_edit.insertPlainText(new_data)
+                            text_edit.insertPlainText(new_data_str)
                         
                         # 阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
                         v_scrollbar.blockSignals(True)
