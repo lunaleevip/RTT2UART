@@ -10552,76 +10552,6 @@ class ConnectionDialog(QDialog):
         if self.main_window:
             self.main_window.on_clear_clicked()
 
-
-    def _insert_ansi_text_fast(self, text_edit, text, tab_index=None):
-        """🎨 ANSI彩色文本插入 - 支持全部TAB彩色显示"""
-        try:
-            # 检查是否包含ANSI控制符
-            if '\x1B[' not in text:
-                # 纯文本，直接插入
-                text_edit.insertPlainText(text)
-                return
-            
-            # 检查是否包含清屏控制符
-            if '\x1B[2J' in text:
-                # 只有RTT通道（索引1-16）才允许清屏，ALL窗口（索引0）不允许
-                if tab_index is not None and tab_index >= 1 and tab_index <= 16:
-                    text_edit.clear()
-                # 移除清屏控制符，继续处理其他ANSI代码
-                text = text.replace('\x1B[2J', '')
-            
-            # 解析ANSI文本段落
-            from rtt2uart import ansi_processor
-            segments = ansi_processor.parse_ansi_text(text)
-            cursor = text_edit.textCursor()
-            cursor.movePosition(cursor.MoveOperation.End)
-            
-            for segment in segments:
-                text_part = segment['text']
-                color = segment['color']
-                background = segment['background']
-                
-                if not text_part:
-                    continue
-                
-                # 创建文本格式
-                format = QTextCharFormat()
-                
-                if color:
-                    # 设置前景色
-                    format.setForeground(QColor(color))
-                
-                if background:
-                    # 设置背景色
-                    format.setBackground(QColor(background))
-                
-                # 🔑 关键修复：使用用户选择的字体，并设置正确的等宽渲染属性
-                # 获取当前文本框的字体（已经在switchPage中设置好）
-                current_font = text_edit.font()
-                font = QFont(current_font.family(), current_font.pointSize())
-                font.setFixedPitch(True)
-                font.setStyleHint(QFont.StyleHint.Monospace)  # 🔑 强制等宽渲染
-                font.setKerning(False)  # 🔑 禁用字距调整
-                format.setFont(font)
-                
-                # 插入格式化文本
-                cursor.insertText(text_part, format)
-            
-            # 更新文本编辑器的光标位置
-            text_edit.setTextCursor(cursor)
-            
-        except Exception as e:
-            # 如果ANSI处理失败，回退到纯文本
-            try:
-                text_edit.insertPlainText(text)
-            except Exception:
-                from rtt2uart import ansi_processor
-                clean_text = ansi_processor.remove_ansi_codes(text)
-                text_edit.insertPlainText(clean_text)
-
-    # _cleanup_ui_text方法已移除，使用滑动文本块机制替代
-
-
     @Slot()
     def handleBufferUpdate(self):
         # 更新数据时间戳（用于自动重连监控）
@@ -11208,15 +11138,14 @@ class Worker(QObject):
         
         # 优化的ANSI处理和缓冲区管理
         try:
-            # 批量处理：只在必要时进行ANSI处理
-            if self._has_ansi_codes(data):
-                # 只在数据包含ANSI控制符时才调用ansi_processor
-                clean_data = ansi_processor.remove_ansi_codes(data)
-                if clean_data.endswith('\n\n'):
-                    clean_data = clean_data.rstrip('\n') + '\n'
-            else:
-                # 快速路径：当没有ANSI控制符时，直接使用原始数据
-                clean_data = data
+            # 批量处理：移除ANSI控制符
+            import re
+            ansi_regex = re.compile(r'\x1B\[[0-9;]*[mJ]')
+            clean_data = ansi_regex.sub('', data)
+            
+            # 修复多余换行问题
+            if clean_data.endswith('\n\n'):
+                clean_data = clean_data.rstrip('\n') + '\n'
             
             # 批量缓冲区追加：避免重复调用
             self._append_to_buffer(index+1, clean_data)
