@@ -11188,8 +11188,7 @@ class Worker(QObject):
             self.write_data_to_buffer_log(0, all_data, "all")
             
             # 2. 通道页面日志 - 减少写入频率：只在数据量较大或周期性写入
-            if len(clean_data) > 1024 or self.update_counter % 5 == 0:
-                self.write_data_to_buffer_log(index+1, clean_data, str(index))
+            self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
 
 
