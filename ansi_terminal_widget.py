@@ -27,7 +27,7 @@ class FastAnsiTextEdit(QTextEdit):
     - 支持通道特定颜色显示（在ALL标签页中）
     """
     
-    def __init__(self, parent=None, tab_index: int = -1, config_manager=None):
+    def __init__(self, parent=None, tab_index: int = -1, config_manager=None, disable_content_limit=False):
         super().__init__(parent)
         
         # 标签页索引和配置管理器
@@ -35,6 +35,9 @@ class FastAnsiTextEdit(QTextEdit):
         self.config_manager = config_manager
         # 当前通道索引，用于连续行的通道颜色继承
         self._current_channel = 0
+        
+        # 是否禁用内容限制（用于回放窗口）
+        self.disable_content_limit = disable_content_limit
         
         # 性能优化设置
         self.setUndoRedoEnabled(False)
@@ -465,10 +468,68 @@ class FastAnsiTextEdit(QTextEdit):
             
     def clear_content(self):
         """清空内容 - 同时清理缓存"""
+        # 对于回放窗口，只有在明确调用时才清空内容
+        # 但不阻止显式的清空操作
         self.clear()
         # 清理部分缓存以释放内存
         # if len(self._format_cache) > 100:
         #     self._format_cache.clear()
+    
+    def append_text(self, text):
+        """添加文本的安全方法，支持禁用内容限制"""
+        # 获取当前文档
+        doc = self.document()
+        
+        # 保存滚动位置
+        v_scrollbar = self.verticalScrollBar()
+        at_bottom = (v_scrollbar.value() >= v_scrollbar.maximum() - 2)
+        
+        # 插入文本到末尾
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText(text)
+        
+        # 恢复滚动位置
+        if at_bottom:
+            self.moveCursor(QTextCursor.End)
+        
+        # 对于回放窗口，不进行内容限制检查
+        # 只有非回放窗口才需要检查行数限制
+        if not self.disable_content_limit and self.config_manager:
+            # 获取最大日志行数限制
+            max_lines = self.config_manager.get_max_log_size()
+            if max_lines > 0:
+                # 检查当前行数
+                block = doc.firstBlock()
+                line_count = 0
+                while block.isValid():
+                    line_count += block.lineCount()
+                    block = block.next()
+                
+                # 如果超过限制，只保留最后max_lines行
+                if line_count > max_lines:
+                    # 计算需要删除的行数
+                    lines_to_remove = line_count - max_lines
+                    
+                    # 删除多余的行
+                    cursor = self.textCursor()
+                    cursor.movePosition(QTextCursor.Start)
+                    
+                    # 移动到需要保留的第一行
+                    current_line = 0
+                    block = doc.firstBlock()
+                    while block.isValid() and current_line < lines_to_remove:
+                        current_line += block.lineCount()
+                        if current_line < lines_to_remove:
+                            block = block.next()
+                        else:
+                            break
+                    
+                    if block.isValid():
+                        # 从文档开始选择到要保留的第一行
+                        cursor.setPosition(block.position())
+                        cursor.movePosition(QTextCursor.Start, QTextCursor.KeepAnchor)
+                        cursor.removeSelectedText()
     
     def clear_format_cache(self):
         """清除格式缓存，确保新字体设置能够应用到所有新添加的文本"""

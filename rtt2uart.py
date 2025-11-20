@@ -39,159 +39,8 @@ def _get_autoreset_patterns():
     except Exception as e:
         logger.warning(QCoreApplication.translate("rtt2uart", "读取自动重置配置失败: %s") % str(e))
         return [QCoreApplication.translate("rtt2uart", "JLink connection failed after open")]
-
-
-class AnsiProcessor:
-    """ANSI控制符处理器"""
-    
-    def __init__(self):
-        # ANSI控制符正则表达式（字符串版本）
-        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        # ANSI控制符正则表达式（bytes版本）
-        self.ansi_escape_bytes = re.compile(rb'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        
-        # 颜色映射表
-        self.color_map = {
-            # 普通颜色 (2;XXm)
-            '\x1B[2;30m': '#808080',  # 黑色
-            '\x1B[2;31m': '#800000',  # 红色
-            '\x1B[2;32m': '#008000',  # 绿色
-            '\x1B[2;33m': '#808000',  # 黄色
-            '\x1B[2;34m': '#000080',  # 蓝色
-            '\x1B[2;35m': '#800080',  # 洋红
-            '\x1B[2;36m': '#008080',  # 青色
-            '\x1B[2;37m': '#C0C0C0',  # 白色
-            
-            # 亮色 (1;XXm)
-            '\x1B[1;30m': '#808080',  # 亮黑色
-            '\x1B[1;31m': '#FF0000',  # 亮红色
-            '\x1B[1;32m': '#00FF00',  # 亮绿色
-            '\x1B[1;33m': '#FFFF00',  # 亮黄色
-            '\x1B[1;34m': '#0000FF',  # 亮蓝色
-            '\x1B[1;35m': '#FF00FF',  # 亮洋红
-            '\x1B[1;36m': '#00FFFF',  # 亮青色
-            '\x1B[1;37m': '#FFFFFF',  # 亮白色
-            
-            # 标准背景色 (40-47m) - 统一使用明亮黄色高亮
-            '\x1B[40m': 'bg:#000000',     # 黑色背景
-            '\x1B[41m': 'bg:#800000',     # 红色背景
-            '\x1B[42m': 'bg:#008000',     # 绿色背景
-            '\x1B[43m': 'bg:#FFFF00',     # 明亮黄色背景 - 统一高亮颜色
-            '\x1B[44m': 'bg:#000080',     # 蓝色背景
-            '\x1B[45m': 'bg:#800080',     # 洋红背景
-            '\x1B[46m': 'bg:#008080',     # 青色背景
-            '\x1B[47m': 'bg:#C0C0C0',     # 白色背景
-            
-            # 复合颜色代码 - 背景色+前景色组合（增强对比度）
-            '\x1B[43;30m': 'bg:#FFFF00;color:#000000',  # 黄色背景 + 黑色文字
-            
-            # 背景色 (24;XXm 和 4;XXm) - 保持兼容性
-            '\x1B[24;40m': 'bg:#000000',  # 黑色背景
-            '\x1B[24;41m': 'bg:#800000',  # 红色背景
-            '\x1B[24;42m': 'bg:#008000',  # 绿色背景
-            '\x1B[24;43m': 'bg:#FFFF00',  # 明亮黄色背景 - 统一高亮颜色
-            '\x1B[24;44m': 'bg:#000080',  # 蓝色背景
-            '\x1B[24;45m': 'bg:#800080',  # 洋红背景
-            '\x1B[24;46m': 'bg:#008080',  # 青色背景
-            '\x1B[24;47m': 'bg:#C0C0C0',  # 白色背景
-            
-            '\x1B[4;40m': 'bg:#000000',   # 亮黑色背景
-            '\x1B[4;41m': 'bg:#FF0000',   # 亮红色背景
-            '\x1B[4;42m': 'bg:#00FF00',   # 亮绿色背景
-            '\x1B[4;43m': 'bg:#FFFF00',   # 明亮黄色背景 - 统一高亮颜色
-            '\x1B[4;44m': 'bg:#0000FF',   # 亮蓝色背景
-            '\x1B[4;45m': 'bg:#FF00FF',   # 亮洋红背景
-            '\x1B[4;46m': 'bg:#00FFFF',   # 亮青色背景
-            '\x1B[4;47m': 'bg:#FFFFFF',   # 亮白色背景
-            
-            # 控制符
-            '\x1B[0m': 'reset',      # 重置
-            '\x1B[2J': 'clear',      # 清屏
-        }
-    
-    def remove_ansi_codes(self, text):
-        """从文本中删除所有ANSI控制符（用于日志文件）"""
-        if isinstance(text, bytes):
-            # 直接在bytes上操作，然后解码
-            clean_bytes = self.ansi_escape_bytes.sub(b'', text)
-            # 动态编码在使用处处理，这里尽量原样返回可打印字符
-            try:
-                return clean_bytes.decode('gbk', errors='ignore')
-            except Exception:
-                return clean_bytes.decode('utf-8', errors='ignore')
-        else:
-            # 字符串操作
-            return self.ansi_escape.sub('', text)
-    
-    def parse_ansi_text(self, text):
-        """解析ANSI文本，返回带格式信息的文本段列表"""
-        if isinstance(text, bytes):
-            # 优先按 GBK，失败退回 UTF-8
-            try:
-                text = text.decode('gbk', errors='ignore')
-            except Exception:
-                text = text.decode('utf-8', errors='ignore')
-        
-        segments = []
-        current_color = None
-        current_bg = None
-        
-        # 分割文本，保留ANSI控制符
-        parts = self.ansi_escape.split(text)
-        ansi_codes = self.ansi_escape.findall(text)
-        
-        i = 0
-        for part in parts:
-            if part:  # 非空文本段
-                segments.append({
-                    'text': part,
-                    'color': current_color,
-                    'background': current_bg
-                })
-            
-            # 处理对应的ANSI控制符
-            if i < len(ansi_codes):
-                code = ansi_codes[i]
-                if code in self.color_map:
-                    color_value = self.color_map[code]
-                    if color_value == 'reset':
-                        current_color = None
-                        current_bg = None
-                    elif color_value == 'clear':
-                        # 清屏命令，可以在这里处理
-                        pass
-                    elif ';' in color_value:
-                        # 处理复合颜色代码（如：bg:#FFFF00;color:#000000）
-                        parts = color_value.split(';')
-                        for part in parts:
-                            if part.startswith('bg:'):
-                                current_bg = part[3:]  # 移除 'bg:' 前缀
-                            elif part.startswith('color:'):
-                                current_color = part[6:]  # 移除 'color:' 前缀
-                            else:
-                                current_color = part
-                    elif color_value.startswith('bg:'):
-                        current_bg = color_value[3:]
-                    else:
-                        current_color = color_value
-                i += 1
-        
-        return segments
-
-
-# 创建全局ANSI处理器实例
-ansi_processor = AnsiProcessor()
-
-def zip_folder(folder_path, zip_file_path):
-    with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                zipf.write(file_path, os.path.relpath(file_path, folder_path))
-
-
 class rtt_to_serial():
-    def __init__(self, main, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, window_id=None, jlink_index=None, rtt_cb_mode='auto', rtt_address='', rtt_search_range=''):
+    def __init__(self, worker, jlink, connect_inf='USB', connect_para=None, device=None, port=None, baudrate=115200, interface=pylink.enums.JLinkInterfaces.SWD, speed=12000, reset=False, log_split=True, window_id=None, jlink_index=None, rtt_cb_mode='auto', rtt_address='', rtt_search_range=''):
         # jlink接入方式
         self._connect_inf = connect_inf
         # jlink接入参数
@@ -209,7 +58,7 @@ class rtt_to_serial():
         self._rtt_address = rtt_address
         self._rtt_search_range = rtt_search_range
         
-        self.main = main
+        self.worker = worker
         
         # 串口参数
         self.port = port
@@ -248,8 +97,7 @@ class rtt_to_serial():
         self.serial_forward_buffer = {}  # 存储各个TAB的数据缓冲
         self.current_tab_index = 0  # 当前显示的标签页索引
         
-        # 初始化RTT数据处理器
-        self.rtt_data_processor = RTTDataProcessor(main)
+        # RTT数据处理器功能已移至Worker类中
         
         # UI刷新暂停标志（用于暂停/恢复刷新功能）
         self.ui_refresh_paused = False
@@ -461,12 +309,12 @@ class rtt_to_serial():
                 pass
             
             # 通知主窗口连接已断开
-            if hasattr(self.main, '_handle_connection_lost'):
+            if hasattr(self.worker, '_handle_connection_lost'):
                 try:
                     # 使用Qt的信号机制安全地通知主线程
                     from PySide6.QtCore import QMetaObject, Qt
                     QMetaObject.invokeMethod(
-                        self.main, 
+                        self.worker, 
                         "_handle_connection_lost", 
                         Qt.QueuedConnection
                     )
@@ -554,7 +402,7 @@ class rtt_to_serial():
             
             # 一次性处理所有暂停的数据
             for tem_num, string in self.paused_data_buffer:
-                self.main.addToBuffer(tem_num, string)
+                self.worker.addToBuffer(tem_num, string)
             
             # 清空暂停缓冲区
             self.paused_data_buffer.clear()
@@ -609,7 +457,7 @@ class rtt_to_serial():
                     # 将字符串转换为字节
                     if isinstance(data, str):
                         try:
-                            enc = self.main.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.main, 'config') else 'gbk'
+                            enc = self.worker.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.worker, 'config') else 'gbk'
                         except Exception:
                             enc = 'gbk'
                         data_bytes = data.encode(enc, errors='ignore')
@@ -641,7 +489,7 @@ class rtt_to_serial():
                         data_bytes = bytes(data)
                     elif isinstance(data, str):
                         try:
-                            enc = self.main.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.main, 'config') else 'gbk'
+                            enc = self.worker.config.get_text_encoding() if hasattr(self, 'main') and hasattr(self.worker, 'config') else 'gbk'
                         except Exception:
                             enc = 'gbk'
                         data_bytes = data.encode(enc, errors='ignore')
@@ -1391,7 +1239,7 @@ class rtt_to_serial():
         # 打开日志文件，如果不存在将自动创建
         # 文本日志使用可配置编码
         try:
-            enc = self.main.config.get_text_encoding() if hasattr(self.main, 'config') else 'gbk'
+            enc = self.worker.config.get_text_encoding() if hasattr(self.worker, 'config') else 'gbk'
         except Exception:
             enc = 'gbk'
         with open(self.rtt_log_filename, 'ab') as log_file:
@@ -1503,7 +1351,9 @@ class rtt_to_serial():
                         # process_byte函数内部会逐字节处理并正确识别通道分隔符
                         log_file.write(rtt_recv_log)
                         log_file.flush()
-                        self.rtt_data_processor.process_bytes(rtt_recv_log)
+                        # 使用主窗口的worker实例处理数据
+                        if hasattr(self.worker, 'process_bytes'):
+                            self.worker.process_bytes(rtt_recv_log)
                     
                     # 根据是否有数据调整休眠策略
                     if not has_data and rtt_log_len == 0:
@@ -1775,75 +1625,4 @@ class rtt_to_serial():
 #     test.start()
 
 
-class RTTDataProcessor:
-    """
-    RTT数据处理器，用于处理RTT接收的数据，识别通道并添加到相应的缓冲区
-    """
-    def __init__(self, main_window):
-        """
-        初始化RTT数据处理器
-        
-        Args:
-            main_window: 主窗口对象，需要提供addToBuffer方法
-        """
-        self.main = main_window
-        self.tem = '0'  # 默认通道
-        if not hasattr(self, '_pending_chunk_buf'):
-            self._pending_chunk_buf = bytearray()
-        
-    def process_bytes(self, rtt_recv_log):
-        """
-        处理RTT接收到的字节数据，识别通道并分发
-        
-        Args:
-            rtt_recv_log: bytes类型，RTT接收到的原始数据
-        """
-        temp_buff = self._pending_chunk_buf
-        # 分隔符 0xFF；分段形式：<payload> 0xFF <chan> <payload> 0xFF <chan> ...
-        parts = bytes(rtt_recv_log).split(b'\xff')
-        # 第一段是延续的 payload
-        if parts:
-            temp_buff.extend(parts[0])
-            # 处理后续每一段：先发出上一通道数据，再切换通道并附加该段剩余
-            for seg in parts[1:]:
-                if len(temp_buff) > 0:
-                    try:
-                        # 传递 bytes，避免主线程把 bytearray 当作 str 处理
-                        self.insert_char(self.tem, bytes(temp_buff))
-                    finally:
-                        temp_buff.clear()
-                if not seg:
-                    continue
-                # 切换通道
-                self.tem = chr(seg[0])
-                if len(seg) > 1:
-                    temp_buff.extend(seg[1:])
-    
-    def insert_char(self, tem, string, new_line=False):
-        """
-        将数据添加到指定通道的缓冲区
-        
-        Args:
-            tem: str或int，通道标识
-            string: bytes，要添加的数据
-            new_line: bool，是否添加换行符
-        """
-        # 将通道标识转换为数字索引
-        if isinstance(tem, str):
-            if '0' <= tem <= '9':
-                tem_num = int(tem)
-            elif 'A' <= tem <= 'F':
-                tem_num = ord(tem) - ord('A') + 10
-            else:
-                # 处理非法输入的情况，默认为通道0
-                tem_num = 0
-        else:
-            # 如果已经是数字，直接使用
-            tem_num = int(tem)
-        
-        # 确保通道索引在有效范围内（0-15）
-        if tem_num < 0 or tem_num > 15:
-            tem_num = 0
-        
-        # 将数据添加到相应通道的缓冲区
-        self.main.addToBuffer(tem_num, string)
+# RTTDataProcessor class has been moved to Worker class in main_window.py

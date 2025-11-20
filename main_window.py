@@ -253,7 +253,7 @@ session_manager = DeviceSessionManager()
 
 # 项目模块导入
 from ui import Ui_RTTMainWindow, Ui_ConnectionDialog, Ui_Dialog
-from rtt2uart import ansi_processor, rtt_to_serial
+from rtt2uart import rtt_to_serial
 from config_manager import config_manager
 from ui_constants import (
     WindowSize, LayoutSize, TimerInterval, BufferConfig,
@@ -521,6 +521,13 @@ class DeviceTableModel(QtCore.QAbstractTableModel):
 
 class DeviceSelectDialog(QDialog):
     def __init__(self, parent=None):
+        # 初始化回放控制相关变量
+        self._playback_active = False
+        self._playback_paused = False
+        self._playback_stop_requested = False
+        self._current_playback_file = None
+        self._playback_session = None
+        self._playback_position = 0
         super(DeviceSelectDialog, self).__init__(parent)
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
@@ -1452,6 +1459,9 @@ class DeviceMdiWindow(QWidget):
     def __init__(self, device_session, parent=None):
         super(DeviceMdiWindow, self).__init__(parent)
         
+        # 标记是否为回放窗口
+        self.is_playback_window = False
+        
         self.device_session = device_session
         self.main_window = parent  # 保存主窗口引用以访问配置
         self.mdi_sub_window = None  # 将在添加到MDI区域时设置
@@ -1488,7 +1498,9 @@ class DeviceMdiWindow(QWidget):
                 
             # 创建FastAnsiTextEdit实例，传递标签页索引和配置管理器
             # 注意：i=0是ALL标签页，i=1-16是通道0-15，i>16是筛选标签页
-            text_edit = FastAnsiTextEdit(tab_index=i, config_manager=config_manager)
+            # 对于回放窗口，禁用内容限制
+            disable_limit = hasattr(self, 'is_playback_window') and self.is_playback_window
+            text_edit = FastAnsiTextEdit(tab_index=i, config_manager=config_manager, disable_content_limit=disable_limit)
             text_edit.setReadOnly(True)
             text_edit.setLineWrapMode(QTextEdit.NoWrap)
             
@@ -2124,6 +2136,240 @@ class DeviceMdiWindow(QWidget):
         event.accept()
 
 
+class PlaybackMdiWindow(DeviceMdiWindow):
+    """回放MDI窗口类，继承自DeviceMdiWindow，用于日志文件回放"""
+    def __init__(self, device_session, parent=None):
+        # 标记为回放窗口，确保在父类构造函数中创建文本编辑控件时能正确禁用内容限制
+        self.is_playback_window = True
+        
+        # 导入必要的模块
+        import os
+        
+        # 从device_info中获取文件路径
+        self.playback_file_path = device_session.device_info.get('file_path')
+        
+        # 创建模拟的worker对象，包含colored_buffers，与DeviceMdiWindow保持一致
+        self.worker = type('obj', (), {})
+        self.worker.colored_buffers = [''] * 32  # 32个通道的彩色缓冲区
+        
+        # 初始化last_display_lengths，与DeviceMdiWindow保持一致
+        self.last_display_lengths = [0] * 32
+        
+        # 初始化父类
+        super(PlaybackMdiWindow, self).__init__(device_session, parent)
+        
+        # 确保定时器正常工作，与DeviceMdiWindow保持一致
+        if hasattr(self, 'update_timer') and self.update_timer.isActive():
+            self.update_timer.stop()
+        
+        # 重新配置定时器，使用_update_from_worker方法更新UI
+        from PySide6.QtCore import QTimer
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self._update_from_worker)
+        self.update_timer.start(100)  # 100ms更新一次，与DeviceMdiWindow保持一致
+        
+        # 修改窗口标题为文件名
+        if self.playback_file_path:
+            file_name = os.path.basename(self.playback_file_path)
+            self.setWindowTitle(f"Playback: {file_name}")
+            
+    def start_playback(self, file_path):
+        """开始文件回放"""
+        # 更新文件路径
+        self.playback_file_path = file_path
+        logger.info(f"Starting playback for file: {self.playback_file_path}")
+        
+        # 使用QThread进行文件读取，避免阻塞UI
+        from PySide6.QtCore import QThread, Signal, Slot
+        
+        class PlaybackThread(QThread):
+            def __init__(self, file_path, parent=None):
+                super().__init__(parent)
+                self.file_path = file_path
+                self.running = True
+                self.parent_window = parent
+                self.chunk_size = 256  # 按256字节分块
+                
+            def run(self):
+                try:
+                    # 导入必要的模块
+                    import io
+                    from PySide6.QtCore import QThread
+                    
+                    # 检查父窗口是否有worker实例
+                    if not hasattr(self.parent_window, 'worker'):
+                        logger.error("Parent window does not have worker instance")
+                        return
+                    
+                    logger.info(f"Starting playback for file: {self.file_path}")
+                    
+                    # 分块读取和处理文件
+                    bytes_processed = 0
+                    with io.open(self.file_path, 'rb') as f:
+                        while self.running:
+                            chunk = f.read(self.chunk_size)
+                            if not chunk:
+                                break
+                            
+                            # 直接调用worker的process_bytes方法处理数据
+                            self.parent_window.worker.process_bytes(chunk)
+                            bytes_processed += len(chunk)
+                            
+                            # 短暂延迟，实现渐进式显示
+                            QThread.msleep(50)
+                    
+                    logger.info(f"Playback complete, processed {bytes_processed} bytes")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to playback file: {e}", exc_info=True)
+            
+            def stop(self):
+                self.running = False
+                self.wait()
+        
+        # 创建并启动播放线程
+        self.playback_thread = PlaybackThread(file_path, self)
+        self.playback_thread.finished.connect(self._on_playback_finished)
+        self.playback_thread.start()
+        
+    @Slot(int, str, str)
+    def _on_playback_data_with_color(self, channel, data, colored_data):
+        """处理带颜色的回放数据"""
+        try:
+            if 0 <= channel < 32:
+                # 为对应通道添加原始数据
+                self.worker.colored_buffers[channel] += data
+                
+                # 为ALL通道（索引0）添加带颜色的数据
+                if channel != 0:
+                    self.worker.colored_buffers[0] += colored_data
+        except Exception as e:
+            logger.error(f"Error in colored playback data handler: {e}", exc_info=True)
+    
+    @Slot(int, str)
+    def _on_playback_data(self, channel, data):
+        """处理回放数据，将其添加到worker的缓冲区"""
+        try:
+            # 确保通道索引有效
+            if 0 <= channel < 32:
+                # 将数据添加到对应通道的缓冲区
+                self.worker.colored_buffers[channel] += data
+                    
+        except Exception as e:
+            logger.error(f"Error in playback data handler: {e}", exc_info=True)
+    
+    def _update_from_worker(self):
+        """从模拟Worker缓冲区更新UI - 专为回放窗口定制"""
+        try:
+            # 使用直接附加到窗口的worker对象
+            worker = self.worker
+            if not worker:
+                logger.info("[UPDATE] No worker for playback window")
+                return
+            
+            # 获取当前激活的TAB索引
+            current_tab = self.tab_widget.currentIndex()
+            current_time = time.time()
+            
+            # 遍历所有通道，检查是否有新数据
+            for channel in range(len(self.text_edits)):
+                # 获取缓冲区的当前长度
+                current_length = len(worker.colored_buffers[channel])
+                last_length = self.last_display_lengths[channel]
+                
+                # 检查是否需要更新（对于回放窗口，不使用低频率更新非激活TAB）
+                is_active_tab = (channel == current_tab)
+                
+                # 如果current < last，说明缓冲区被重置了
+                if current_length < last_length:
+                    self.last_display_lengths[channel] = 0
+                    last_length = 0
+                
+                if current_length > last_length:
+                    # 有新数据，提取增量部分
+                    colored_data = worker.colored_buffers[channel]
+                    new_data = colored_data[last_length:]
+                    
+                    if new_data and channel < len(self.text_edits):
+                        text_edit = self.text_edits[channel]
+                        
+                        # 获取滚动条
+                        v_scrollbar = text_edit.verticalScrollBar()
+                        h_scrollbar = text_edit.horizontalScrollBar()
+                        
+                        # 保存当前滚动条位置
+                        vscroll = v_scrollbar.value()
+                        hscroll = h_scrollbar.value()
+                        
+                        # 使用同步方式插入文本
+                        if hasattr(text_edit, '_parse_ansi_fast'):
+                            # 使用FastAnsiTextEdit的解析方法
+                            segments = text_edit._parse_ansi_fast(new_data)
+                            cursor = text_edit.textCursor()
+                            cursor.movePosition(QTextCursor.End)
+                            for segment in segments:
+                                if segment['text']:
+                                    cursor.insertText(segment['text'], segment['format'])
+                            text_edit.setTextCursor(cursor)
+                        else:
+                            # 降级处理：使用普通追加
+                            cursor = text_edit.textCursor()
+                            cursor.movePosition(QTextCursor.End)
+                            text_edit.setTextCursor(cursor)
+                            text_edit.insertPlainText(new_data)
+                        
+                        # 阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
+                        v_scrollbar.blockSignals(True)
+                        h_scrollbar.blockSignals(True)
+                        
+                        try:
+                            # 垂直滚动条：根据锁定状态决定是否恢复位置
+                            if text_edit._v_scroll_locked:
+                                # 锁定状态：恢复到保存的位置
+                                v_scrollbar.setValue(vscroll)
+                            else:
+                                # 未锁定状态：滚动到底部
+                                v_scrollbar.setValue(v_scrollbar.maximum())
+                                # 确保解锁状态不被意外改变
+                                text_edit._v_scroll_locked = False
+                            
+                            # 水平滚动条：永远锁定，使用保存的位置
+                            h_scrollbar.setValue(hscroll)
+                        finally:
+                            # 恢复信号
+                            v_scrollbar.blockSignals(False)
+                            h_scrollbar.blockSignals(False)
+                        
+                        # 更新已显示长度
+                        self.last_display_lengths[channel] = current_length
+        except Exception as e:
+            logger.error(f"Failed to update from playback worker: {e}", exc_info=True)
+    
+    @Slot()
+    def _on_playback_finished(self):
+        """回放完成后的处理"""
+        logger.info(f"Playback completed for file: {self.playback_file_path}")
+        
+    def closeEvent(self, event):
+        """回放窗口关闭事件 - 停止回放并清理资源"""
+        logger.info(f"PlaybackMdiWindow closing for file: {self.playback_file_path}")
+        
+        # 停止回放线程
+        if hasattr(self, 'playback_thread') and self.playback_thread and self.playback_thread.isRunning():
+            self.playback_thread.stop()
+        
+        # 停止更新定时器
+        if hasattr(self, 'update_timer'):
+            self.update_timer.stop()
+        
+        # 通知主窗口关闭此设备会话
+        if hasattr(self, 'parent') and self.parent() and hasattr(self.parent(), '_on_mdi_window_closed'):
+            self.parent()._on_mdi_window_closed(self.device_session)
+        
+        # 调用父类的关闭事件处理
+        super(PlaybackMdiWindow, self).closeEvent(event)
+
+
 class RTTMainWindow(QMainWindow):
     def __init__(self):
         super(RTTMainWindow, self).__init__()
@@ -2171,6 +2417,13 @@ class RTTMainWindow(QMainWindow):
         
         # 紧凑模式状态
         self.compact_mode = False
+        
+        # 回放控制相关状态
+        self._playback_active = False  # 是否正在回放
+        self._playback_paused = False  # 是否暂停
+        self._current_playback_file = None  # 当前回放的文件路径
+        self._playback_position = 0  # 当前回放位置
+        self._playback_total_size = 0  # 文件总大小
         
         # 添加右键菜单支持紧凑模式
         #self.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -2647,6 +2900,12 @@ class RTTMainWindow(QMainWindow):
         style_action.triggered.connect(self.toggle_style_checkbox)
         self.tools_menu.addAction(style_action)
         
+        # 添加日志回放功能
+        self.tools_menu.addSeparator()
+        playback_action = QAction(QCoreApplication.translate("main_window", "Playback Log File..."), self)
+        playback_action.triggered.connect(self.load_log_file)
+        self.tools_menu.addAction(playback_action)
+        
         # tools_menu.addSeparator()
         
         # 性能测试动作
@@ -2829,6 +3088,94 @@ class RTTMainWindow(QMainWindow):
                     break
         except Exception as e:
             logger.error(f"Failed to handle MDI window close: {e}", exc_info=True)
+    
+    def load_log_file(self):
+        """加载日志文件进行回放"""
+        try:
+            import os
+            import uuid
+            # 打开文件选择对话框
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                QCoreApplication.translate("main_window", "Open Log File"),
+                "",
+                QCoreApplication.translate("main_window", "All Files (*);;Log Files (*.log);;Text Files (*.txt)")
+            )
+            
+            if file_path:
+                logger.info(f"Selected log file for playback: {file_path}")
+                
+                # 创建回放会话
+                playback_session = DeviceSession(
+                    device_info={
+                        'serial': os.path.basename(file_path),
+                        'product_name': 'Log Playback',
+                        'connection': 'File',
+                        'index': None,
+                        'is_playback': True,
+                        'file_path': file_path
+                    },
+                    session_id=f"playback_{str(uuid.uuid4())[:8]}"
+                )
+                
+                # 将回放会话添加到设备会话列表
+                self.device_sessions.append(playback_session)
+                
+                # 创建PlaybackMdiWindow实例
+                playback_window = PlaybackMdiWindow(
+                    playback_session,
+                    self
+                )
+                
+                # 设置回放窗口的会话引用
+                playback_session.mdi_window = playback_window
+                
+                # 添加到MDI区域
+                from PySide6.QtCore import Qt
+                
+                # 先获取当前窗口数量(在添加新窗口之前)
+                current_window_count = len(self.mdi_area.subWindowList())
+                
+                # 创建MDI子窗口并添加内容
+                mdi_sub_window = self.mdi_area.addSubWindow(playback_window)
+                mdi_sub_window.setWindowTitle(f"Playback: {os.path.basename(file_path)}")
+                mdi_sub_window.setWindowIcon(QIcon(":/xexunrtt.ico"))
+                
+                # 保存引用
+                playback_window.mdi_sub_window = mdi_sub_window
+                
+                # 连接关闭信号
+                mdi_sub_window.destroyed.connect(lambda: self._on_mdi_window_closed(playback_session))
+                
+                # 设置边框样式
+                mdi_sub_window.setStyleSheet("""
+                    QMdiSubWindow {
+                        border: 1px solid #555555;
+                    }
+                """)
+                
+                if current_window_count == 0:
+                    # 第一个窗口：先设置默认大小,再最大化
+                    mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                    mdi_sub_window.show()
+                    mdi_sub_window.showMaximized()
+                    logger.info(f"First MDI window, set to default size ({WindowSize.MDI_WINDOW_DEFAULT_WIDTH}x{WindowSize.MDI_WINDOW_DEFAULT_HEIGHT}) then maximized")
+                else:
+                    # 非第一个窗口：正常显示
+                    mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                    mdi_sub_window.show()
+                
+                # 启动回放
+                playback_window.start_playback(file_path)
+                
+                logger.info(f"Started log file playback: {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to load log file: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                QCoreApplication.translate("main_window", "Error"),
+                QCoreApplication.translate("main_window", "Failed to load log file: {}").format(str(e))
+            )
     
     def _connect_new_device(self):
         """连接新设备"""
@@ -6648,6 +6995,193 @@ class RTTMainWindow(QMainWindow):
         self.ui.light_checkbox.setChecked(not self.ui.light_checkbox.isChecked())
         self.set_style()
         
+    # 注意：旧的load_log_file方法已移至文件前面，此方法已被新实现替代
+        
+    def pause_playback(self):
+        """暂停回放"""
+        if self._playback_active and not self._playback_paused:
+            self._playback_paused = True
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Playback paused"))
+            self._update_playback_menu_items(True)
+    
+    def resume_playback(self):
+        """恢复回放"""
+        if self._playback_active and self._playback_paused:
+            self._playback_paused = False
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Playback resumed"))
+            
+            # 恢复处理文件
+            if self._playback_session and self._current_playback_file:
+                self.process_log_file(self._playback_session.rtt2uart, self._current_playback_file, resume=True)
+            
+            self._update_playback_menu_items(True)
+    
+    def stop_playback(self):
+        """停止回放"""
+        if self._playback_active:
+            self._playback_stop_requested = True
+            self._playback_active = False
+            self._playback_paused = False
+            
+            # 恢复数据接收
+            if self._playback_session and hasattr(self._playback_session, 'rtt2uart'):
+                self._playback_session.rtt2uart.ui_refresh_paused = False
+            
+            self.append_jlink_log(QCoreApplication.translate("main_window", "Playback stopped"))
+            self._update_playback_menu_items(False)
+            
+            # 清除状态
+            self._current_playback_file = None
+            self._playback_session = None
+            self._playback_position = 0
+    
+    def _update_playback_menu_items(self, show_controls):
+        """更新回放控制菜单项"""
+        # 检查是否已存在回放控制菜单
+        playback_control_menu = None
+        for action in self.tools_menu.actions():
+            if action.text() == QCoreApplication.translate("main_window", "Playback Controls"):
+                playback_control_menu = action.menu()
+                break
+        
+        if show_controls:
+            if not playback_control_menu:
+                # 创建回放控制子菜单
+                playback_control_menu = QMenu(QCoreApplication.translate("main_window", "Playback Controls"), self)
+                
+                # 添加暂停动作
+                self.pause_action = QAction(QCoreApplication.translate("main_window", "Pause"), self)
+                self.pause_action.triggered.connect(self.pause_playback)
+                playback_control_menu.addAction(self.pause_action)
+                
+                # 添加恢复动作
+                self.resume_action = QAction(QCoreApplication.translate("main_window", "Resume"), self)
+                self.resume_action.triggered.connect(self.resume_playback)
+                playback_control_menu.addAction(self.resume_action)
+                
+                # 添加停止动作
+                self.stop_action = QAction(QCoreApplication.translate("main_window", "Stop"), self)
+                self.stop_action.triggered.connect(self.stop_playback)
+                playback_control_menu.addAction(self.stop_action)
+                
+                # 添加到Tools菜单
+                self.tools_menu.addMenu(playback_control_menu)
+            
+            # 更新动作状态
+            if hasattr(self, 'pause_action'):
+                self.pause_action.setEnabled(not self._playback_paused)
+            if hasattr(self, 'resume_action'):
+                self.resume_action.setEnabled(self._playback_paused)
+            if hasattr(self, 'stop_action'):
+                self.stop_action.setEnabled(True)
+        else:
+            # 移除回放控制菜单
+            if playback_control_menu:
+                for action in playback_control_menu.actions():
+                    playback_control_menu.removeAction(action)
+                self.tools_menu.removeAction(playback_control_menu.menuAction())
+    
+    def process_log_file(self, rtt2uart, file_path, resume=False):
+        """处理日志文件数据 - 支持不同编码格式、大文件和回放控制"""
+        import os
+        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtCore import QCoreApplication, QThread
+        
+        try:
+            file_size = os.path.getsize(file_path)
+            
+            if not resume:
+                self.append_jlink_log(QCoreApplication.translate("main_window", f"Starting to process log file, size: {file_size} bytes"))
+                self._playback_position = 0
+            else:
+                self.append_jlink_log(QCoreApplication.translate("main_window", f"Resuming playback from position: {self._playback_position} bytes"))
+            
+            # 对于大文件，分块处理
+            chunk_size = 1024 * 1024  # 1MB chunks
+            
+            with open(file_path, 'rb') as f:
+                # 如果是恢复播放，移动到之前的位置
+                if resume and self._playback_position > 0:
+                    f.seek(self._playback_position)
+                
+                while True:
+                    # 检查是否请求停止
+                    if self._playback_stop_requested:
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "Playback stopped by user"))
+                        break
+                    
+                    # 检查是否暂停
+                    while self._playback_paused and not self._playback_stop_requested:
+                        QThread.msleep(100)  # 短暂休眠，避免CPU占用过高
+                        QCoreApplication.processEvents()
+                    
+                    if self._playback_stop_requested:
+                        break
+                    
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    # 处理可能的编码问题，确保数据可以被正确解析
+                    try:
+                        # 将数据发送到process_bytes方法
+                        rtt2uart.rtt_data_processor.process_bytes(chunk)
+                        self._playback_position += len(chunk)
+                        
+                        # 显示进度
+                        progress = (self._playback_position / file_size) * 100 if file_size > 0 else 100
+                        if progress % 20 == 0 or self._playback_position == file_size:
+                            self.append_jlink_log(
+                                QCoreApplication.translate("main_window", 
+                                                         f"Processing progress: {progress:.1f}% ({self._playback_position}/{file_size} bytes)"
+                                                         )
+                            )
+                            
+                        # 为大文件添加短暂延迟，避免UI卡死
+                        if file_size > 5 * 1024 * 1024:  # 大于5MB的文件
+                            QCoreApplication.processEvents()
+                            QThread.msleep(10)  # 短暂休眠，给UI一些响应时间
+                            
+                    except Exception as chunk_error:
+                        logger.warning(f"Error processing chunk at position {self._playback_position}: {chunk_error}")
+                        # 继续处理下一个块，而不是完全失败
+                        continue
+            
+            if not self._playback_stop_requested and not self._playback_paused:
+                self.append_jlink_log(
+                    QCoreApplication.translate("main_window", 
+                                             f"Log file processed successfully, {self._playback_position} bytes read"
+                                             )
+                )
+            
+        except FileNotFoundError:
+            logger.error(f"Log file not found: {file_path}")
+            QMessageBox.warning(self, 
+                               QCoreApplication.translate("main_window", "Error"),
+                               QCoreApplication.translate("main_window", "Log file not found"))
+            
+        except PermissionError:
+            logger.error(f"Permission denied when accessing log file: {file_path}")
+            QMessageBox.warning(self, 
+                               QCoreApplication.translate("main_window", "Error"),
+                               QCoreApplication.translate("main_window", "Permission denied when accessing the log file"))
+            
+        except Exception as e:
+            logger.error(f"Failed to process log file: {e}", exc_info=True)
+            self.append_jlink_log(QCoreApplication.translate("main_window", f"Failed to process log file: {str(e)}"))
+            
+        finally:
+            # 如果回放已完成或被停止，恢复数据接收
+            if not self._playback_paused:
+                rtt2uart.ui_refresh_paused = False
+                # 清理回放状态
+                if not self._playback_stop_requested:
+                    self._playback_active = False
+                    self._update_playback_menu_items(False)
+                    self._current_playback_file = None
+                    self._playback_session = None
+                    self._playback_position = 0
+        
     def device_restart(self):
         # 与 F9 行为保持一致：根据子菜单选择执行重启
         self.restart_app_execute()
@@ -10178,8 +10712,10 @@ class Worker(QObject):
         self.initial_capacity = BufferConfig.INITIAL_CAPACITY
         self.max_capacity = BufferConfig.MAX_CAPACITY
         self.growth_factor = 2               # 扩容系数
-        
+        self.channel_idx = 0
+        self.remaining_data = bytearray()
         # 初始化容量记录
+        
         for i in range(MAX_TAB_SIZE):
             self.buffer_capacities[i] = self.initial_capacity
             self.colored_buffer_capacities[i] = self.initial_capacity
@@ -10828,7 +11364,57 @@ class Worker(QObject):
             'total_capacity': sum(self.buffer_capacities) + sum(self.colored_buffer_capacities),
             'capacity_utilization': (total_size + colored_size) / (sum(self.buffer_capacities) + sum(self.colored_buffer_capacities)) * 100 if sum(self.buffer_capacities) > 0 else 0
         }
+        
+    def process_bytes(self, data):
+        """处理原始字节数据，按0xFF分隔符分段
+        
+        Args:
+            data: 原始字节数据
+        """
+        try:
+            self.remaining_data.extend(data)
+            while self.remaining_data:
+                # 查找分隔符位置
+                separator_pos = self.remaining_data.find(b'\xFF')
+                if separator_pos == -1:
+                    # 没有找到分隔符，保留数据等待下一批
+                    break
+                separator = self.remaining_data[separator_pos:separator_pos+1]
+                # 提取分隔符前的数据段
+                chunk = self.remaining_data[:separator_pos]
+                # 更新剩余数据
+                self.remaining_data = self.remaining_data[separator_pos + 1:]
 
+                if chunk:
+                    # 处理数据段
+                    self._process_chunk(chunk)
+        except Exception as e:
+            logger.error(f"Error processing bytes: {e}")
+    
+    def _process_chunk(self, chunk):
+        """处理单个数据段
+        
+        Args:
+            chunk: 数据段（不包含分隔符）
+        """
+        if len(chunk) < 2:
+            return
+        
+        # 第一个字节是通道号
+        # 将字符 '0'-'F' 解析为 0x0-0xF 的十六进制数字
+        if chunk[0:1] in b'0123456789ABCDEF':
+            self.channel_idx = int(chunk[0:1],16)
+            # 剩余部分是数据
+            data_content = chunk[1:]
+        else:
+            data_content = chunk
+
+        if(self.channel_idx >= 3 and self.channel_idx <= 13):
+            pass
+        
+        # 转换通道标识并添加到缓冲区
+        self.addToBuffer(self.channel_idx, data_content)
+    
     def _extract_increment_from_chunks(self, chunks, last_size, max_bytes=None):
         """从分块列表中提取自 last_size 起的增量数据，并返回(new_text, current_total_size)。
         可选 max_bytes 限制返回文本的最大字节数（从尾部截取）。"""
