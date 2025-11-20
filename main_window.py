@@ -1879,39 +1879,91 @@ class DeviceMdiWindow(QWidget):
     def _update_from_worker(self):
         """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
         try:
+            logger.debug(f"_update_from_worker: Starting UI update check")
+            
+            # 检查是否是回放模式
+            is_playback = hasattr(self, 'playback_file_path') and self.playback_file_path
+            
+            if is_playback:
+                logger.debug("_update_from_worker: Playback mode detected")
+                # 回放模式使用self.work对象的缓冲区
+                if hasattr(self, 'work') and self.work:
+                    # 确保work对象有必要的缓冲区属性
+                    if not hasattr(self.work, 'colored_buffers'):
+                        self.work.colored_buffers = ["" for _ in range(32)]
+                        logger.debug("Playback mode: Created missing colored_buffers attribute")
+                    if not hasattr(self.work, 'colored_buffer_lengths'):
+                        self.work.colored_buffer_lengths = [0] * 32
+                        logger.debug("Playback mode: Created missing colored_buffer_lengths attribute")
+                    # 使用work对象的缓冲区数据
+                    self._process_ui_update(self.work.colored_buffers, self.work.colored_buffer_lengths)
+                else:
+                    logger.warning("Playback mode: self.work not found")
+                return
+            
+            # 非回放模式的原有逻辑
+            if not hasattr(self, 'device_session'):
+                logger.warning("_update_from_worker: device_session not found")
+                return
+                
             if not self.device_session.connection_dialog:
-                logger.info(f"[UPDATE] No connection_dialog for session {self.device_session.session_id}")
+                logger.debug(f"[UPDATE] No connection_dialog for session {getattr(self.device_session, 'session_id', 'unknown')}")
                 return
             
             worker = getattr(self.device_session.connection_dialog, 'worker', None)
             if not worker:
-                logger.info(f"[UPDATE] No worker for session {self.device_session.session_id}")
+                logger.debug(f"[UPDATE] No work for session {getattr(self.device_session, 'session_id', 'unknown')}")
                 return
             
-            # 检查是否有任何新数据
-            has_new_data = False
-            for ch in range(MAX_TAB_SIZE):
-                if worker.colored_buffer_lengths[ch] > self.last_display_lengths[ch]:
-                    has_new_data = True
-                    break
+            # 验证worker对象是否有正确的属性
+            if not hasattr(worker, 'colored_buffers'):
+                logger.warning(f"Worker missing colored_buffers attribute")
+                return
+            if not hasattr(worker, 'colored_buffer_lengths'):
+                logger.warning(f"Worker missing colored_buffer_lengths attribute")
+                return
             
-            # if has_new_data:
-            #     logger.info(f"[UPDATE] Found new data for session {self.device_session.session_id}")
+            # 处理非回放模式的UI更新
+            self._process_ui_update(worker.colored_buffers, worker.colored_buffer_lengths)
             
-            # 获取当前激活的TAB索引
-            current_tab = self.tab_widget.currentIndex()
-            current_time = time.time()
+        except Exception as e:
+            logger.error(f"Failed to update from worker: {e}", exc_info=True)
             
-            # 遍历所有通道，检查是否有新数据
-            for channel in range(MAX_TAB_SIZE):
-                # 获取彩色缓冲区的当前长度
-                current_length = worker.colored_buffer_lengths[channel]
-                last_length = self.last_display_lengths[channel]
-                
-                # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
-                is_active_tab = (channel == current_tab)
-                if not is_active_tab:
-                    # 检查是否需要更新（距离上次更新超过1秒）
+    def _process_ui_update(self, colored_buffers, colored_buffer_lengths):
+        """处理UI更新的核心逻辑，从指定的缓冲区获取数据"""
+        logger.debug(f"_process_ui_update: Processing UI update with buffer data")
+        
+        # 检查必要的属性
+        if not hasattr(self, 'last_display_lengths'):
+            logger.warning("_process_ui_update: last_display_lengths not initialized")
+            self.last_display_lengths = [0] * MAX_TAB_SIZE
+            
+        # 检查是否有任何新数据
+        has_new_data = False
+        for ch in range(min(len(colored_buffer_lengths), MAX_TAB_SIZE)):
+            if colored_buffer_lengths[ch] > self.last_display_lengths[ch]:
+                has_new_data = True
+                logger.info(f"_process_ui_update: new data found for channel {ch}, buffer={colored_buffer_lengths[ch]}, last={self.last_display_lengths[ch]}")
+                break
+        
+        if has_new_data:
+            logger.info(f"_process_ui_update: Found new data to update")
+        
+        # 获取当前激活的TAB索引
+        current_tab = self.tab_widget.currentIndex()
+        current_time = time.time()
+        
+        # 遍历所有通道，检查是否有新数据
+        for channel in range(min(len(colored_buffer_lengths), MAX_TAB_SIZE)):
+            # 获取彩色缓冲区的当前长度
+            current_length = colored_buffer_lengths[channel]
+            last_length = self.last_display_lengths[channel]
+            
+            # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
+            is_active_tab = (channel == current_tab)
+            if not is_active_tab:
+                # 检查是否需要更新（距离上次更新超过1秒）
+                if hasattr(self, 'last_tab_update_times') and hasattr(self, 'inactive_tab_update_interval'):
                     time_since_last_update = current_time - self.last_tab_update_times[channel]
                     if time_since_last_update < self.inactive_tab_update_interval:
                         # 跳过本次更新，但继续检查缓冲区裁剪（这是关键问题，必须立即处理）
@@ -1922,108 +1974,110 @@ class DeviceMdiWindow(QWidget):
                             last_length = 0
                         
                         # 🔧 修复：非激活TAB的数据丢失检测也应该有频率限制（5秒一次）
-                        time_since_last_gap_check = current_time - self.last_inactive_gap_check_times[channel]
-                        if time_since_last_gap_check >= self.inactive_gap_check_interval:
-                            # 只有超过5秒才检查数据丢失
-                            if current_length > last_length + 1024:
-                                logger.warning(f"🔧 [CH{channel}] Inactive TAB data gap detected: gap={current_length - last_length}, forcing refresh")
-                                self._force_refresh_tab(channel)
-                            # 更新数据丢失检测时间戳
-                            self.last_inactive_gap_check_times[channel] = current_time
+                        if hasattr(self, 'last_inactive_gap_check_times') and hasattr(self, 'inactive_gap_check_interval'):
+                            time_since_last_gap_check = current_time - self.last_inactive_gap_check_times[channel]
+                            if time_since_last_gap_check >= self.inactive_gap_check_interval:
+                                # 只有超过5秒才检查数据丢失
+                                if current_length > last_length + 1024:
+                                    logger.warning(f"🔧 [CH{channel}] Inactive TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                                    if hasattr(self, '_force_refresh_tab'):
+                                        self._force_refresh_tab(channel)
+                                # 更新数据丢失检测时间戳
+                                self.last_inactive_gap_check_times[channel] = current_time
                         continue
                     # 更新非激活TAB的时间戳
                     self.last_tab_update_times[channel] = current_time
                     # 正常更新时也重置数据丢失检测时间戳
-                    self.last_inactive_gap_check_times[channel] = current_time
-                
-                # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要调整last_display_lengths
-                if current_length < last_length:
-                    # 计算被裁剪的长度
-                    trimmed_length = last_length - current_length
-                    logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
-                    self.last_display_lengths[channel] = 0
-                    last_length = 0
-                
-                # 🔧 修复：如果数据丢失超过阈值，强制刷新（激活和非激活TAB都需要）
-                if current_length > last_length + 1024:
-                    tab_type = "Current" if is_active_tab else "Inactive"
-                    logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                    if hasattr(self, 'last_inactive_gap_check_times'):
+                        self.last_inactive_gap_check_times[channel] = current_time
+            
+            # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要调整last_display_lengths
+            if current_length < last_length:
+                # 计算被裁剪的长度
+                trimmed_length = last_length - current_length
+                logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
+                self.last_display_lengths[channel] = 0
+                last_length = 0
+            
+            # 🔧 修复：如果数据丢失超过阈值，强制刷新（激活和非激活TAB都需要）
+            if current_length > last_length + 1024:
+                tab_type = "Current" if is_active_tab else "Inactive"
+                logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                if hasattr(self, '_force_refresh_tab'):
                     self._force_refresh_tab(channel)
+                continue
+            
+            if current_length > last_length:
+                # 有新数据，提取增量部分
+                # 修复：确保colored_data是字符串类型
+                raw_data = colored_buffers[channel]
+                if isinstance(raw_data, list):
+                    colored_data = ''.join(raw_data)
+                else:
+                    colored_data = str(raw_data)
+                new_data = colored_data[last_length:]
+                
+                if new_data and hasattr(self, 'text_edits') and channel < len(self.text_edits):
+                    text_edit = self.text_edits[channel]
+                else:
                     continue
                 
-                if current_length > last_length:
-                    # 有新数据，提取增量部分
-                    colored_data = ''.join(worker.colored_buffers[channel])
-                    new_data = colored_data[last_length:]
+                # 获取滚动条
+                v_scrollbar = text_edit.verticalScrollBar()
+                h_scrollbar = text_edit.horizontalScrollBar()
+                
+                # 在添加数据前保存当前滚动条位置
+                vscroll = v_scrollbar.value()
+                hscroll = h_scrollbar.value()
+                
+                # 使用同步方式插入ANSI文本
+                if hasattr(text_edit, '_parse_ansi_fast'):
+                    # 使用FastAnsiTextEdit的解析方法，但同步插入
+                    segments = text_edit._parse_ansi_fast(new_data)
+                    cursor = text_edit.textCursor()
+                    cursor.movePosition(QTextCursor.End)
+                    for segment in segments:
+                        if segment['text']:
+                            cursor.insertText(segment['text'], segment['format'])
+                    text_edit.setTextCursor(cursor)
+                else:
+                    # 降级处理：使用普通追加
+                    cursor = text_edit.textCursor()
+                    cursor.movePosition(QTextCursor.End)
+                    text_edit.setTextCursor(cursor)
+                    text_edit.insertPlainText(new_data)
+                
+                # 关键：阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
+                v_scrollbar.blockSignals(True)
+                h_scrollbar.blockSignals(True)
+                
+                try:
+                    # 垂直滚动条：根据锁定状态决定是否恢复位置
+                    if hasattr(text_edit, '_v_scroll_locked') and text_edit._v_scroll_locked:
+                        # 锁定状态：恢复到保存的位置
+                        v_scrollbar.setValue(vscroll)
+                    else:
+                        # 未锁定状态：滚动到底部
+                        v_scrollbar.setValue(v_scrollbar.maximum())
+                        
+                        # 关键：确保解锁状态不被意外改变
+                        if hasattr(text_edit, '_v_scroll_locked'):
+                            text_edit._v_scroll_locked = False
                     
-                    if new_data and channel < len(self.text_edits):
-                        text_edit = self.text_edits[channel]
-                        
-                        # 获取滚动条
-                        v_scrollbar = text_edit.verticalScrollBar()
-                        h_scrollbar = text_edit.horizontalScrollBar()
-                        
-                        # 完全按照旧代码switchPage的方式（8284-8285行）：
-                        # 在添加数据前保存当前滚动条位置
-                        vscroll = v_scrollbar.value()
-                        hscroll = h_scrollbar.value()
-                        
-                        # 使用同步方式插入ANSI文本（参考旧代码的_insert_ansi_text_fast方法）
-                        # 不使用FastAnsiTextEdit的批处理机制，确保滚动条恢复时机正确
-                        if hasattr(text_edit, '_parse_ansi_fast'):
-                            # 使用FastAnsiTextEdit的解析方法，但同步插入
-                            segments = text_edit._parse_ansi_fast(new_data)
-                            cursor = text_edit.textCursor()
-                            cursor.movePosition(QTextCursor.End)
-                            for segment in segments:
-                                if segment['text']:
-                                    cursor.insertText(segment['text'], segment['format'])
-                            text_edit.setTextCursor(cursor)
-                        else:
-                            # 降级处理：使用普通追加
-                            cursor = text_edit.textCursor()
-                            cursor.movePosition(QTextCursor.End)
-                            text_edit.setTextCursor(cursor)
-                            text_edit.insertPlainText(new_data)
-                        
-                        # 完全按照旧代码switchPage方法的逻辑（8507-8511行）：
-                        # 关键：阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
-                        # 只有用户手动拖动滚动条时才应该改变锁定状态
-                        v_scrollbar.blockSignals(True)
-                        h_scrollbar.blockSignals(True)
-                        
-                        try:
-                            # 垂直滚动条：根据锁定状态决定是否恢复位置
-                            if text_edit._v_scroll_locked:
-                                # 锁定状态：恢复到保存的位置
-                                v_scrollbar.setValue(vscroll)
-                                # logger.info(f"🔒 Channel {channel} V-scroll LOCKED: set {vscroll}, actual={v_scrollbar.value()}, max={v_scrollbar.maximum()}")
-                            else:
-                                # 未锁定状态：滚动到底部
-                                v_scrollbar.setValue(v_scrollbar.maximum())
-                                # logger.info(f"🔓 Channel {channel} V-scroll UNLOCKED: set {v_scrollbar.maximum()}, actual={v_scrollbar.value()}")
-                                
-                                # 关键：确保解锁状态不被意外改变
-                                # 因为设置完后可能还有新数据到来，导致maximum变化
-                                # 所以需要确保_v_scroll_locked保持为False
-                                text_edit._v_scroll_locked = False
-                            
-                            # 水平滚动条：永远锁定，使用保存的位置
-                            h_scrollbar.setValue(hscroll)
-                            # logger.debug(f"↔️ Channel {channel} H-scroll: set {hscroll}, actual={h_scrollbar.value()}, max={h_scrollbar.maximum()}")
-                        finally:
-                            # 恢复信号
-                            v_scrollbar.blockSignals(False)
-                            h_scrollbar.blockSignals(False)
-                        
-                        # 更新已显示长度
-                        self.last_display_lengths[channel] = current_length
-                        
-                        # 更新TAB的时间戳（激活和非激活TAB都更新）
-                        self.last_tab_update_times[channel] = current_time
-        except Exception as e:
-            logger.error(f"Failed to update from worker: {e}", exc_info=True)
-    
+                    # 水平滚动条：永远锁定，使用保存的位置
+                    h_scrollbar.setValue(hscroll)
+                finally:
+                    # 恢复信号
+                    v_scrollbar.blockSignals(False)
+                    h_scrollbar.blockSignals(False)
+                
+                # 更新已显示长度
+                self.last_display_lengths[channel] = current_length
+                
+                # 更新TAB的时间戳（激活和非激活TAB都更新）
+                if hasattr(self, 'last_tab_update_times'):
+                    self.last_tab_update_times[channel] = current_time
+
     def update_filter_tab_display(self):
         """更新筛选TAB的显示
         规则：
@@ -2149,30 +2203,60 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         self.playback_file_path = device_session.device_info.get('file_path')
         
         # 创建一个真正的Worker类实例
-        self.worker = Worker()
-        # 确保colored_buffers是列表的列表结构，与Worker类保持一致
-        self.worker.colored_buffers = [[] for _ in range(32)]  # 32个通道的彩色缓冲区
+        self.work = Worker()
+        
+        # 设置work的colored_buffers和colored_buffer_lengths属性
+        # 这与DeviceMdiWindow中的work保持一致的结构
+        self.work.colored_buffers = ["" for _ in range(32)]  # 32个通道的彩色缓冲区（使用字符串而不是列表）
+        self.work.colored_buffer_lengths = [0] * 32  # 对应的长度数组
+        
+        # 初始化父类 - 必须先初始化父类，因为self.device_session是在父类中设置的
+        super(PlaybackMdiWindow, self).__init__(device_session, parent)
+        
+        # 确保device_session有connection_dialog属性，并将worker附加到它上面
+        # 这样父类DeviceMdiWindow的_update_from_worker方法就能找到正确的worker
+        if not hasattr(device_session, 'connection_dialog'):
+            # 创建一个简单的connection_dialog对象
+            class MockConnectionDialog:
+                def __init__(self, work, config):
+                    self.work = work
+                    self.config = config
+            # 获取配置管理器 - 现在可以安全地访问self.device_session
+            config = self.device_session.config if hasattr(self.device_session, 'config') else None
+            device_session.connection_dialog = MockConnectionDialog(self.work, config)
+        elif hasattr(device_session, 'connection_dialog') and device_session.connection_dialog is not None:
+            # 如果已经存在且不为None，就更新work引用
+            device_session.connection_dialog.work = self.work
         
         # 初始化last_display_lengths，与DeviceMdiWindow保持一致
         self.last_display_lengths = [0] * 32
         
-        # 初始化父类
-        super(PlaybackMdiWindow, self).__init__(device_session, parent)
+        # 确保text_edits组件正确配置了tab_index和config_manager
+        if hasattr(self, 'text_edits') and self.text_edits:
+            for i, text_edit in enumerate(self.text_edits):
+                if hasattr(text_edit, 'tab_index'):
+                    text_edit.tab_index = i
+                if hasattr(text_edit, 'config_manager') and hasattr(self.device_session, 'config'):
+                    text_edit.config_manager = self.device_session.config
         
-        # 确保定时器正常工作，与DeviceMdiWindow保持一致
-        if hasattr(self, 'update_timer') and self.update_timer.isActive():
-            self.update_timer.stop()
+        # 确保有page_dirty_flags属性用于UI更新
+        if not hasattr(self, 'page_dirty_flags'):
+            self.page_dirty_flags = [False] * 33  # 32个通道 + 1个ALL通道
         
-        # 重新配置定时器，使用_update_from_worker方法更新UI
-        from PySide6.QtCore import QTimer
-        self.update_timer = QTimer(self)
-        self.update_timer.timeout.connect(self._update_from_worker)
-        self.update_timer.start(100)  # 100ms更新一次，与DeviceMdiWindow保持一致
+        # 确保定时器正确设置，用于UI更新
+        if not hasattr(self, 'update_timer'):
+            from PySide6.QtCore import QTimer
+            self.update_timer = QTimer(self)
+            self.update_timer.timeout.connect(self._update_from_worker)
+            self.update_timer.start(50)  # 每50毫秒更新一次UI
         
         # 修改窗口标题为文件名
         if self.playback_file_path:
             file_name = os.path.basename(self.playback_file_path)
             self.setWindowTitle(f"Playback: {file_name}")
+        
+        # 调用update_filter_tab_display以确保筛选页面正常显示
+        self.update_filter_tab_display()
             
     def start_playback(self, file_path):
         """开始文件回放"""
@@ -2180,16 +2264,34 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         self.playback_file_path = file_path
         logger.info(f"Starting playback for file: {self.playback_file_path}")
         
+        # 确保更新定时器正在运行
+        if hasattr(self, 'update_timer'):
+            if not self.update_timer.isActive():
+                self.update_timer.start(50)
+                logger.info("Playback UI update timer restarted")
+            else:
+                logger.info("Playback UI update timer is already active")
+        else:
+            logger.warning("No update_timer found, creating new one")
+            from PySide6.QtCore import QTimer
+            self.update_timer = QTimer(self)
+            self.update_timer.timeout.connect(self._update_from_worker)
+            self.update_timer.start(50)
+        
         # 使用QThread进行文件读取，避免阻塞UI
         from PySide6.QtCore import QThread, Signal, Slot
         
         class PlaybackThread(QThread):
+            # 添加信号用于传递数据到主线程
+            playback_data = Signal(int, str)
+            playback_data_with_color = Signal(int, str, str)
+            
             def __init__(self, file_path, parent=None):
                 super().__init__(parent)
                 self.file_path = file_path
                 self.running = True
                 self.parent_window = parent
-                self.chunk_size = 256  # 按256字节分块
+                self.chunk_size = 1024  # 按256字节分块
                 
             def run(self):
                 try:
@@ -2197,9 +2299,9 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                     import io
                     from PySide6.QtCore import QThread
                     
-                    # 检查父窗口是否有worker实例
-                    if not hasattr(self.parent_window, 'worker'):
-                        logger.error("Parent window does not have worker instance")
+                    # 检查父窗口是否有work实例
+                    if not hasattr(self.parent_window, 'work'):
+                        logger.error("Parent window does not have work instance")
                         return
                     
                     logger.info(f"Starting playback for file: {self.file_path}")
@@ -2212,12 +2314,51 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                             if not chunk:
                                 break
                             
-                            # 直接调用worker的process_bytes方法处理数据
-                            self.parent_window.worker.process_bytes(chunk)
+                            # 处理数据块，模拟正常接收时的处理流程
+                            try:
+                                # 确保work有正确的配置引用
+                                if hasattr(self.parent_window, 'device_session') and self.parent_window.device_session and hasattr(self.parent_window.device_session, 'config'):
+                                    if not hasattr(self.parent_window.work, 'parent'):
+                                        self.parent_window.work.parent = self.parent_window
+                                    if not hasattr(self.parent_window.work.parent, 'config'):
+                                        self.parent_window.work.parent.config = self.parent_window.device_session.config
+                                
+                                # 使用信号槽机制传递数据，而不是直接调用process_bytes
+                                # 对于RTT文件，我们可以尝试直接解析通道和内容
+                                # 这里先简单地将所有数据发送到默认通道(0)
+                                try:
+                                    # 尝试将二进制数据解码为字符串
+                                    data_str = chunk.decode('utf-8', errors='replace')
+                                    # 发送到默认通道0
+                                    logger.info(f"PlaybackThread: emitting data to channel 0, length: {len(data_str)}")
+                                    self.playback_data.emit(0, data_str)
+                                except Exception as decode_error:
+                                    logger.warning(f"Failed to decode chunk: {decode_error}")
+                                    # 如果解码失败，使用原始字节的十六进制表示
+                                    data_str = ''.join([f'{b:02x}' for b in chunk])
+                                    self.playback_data.emit(0, data_str)
+                                
+                            except Exception as e:
+                                logger.error(f"Error processing playback data: {e}")
                             bytes_processed += len(chunk)
+
+                            logger.warning(f"Processed {len(chunk)} bytes, total processed: {bytes_processed}")
                             
-                            # 短暂延迟，实现渐进式显示
-                            QThread.msleep(50)
+                            # 动态调整延迟以优化回放速度
+                            # 1. 快速回放模式：对于大块数据，减少或移除延迟
+                            if len(chunk) > 1024:  # 大块数据时加速
+                                delay_ms = 0
+                            elif bytes_processed % 4096 == 0:  # 定期短暂停顿以保持UI响应性
+                                delay_ms = 5
+                            else:
+                                # 根据处理的数据量动态调整延迟
+                                if bytes_processed < 10240:  # 前10KB数据
+                                    delay_ms = 10  # 保持一些可见性
+                                else:
+                                    delay_ms = 0  # 后续数据全速处理
+                            
+                            if delay_ms > 0:
+                                QThread.msleep(delay_ms)
                     
                     logger.info(f"Playback complete, processed {bytes_processed} bytes")
                     
@@ -2230,6 +2371,9 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 创建并启动播放线程
         self.playback_thread = PlaybackThread(file_path, self)
+        # 连接信号到相应的处理函数
+        self.playback_thread.playback_data.connect(self._on_playback_data)
+        self.playback_thread.playback_data_with_color.connect(self._on_playback_data_with_color)
         self.playback_thread.finished.connect(self._on_playback_finished)
         self.playback_thread.start()
         
@@ -2238,134 +2382,78 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         """处理带颜色的回放数据"""
         try:
             if 0 <= channel < 32:
-                # 为对应通道添加原始数据
-                self.worker.colored_buffers[channel] += data
+                # 确保work对象和必要的缓冲区属性存在
+                if not hasattr(self, 'work'):
+                    logger.warning("_on_playback_data_with_color: self.work not found, creating...")
+                    self.work = Worker()
+                    self.work.colored_buffers = ["" for _ in range(32)]
+                    self.work.colored_buffer_lengths = [0] * 32
+                
+                if not hasattr(self.work, 'colored_buffers'):
+                    self.work.colored_buffers = ["" for _ in range(32)]
+                    logger.debug("_on_playback_data_with_color: Created missing colored_buffers")
+                if not hasattr(self.work, 'colored_buffer_lengths'):
+                    self.work.colored_buffer_lengths = [0] * 32
+                    logger.debug("_on_playback_data_with_color: Created missing colored_buffer_lengths")
+                
+                # 为对应通道添加原始数据（使用字符串拼接而不是append）
+                self.work.colored_buffers[channel] += data
+                # 更新缓冲区长度
+                self.work.colored_buffer_lengths[channel] = len(self.work.colored_buffers[channel])
                 
                 # 为ALL通道（索引0）添加带颜色的数据
                 if channel != 0:
-                    self.worker.colored_buffers[0] += colored_data
+                    self.work.colored_buffers[0] += colored_data
+                    # 更新ALL通道的缓冲区长度
+                    self.work.colored_buffer_lengths[0] = len(self.work.colored_buffers[0])
+                
+                # 设置相应的page_dirty_flags标记，触发UI更新
+                self.page_dirty_flags[channel + 1] = True  # 通道1-32对应索引1-32
+                self.page_dirty_flags[0] = True  # ALL通道对应索引0
+                
+                # 直接调用_update_from_worker方法立即更新UI
+                self._update_from_worker()
         except Exception as e:
             logger.error(f"Error in colored playback data handler: {e}", exc_info=True)
     
     @Slot(int, str)
     def _on_playback_data(self, channel, data):
-        """处理回放数据，将其添加到worker的缓冲区"""
+        """处理回放数据，将其添加到work的缓冲区"""
         try:
             # 确保通道索引有效
             if 0 <= channel < 32:
-                # 将数据添加到对应通道的缓冲区
-                self.worker.colored_buffers[channel] += data
+                # 确保work对象和必要的缓冲区属性存在
+                if not hasattr(self, 'work'):
+                    logger.warning("_on_playback_data: self.work not found, creating...")
+                    self.work = Worker()
+                    self.work.colored_buffers = ["" for _ in range(32)]
+                    self.work.colored_buffer_lengths = [0] * 32
+                
+                if not hasattr(self.work, 'colored_buffers'):
+                    self.work.colored_buffers = ["" for _ in range(32)]
+                    logger.debug("_on_playback_data: Created missing colored_buffers")
+                if not hasattr(self.work, 'colored_buffer_lengths'):
+                    self.work.colored_buffer_lengths = [0] * 32
+                    logger.debug("_on_playback_data: Created missing colored_buffer_lengths")
+                
+                # 将数据添加到对应通道的缓冲区（使用字符串拼接而不是append）
+                self.work.colored_buffers[channel] += data
+                # 更新缓冲区长度
+                self.work.colored_buffer_lengths[channel] = len(self.work.colored_buffers[channel])
+                
+                # 设置相应的page_dirty_flags标记，触发UI更新
+                self.page_dirty_flags[channel + 1] = True  # 通道1-32对应索引1-32
+                self.page_dirty_flags[0] = True  # ALL通道对应索引0
+                
+                # 直接调用_update_from_worker方法立即更新UI
+                self._update_from_worker()
+                
+                logger.info(f"_on_playback_data: channel={channel}, buffer_len={self.work.colored_buffer_lengths[channel]}, dirty_flags={self.page_dirty_flags[:2]}")
                     
         except Exception as e:
             logger.error(f"Error in playback data handler: {e}", exc_info=True)
     
-    def _update_from_worker(self):
-        """从模拟Worker缓冲区更新UI - 专为回放窗口定制"""
-        try:
-            # 使用直接附加到窗口的worker对象
-            worker = self.worker
-            if not worker:
-                logger.info("[UPDATE] No worker for playback window")
-                return
-            
-            # 获取当前激活的TAB索引
-            current_tab = self.tab_widget.currentIndex()
-            current_time = time.time()
-            
-            # 遍历所有通道，检查是否有新数据
-            for channel in range(len(self.text_edits)):
-                # 获取缓冲区的当前长度
-                current_length = len(worker.colored_buffers[channel])
-                last_length = self.last_display_lengths[channel]
-                
-                # 检查是否需要更新（对于回放窗口，不使用低频率更新非激活TAB）
-                is_active_tab = (channel == current_tab)
-                
-                # 如果current < last，说明缓冲区被重置了
-                if current_length < last_length:
-                    self.last_display_lengths[channel] = 0
-                    last_length = 0
-                
-                if current_length > last_length:
-                    # 有新数据，提取增量部分
-                    colored_data = worker.colored_buffers[channel]
-                    new_data = colored_data[last_length:]
-                    
-                    if new_data and channel < len(self.text_edits):
-                        text_edit = self.text_edits[channel]
-                        
-                        # 获取滚动条
-                        v_scrollbar = text_edit.verticalScrollBar()
-                        h_scrollbar = text_edit.horizontalScrollBar()
-                        
-                        # 保存当前滚动条位置
-                        vscroll = v_scrollbar.value()
-                        hscroll = h_scrollbar.value()
-                        
-                        # 处理new_data，确保是字符串类型
-                        # 检查new_data是否为列表，如果是则连接成字符串
-                        if isinstance(new_data, list):
-                            # 如果列表中的元素是字典（已格式化的文本段），则直接使用
-                            if new_data and isinstance(new_data[0], dict) and 'text' in new_data[0]:
-                                formatted_segments = new_data
-                            else:
-                                # 否则将列表连接成字符串
-                                new_data_str = ''.join(new_data)
-                        else:
-                            new_data_str = new_data
-                        
-                        # 使用同步方式插入文本
-                        if hasattr(text_edit, '_parse_ansi_fast'):
-                            # 使用FastAnsiTextEdit的解析方法
-                            if 'formatted_segments' in locals():
-                                # 直接使用已格式化的段
-                                cursor = text_edit.textCursor()
-                                cursor.movePosition(QTextCursor.End)
-                                for segment in formatted_segments:
-                                    if segment['text']:
-                                        cursor.insertText(segment['text'], segment['format'])
-                                text_edit.setTextCursor(cursor)
-                            else:
-                                segments = text_edit._parse_ansi_fast(new_data_str)
-                                cursor = text_edit.textCursor()
-                                cursor.movePosition(QTextCursor.End)
-                                for segment in segments:
-                                    if segment['text']:
-                                        cursor.insertText(segment['text'], segment['format'])
-                                text_edit.setTextCursor(cursor)
-                        else:
-                            # 降级处理：使用普通追加
-                            cursor = text_edit.textCursor()
-                            cursor.movePosition(QTextCursor.End)
-                            text_edit.setTextCursor(cursor)
-                            text_edit.insertPlainText(new_data_str)
-                        
-                        # 阻塞信号，避免setValue触发_on_vertical_scroll_changed改变锁定状态
-                        v_scrollbar.blockSignals(True)
-                        h_scrollbar.blockSignals(True)
-                        
-                        try:
-                            # 垂直滚动条：根据锁定状态决定是否恢复位置
-                            if text_edit._v_scroll_locked:
-                                # 锁定状态：恢复到保存的位置
-                                v_scrollbar.setValue(vscroll)
-                            else:
-                                # 未锁定状态：滚动到底部
-                                v_scrollbar.setValue(v_scrollbar.maximum())
-                                # 确保解锁状态不被意外改变
-                                text_edit._v_scroll_locked = False
-                            
-                            # 水平滚动条：永远锁定，使用保存的位置
-                            h_scrollbar.setValue(hscroll)
-                        finally:
-                            # 恢复信号
-                            v_scrollbar.blockSignals(False)
-                            h_scrollbar.blockSignals(False)
-                        
-                        # 更新已显示长度
-                        self.last_display_lengths[channel] = current_length
-        except Exception as e:
-            logger.error(f"Failed to update from playback worker: {e}", exc_info=True)
+    # 移除重写的_update_from_worker方法，直接使用父类DeviceMdiWindow的实现
     
     @Slot()
     def _on_playback_finished(self):
@@ -8340,7 +8428,8 @@ class ConnectionDialog(QDialog):
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
 
         # 连接信号和槽
-        self.worker.finished.connect(self.handleBufferUpdate)
+        # 关键修复：将finished信号连接到main_window的handleBufferUpdate方法，而不是当前对话框
+        self.worker.finished.connect(self.main_window.handleBufferUpdate)
         self.ui.addToBuffer = self.worker.addToBuffer
         
         # 启动Worker的日志刷新定时器
@@ -10562,16 +10651,8 @@ class ConnectionDialog(QDialog):
         if hasattr(self.worker, 'refresh_count'):
             self.worker.refresh_count += 1
         
-        # UI 刷新节流：限制最小刷新间隔，避免高频更新导致卡顿
-        try:
-            now_ms = int(time.time() * 1000)
-            if hasattr(self.worker, '_last_ui_update_ms') and hasattr(self.worker, 'min_ui_update_interval_ms'):
-                if now_ms - self.worker._last_ui_update_ms < self.worker.min_ui_update_interval_ms:
-                    return
-                self.worker._last_ui_update_ms = now_ms
-        except Exception:
-            pass
-            
+        # 移除多余的频率限制检查，确保数据到达时立即显示
+        
         # 智能更新：只刷新有数据变化的页面
         if not self.main_window:
             return
@@ -10579,60 +10660,44 @@ class ConnectionDialog(QDialog):
         # 使用滑动文本块机制，不需要定期清理UI文本
         
         # MDI 架构中不再使用 tem_switch，由 DeviceMdiWindow 处理
-        return
             
-        # current_index = self.main_window.ui.tem_switch.currentIndex()
+        # 在MDI架构中，确保安全访问tab_widget
+        current_index = -1
+        try:
+            if hasattr(self, 'tab_widget'):
+                current_index = self.tab_widget.currentIndex()
+        except Exception:
+            pass
         
         # 增加时间戳跟踪，用于限制UI更新频率
         current_time_ms = int(time.time() * 1000)
         
-        # 优先更新当前显示的页面 - 添加更新间隔限制
-        if self.main_window.page_dirty_flags[current_index]:
-            # 检查是否需要立即更新当前页面
-            if current_time_ms - self.main_window._last_ui_update_ms >= self.main_window.min_ui_update_interval_ms:
-                self.switchPage(current_index)
-                self.main_window.page_dirty_flags[current_index] = False
-                self.main_window._last_ui_update_ms = current_time_ms
+        # 优先更新当前显示的页面 - 立即更新，不受脏标记和时间间隔限制
+        # 直接调用_process_ui_update方法更新UI，确保实时显示
+        self._process_ui_update(self.worker.colored_buffers, self.worker.colored_buffer_lengths)
+        # 清除当前页面的脏标记，确保current_index有效
+        if current_index >= 0 and hasattr(self.main_window, 'page_dirty_flags') and current_index < len(self.main_window.page_dirty_flags):
+            self.main_window.page_dirty_flags[current_index] = False
+        self.main_window._last_ui_update_ms = current_time_ms
         
-        # 🎨 优化：智能UI更新策略，减少不必要的刷新
-        # 1. 只有在处理完当前页面且有足够时间间隔时才更新其他页面
-        # 2. 实现基于重要性的更新优先级
-        # 3. 批量合并小更新
-        if current_time_ms - self.main_window._last_ui_update_ms >= self.main_window.min_ui_update_interval_ms:
+        # 🎨 优化：在Turbo模式下，确保所有数据变化都能实时显示
+        # 对于非当前页面，直接更新而不进行时间限制
+        if hasattr(self.main_window, 'page_dirty_flags'):
             # 收集所有需要更新的页面
             dirty_pages = []
             for i in range(MAX_TAB_SIZE):
                 if i != current_index and self.main_window.page_dirty_flags[i]:
-                    # 这里可以添加更多优先级逻辑，如基于数据量、时间等
                     dirty_pages.append(i)
             
-            # 智能批量更新策略
+            # 如果有其他脏页面需要更新
             if dirty_pages:
-                # 根据系统负载动态调整更新数量
-                if hasattr(self.worker, 'get_buffer_memory_usage'):
-                    memory_info = self.worker.get_buffer_memory_usage()
-                    utilization = memory_info.get('capacity_utilization', 0)
-                    
-                    # 更保守的更新策略，减少CPU占用
-                    if utilization > 85:  # 非常高的利用率
-                        max_updates = 1  # 只更新1个页面
-                    elif utilization > 70:  # 高利用率
-                        max_updates = 2  # 更新2个页面
-                    elif utilization > 50:  # 中等利用率
-                        max_updates = 3  # 更新3个页面
-                    else:  # 低利用率
-                        max_updates = 5  # 更新5个页面
-                else:
-                    max_updates = 3  # 默认保守策略
-                
-                # 限制同时更新的页面数量
-                pages_to_update = min(len(dirty_pages), max_updates)
-                
-                # 批量更新优先级最高的页面
-                for i in range(pages_to_update):
-                    page_index = dirty_pages[i]
-                    self.switchPage(page_index)
-                    self.main_window.page_dirty_flags[page_index] = False
+                # 简化更新逻辑，移除基于系统负载的限制
+                # 直接调用_process_ui_update更新所有页面
+                self._process_ui_update(self.worker.colored_buffers, self.worker.colored_buffer_lengths)
+                # 标记所有更新过的页面为干净
+                for page_index in dirty_pages:
+                    if page_index < len(self.main_window.page_dirty_flags):
+                        self.main_window.page_dirty_flags[page_index] = False
                 
                 # 更新最后UI更新时间
                 self.main_window._last_ui_update_ms = current_time_ms

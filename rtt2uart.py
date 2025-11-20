@@ -694,33 +694,8 @@ class rtt_to_serial():
                     except Exception as e:
                         logger.debug(f'Failed to check JLink connected status: {e}')
                 
-                # 再次检查连接状态（按配置判定是否需要自动重置并重试一次）
-                if not already_connected_to_target:
-                    try:
-                        if not self.jlink.connected():
-                            # 断开后，根据配置决定是否自动重置
-                            auto_patterns = _get_autoreset_patterns()
-                            err_msg = "JLink connection failed after open"
-                            if any(p in err_msg for p in auto_patterns):
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection failed after open, trying auto reset..."))
-                                if self._auto_reset_jlink_connection():
-                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
-                                else:
-                                    raise Exception(err_msg)
-                            else:
-                                raise Exception(err_msg)
-                    except pylink.errors.JLinkException:
-                        # 验证异常，根据配置决定是否自动重置
-                        auto_patterns = _get_autoreset_patterns()
-                        err_msg = "JLink connection verification failed"
-                        if any(p in err_msg for p in auto_patterns):
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink verification failed, trying auto reset..."))
-                            if self._auto_reset_jlink_connection():
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink auto reset succeeded, continue starting..."))
-                            else:
-                                raise Exception(err_msg)
-                        else:
-                            raise Exception(err_msg)
+                # 移除了在connect()前的额外连接检查，让后续的connect()方法正常执行
+                # 这样可以避免在实际尝试连接之前就抛出异常
 
                 # 设置连接速率
                 try:
