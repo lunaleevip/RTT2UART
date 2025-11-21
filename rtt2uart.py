@@ -1600,4 +1600,4 @@ class rtt_to_serial():
 #     test.start()
 
 
-# RTTDataProcessor class has been moved to Worker class in main_window.py
+

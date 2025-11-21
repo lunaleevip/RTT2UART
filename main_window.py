@@ -1837,7 +1837,10 @@ class DeviceMdiWindow(QWidget):
                 cursor.movePosition(QTextCursor.End)
                 for segment in segments:
                     if segment['text']:
-                        cursor.insertText(segment['text'], segment['format'])
+                        if segment['format'] is None:
+                            cursor.insertText(segment['text'])
+                        else:
+                            cursor.insertText(segment['text'], segment['format'])
                 text_edit.setTextCursor(cursor)
             else:
                 # 降级处理：使用普通追加
@@ -2002,7 +2005,7 @@ class DeviceMdiWindow(QWidget):
             # 🔧 修复：如果数据丢失超过阈值，强制刷新（激活和非激活TAB都需要）
             if current_length > last_length + 1024:
                 tab_type = "Current" if is_active_tab else "Inactive"
-                logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                #logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
                 if hasattr(self, '_force_refresh_tab'):
                     self._force_refresh_tab(channel)
                 continue
@@ -2038,7 +2041,10 @@ class DeviceMdiWindow(QWidget):
                     cursor.movePosition(QTextCursor.End)
                     for segment in segments:
                         if segment['text']:
-                            cursor.insertText(segment['text'], segment['format'])
+                            if segment['format'] is None:
+                                cursor.insertText(segment['text'])
+                            else:
+                                cursor.insertText(segment['text'], segment['format'])
                     text_edit.setTextCursor(cursor)
                 else:
                     # 降级处理：使用普通追加
@@ -2191,24 +2197,71 @@ class DeviceMdiWindow(QWidget):
 
 
 class PlaybackMdiWindow(DeviceMdiWindow):
-    """回放MDI窗口类，继承自DeviceMdiWindow，用于日志文件回放"""
+    """回放MDI窗口类，继承自DeviceMdiWindow，用于日志文件回放
+    
+    设计目标：完全复刻RTT实时模式的数据处理流程，确保回放模式与实时模式行为一致
+    支持所有实时模式功能：通道标记、过滤、ANSI颜色处理、日志分析等
+    """
     def __init__(self, device_session, parent=None):
         # 标记为回放窗口，确保在父类构造函数中创建文本编辑控件时能正确禁用内容限制
         self.is_playback_window = True
         
         # 导入必要的模块
         import os
+        import time
         
         # 从device_info中获取文件路径
         self.playback_file_path = device_session.device_info.get('file_path')
         
-        # 创建一个真正的Worker类实例
+        # 创建Worker实例 - 使用与实时模式完全相同的初始化方式
         self.work = Worker()
         
-        # 设置work的colored_buffers和colored_buffer_lengths属性
-        # 这与DeviceMdiWindow中的work保持一致的结构
-        self.work.colored_buffers = ["" for _ in range(32)]  # 32个通道的彩色缓冲区（使用字符串而不是列表）
-        self.work.colored_buffer_lengths = [0] * 32  # 对应的长度数组
+        # 初始化Worker实例的所有必要属性，确保与实时模式完全一致
+        # 1. 通道缓冲区初始化
+        self.work.byte_buffer = [bytearray() for _ in range(16)]  # 16个RTT通道
+        
+        # 2. 文本缓冲区初始化
+        self.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+        self.work.buffer_lengths = [0] * MAX_TAB_SIZE
+        self.work.buffer_capacities = [self.work.initial_capacity] * MAX_TAB_SIZE
+        
+        # 3. 彩色文本缓冲区初始化
+        self.work.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+        self.work.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+        self.work.colored_buffer_capacities = [self.work.initial_capacity] * MAX_TAB_SIZE
+        
+        # 4. 批量处理相关属性
+        self.work.batch_buffers = [bytearray() for _ in range(16)]
+        self.work.batch_timers = [None] * 16
+        self.work.batch_delay = 20  # 与实时模式保持一致
+        self.work.turbo_mode = False  # 默认非Turbo模式
+        
+        # 5. 数据处理状态属性
+        self.work.remaining_data = bytearray()  # 确保使用bytearray类型
+        self.work.channel_idx = 0  # 默认通道0
+        self.work.update_counter = 0  # 更新计数器
+        self.work.log_buffers = {}  # 日志缓冲区
+        
+        # 6. 性能监控属性
+        self.work.last_refresh_time = time.time()
+        self.work.refresh_count = 0
+        self.work.last_log_time = time.time()
+        self.work.log_interval = 5.0
+        
+        # 7. UI刷新控制属性
+        self.work.min_ui_update_interval_ms = 20  # 最小UI更新间隔20ms
+        self.work._last_ui_update_ms = 0
+        
+        # 8. 设置父子关系引用
+        self.work.parent = self
+        
+        # 9. 确保Turbo模式设置正确
+        self.work.set_turbo_mode(False)
+        
+        # 10. 确保Worker支持通道标记和过滤功能
+        self.work.use_channel_tags = True  # 启用通道标记功能
+        self.work.support_filtering = True  # 启用过滤功能
+        self.work.ansi_processing_enabled = True  # 启用ANSI处理功能
         
         # 初始化父类 - 必须先初始化父类，因为self.device_session是在父类中设置的
         super(PlaybackMdiWindow, self).__init__(device_session, parent)
@@ -2228,27 +2281,40 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 如果已经存在且不为None，就更新work引用
             device_session.connection_dialog.work = self.work
         
-        # 初始化last_display_lengths，与DeviceMdiWindow保持一致
-        self.last_display_lengths = [0] * 32
+        # 同时设置self.worker引用，确保与实时模式一致的属性名
+        # 这样在_update_from_worker方法中无论是通过self.worker还是通过connection_dialog.work都能找到正确的worker实例
+        self.worker = self.work
+        
+        # 确保text_edits组件存在
+        if not hasattr(self, 'text_edits'):
+            self.text_edits = []
+        
+        # 初始化last_display_lengths，与DeviceMdiWindow保持一致，使用MAX_TAB_SIZE
+        self.last_display_lengths = [0] * MAX_TAB_SIZE
         
         # 确保text_edits组件正确配置了tab_index和config_manager
-        if hasattr(self, 'text_edits') and self.text_edits:
-            for i, text_edit in enumerate(self.text_edits):
-                if hasattr(text_edit, 'tab_index'):
-                    text_edit.tab_index = i
-                if hasattr(text_edit, 'config_manager') and hasattr(self.device_session, 'config'):
-                    text_edit.config_manager = self.device_session.config
+        for i, text_edit in enumerate(self.text_edits):
+            if hasattr(text_edit, 'tab_index'):
+                text_edit.tab_index = i
+            if hasattr(text_edit, 'config_manager') and hasattr(self.device_session, 'config'):
+                text_edit.config_manager = self.device_session.config
         
-        # 确保有page_dirty_flags属性用于UI更新
+        # 确保有page_dirty_flags属性用于UI更新，使用MAX_TAB_SIZE+1
         if not hasattr(self, 'page_dirty_flags'):
-            self.page_dirty_flags = [False] * 33  # 32个通道 + 1个ALL通道
+            self.page_dirty_flags = [False] * (MAX_TAB_SIZE + 1)  # MAX_TAB_SIZE个通道 + 1个ALL通道
         
         # 确保定时器正确设置，用于UI更新
         if not hasattr(self, 'update_timer'):
             from PySide6.QtCore import QTimer
             self.update_timer = QTimer(self)
             self.update_timer.timeout.connect(self._update_from_worker)
-            self.update_timer.start(50)  # 每50毫秒更新一次UI
+            self.update_timer.setInterval(30)  # 缩短更新间隔到30毫秒，提高响应速度
+            self.update_timer.start()  # 启动定时器
+        else:
+            # 如果已经存在定时器，确保它正在运行
+            if not self.update_timer.isActive():
+                self.update_timer.setInterval(30)  # 确保使用正确的间隔
+                self.update_timer.start()
         
         # 修改窗口标题为文件名
         if self.playback_file_path:
@@ -2259,15 +2325,18 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         self.update_filter_tab_display()
             
     def start_playback(self, file_path):
-        """开始文件回放"""
+        """开始文件回放
+        
+        设计目标：完全模拟RTT实时数据流，使用与实时模式相同的处理机制
+        """
         # 更新文件路径
         self.playback_file_path = file_path
         logger.info(f"Starting playback for file: {self.playback_file_path}")
         
-        # 确保更新定时器正在运行
+        # 确保更新定时器正在运行 - 使用与实时模式相同的间隔
         if hasattr(self, 'update_timer'):
             if not self.update_timer.isActive():
-                self.update_timer.start(50)
+                self.update_timer.start(30)  # 与__init__中保持一致
                 logger.info("Playback UI update timer restarted")
             else:
                 logger.info("Playback UI update timer is already active")
@@ -2276,27 +2345,34 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             from PySide6.QtCore import QTimer
             self.update_timer = QTimer(self)
             self.update_timer.timeout.connect(self._update_from_worker)
-            self.update_timer.start(50)
+            self.update_timer.start(30)  # 使用30ms间隔，与实时模式保持一致
         
         # 使用QThread进行文件读取，避免阻塞UI
         from PySide6.QtCore import QThread, Signal, Slot
         
         class PlaybackThread(QThread):
-            # 添加信号用于传递数据到主线程
-            playback_data = Signal(int, str)
-            playback_data_with_color = Signal(int, str, str)
+            """回放线程类 - 模拟RTT数据源，严格按照实时模式的数据格式和处理流程
             
+            关键设计点：
+            1. 使用与RTT实时模式相同的数据块大小和处理间隔
+            2. 严格模拟RTT数据格式，包括0xFF分隔符
+            3. 动态调整回放速度以模拟真实设备行为
+            4. 完全支持通道标记、过滤和ANSI颜色处理
+            """
             def __init__(self, file_path, parent=None):
                 super().__init__(parent)
                 self.file_path = file_path
                 self.running = True
                 self.parent_window = parent
-                self.chunk_size = 1024  # 按256字节分块
+                self.chunk_size = 256  # 使用与RTT实时模式相同的数据块大小
+                self.remaining_data = bytearray()  # 与Worker类保持一致的数据类型
                 
             def run(self):
                 try:
                     # 导入必要的模块
                     import io
+                    import os
+                    import time
                     from PySide6.QtCore import QThread
                     
                     # 检查父窗口是否有work实例
@@ -2304,58 +2380,80 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                         logger.error("Parent window does not have work instance")
                         return
                     
+                    # 确保worker的parent引用设置正确
+                    self.parent_window.work.parent = self.parent_window
+                    
+                    # 启动worker的缓冲区刷新定时器
+                    self.parent_window.work.start_flush_timer()
+                    
+                    # 确保turbo模式设置为False，与正常RTT连接模式一致
+                    self.parent_window.work.set_turbo_mode(False)
+                    
+                    # 确保所有功能标志都设置正确
+                    self.parent_window.work.use_channel_tags = True
+                    self.parent_window.work.support_filtering = True
+                    self.parent_window.work.ansi_processing_enabled = True
+                    
                     logger.info(f"Starting playback for file: {self.file_path}")
+                    logger.info(f"Playback configuration: Channel tags={self.parent_window.work.use_channel_tags}, "
+                              f"Filtering={self.parent_window.work.support_filtering}, "
+                              f"ANSI processing={self.parent_window.work.ansi_processing_enabled}")
+                    
+                    # 获取文件大小用于进度估计
+                    file_size = os.path.getsize(self.file_path)
+                    logger.info(f"Playback file size: {file_size} bytes")
                     
                     # 分块读取和处理文件
                     bytes_processed = 0
+                    last_progress_update = time.time()
+                    
                     with io.open(self.file_path, 'rb') as f:
                         while self.running:
                             chunk = f.read(self.chunk_size)
                             if not chunk:
                                 break
                             
-                            # 处理数据块，模拟正常接收时的处理流程
+                            # 处理数据块 - 完全模拟RTT实时连接的数据处理流程
                             try:
-                                # 确保work有正确的配置引用
-                                if hasattr(self.parent_window, 'device_session') and self.parent_window.device_session and hasattr(self.parent_window.device_session, 'config'):
-                                    if not hasattr(self.parent_window.work, 'parent'):
-                                        self.parent_window.work.parent = self.parent_window
-                                    if not hasattr(self.parent_window.work.parent, 'config'):
-                                        self.parent_window.work.parent.config = self.parent_window.device_session.config
-                                
-                                # 使用信号槽机制传递数据，而不是直接调用process_bytes
-                                # 对于RTT文件，我们可以尝试直接解析通道和内容
-                                # 这里先简单地将所有数据发送到默认通道(0)
-                                try:
-                                    # 尝试将二进制数据解码为字符串
-                                    data_str = chunk.decode('utf-8', errors='replace')
-                                    # 发送到默认通道0
-                                    logger.info(f"PlaybackThread: emitting data to channel 0, length: {len(data_str)}")
-                                    self.playback_data.emit(0, data_str)
-                                except Exception as decode_error:
-                                    logger.warning(f"Failed to decode chunk: {decode_error}")
-                                    # 如果解码失败，使用原始字节的十六进制表示
-                                    data_str = ''.join([f'{b:02x}' for b in chunk])
-                                    self.playback_data.emit(0, data_str)
+                                # 直接使用Worker类的process_bytes方法处理原始二进制数据
+                                # 这是确保回放与实时模式完全一致的关键
+                                self.parent_window.work.process_bytes(chunk)
                                 
                             except Exception as e:
-                                logger.error(f"Error processing playback data: {e}")
-                            bytes_processed += len(chunk)
-
-                            logger.warning(f"Processed {len(chunk)} bytes, total processed: {bytes_processed}")
+                                logger.error(f"Error processing playback data: {e}", exc_info=True)
                             
-                            # 动态调整延迟以优化回放速度
-                            # 1. 快速回放模式：对于大块数据，减少或移除延迟
-                            if len(chunk) > 1024:  # 大块数据时加速
-                                delay_ms = 0
-                            elif bytes_processed % 4096 == 0:  # 定期短暂停顿以保持UI响应性
-                                delay_ms = 5
-                            else:
-                                # 根据处理的数据量动态调整延迟
-                                if bytes_processed < 10240:  # 前10KB数据
-                                    delay_ms = 10  # 保持一些可见性
+                            bytes_processed += len(chunk)
+                            
+                            # 定期记录进度（每2秒或每处理10%的文件）
+                            current_time = time.time()
+                            if current_time - last_progress_update >= 2.0 or (file_size > 0 and bytes_processed % (file_size // 10) == 0):
+                                processed_percent = (bytes_processed / file_size) * 100 if file_size > 0 else 0
+                                logger.debug(f"Playback progress: {processed_percent:.1f}% ({bytes_processed}/{file_size} bytes)")
+                                last_progress_update = current_time
+                            
+                            # 智能延迟控制 - 模拟真实设备的数据流
+                            # 1. 根据已处理数据量动态调整延迟
+                            processed_percent = (bytes_processed / file_size) * 100 if file_size > 0 else 0
+                            
+                            # 初始阶段：保持可见性，适当延迟
+                            if bytes_processed < 10240:  # 前10KB
+                                delay_ms = 5  # 5ms延迟，确保用户能看到初始数据
+                            # 中间阶段：动态调整，保持UI响应
+                            elif processed_percent < 90:  # 90%之前
+                                # 根据数据块大小动态调整延迟
+                                if len(chunk) <= 64:
+                                    delay_ms = 3  # 小数据块稍慢
+                                elif len(chunk) <= 256:
+                                    delay_ms = 1  # 中等数据块正常速度
                                 else:
-                                    delay_ms = 0  # 后续数据全速处理
+                                    delay_ms = 0  # 大数据块全速处理
+                            # 末尾阶段：稍微放慢，确保数据完全显示
+                            else:
+                                delay_ms = 2  # 确保末尾数据完整处理
+                            
+                            # 定期短暂停顿以保持UI响应性
+                            if bytes_processed % 4096 == 0:
+                                delay_ms = max(delay_ms, 5)
                             
                             if delay_ms > 0:
                                 QThread.msleep(delay_ms)
@@ -2366,114 +2464,84 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                     logger.error(f"Failed to playback file: {e}", exc_info=True)
             
             def stop(self):
+                """停止回放线程，确保资源正确清理
+                
+                设计目标：优雅地停止回放，处理剩余数据，避免数据丢失
+                """
+                logger.info("Stopping playback thread...")
                 self.running = False
-                self.wait()
+                
+                # 确保处理完remaining_data中的数据，防止数据丢失
+                if hasattr(self.parent_window, 'work') and self.remaining_data:
+                    try:
+                        logger.debug(f"Processing remaining {len(self.remaining_data)} bytes")
+                        # 直接使用bytearray类型，不需要转换
+                        self.parent_window.work.process_bytes(self.remaining_data)
+                        self.remaining_data = bytearray()
+                    except Exception as e:
+                        logger.error(f"Error processing remaining playback data: {e}", exc_info=True)
+                
+                # 等待线程结束，最多等待2秒
+                if not self.wait(2000):
+                    logger.warning("Playback thread did not terminate in time")
+                else:
+                    logger.info("Playback thread stopped successfully")
         
         # 创建并启动播放线程
         self.playback_thread = PlaybackThread(file_path, self)
-        # 连接信号到相应的处理函数
-        self.playback_thread.playback_data.connect(self._on_playback_data)
-        self.playback_thread.playback_data_with_color.connect(self._on_playback_data_with_color)
+        # 只连接完成信号，不再需要数据信号因为直接使用process_bytes
         self.playback_thread.finished.connect(self._on_playback_finished)
         self.playback_thread.start()
         
-    @Slot(int, str, str)
-    def _on_playback_data_with_color(self, channel, data, colored_data):
-        """处理带颜色的回放数据"""
-        try:
-            if 0 <= channel < 32:
-                # 确保work对象和必要的缓冲区属性存在
-                if not hasattr(self, 'work'):
-                    logger.warning("_on_playback_data_with_color: self.work not found, creating...")
-                    self.work = Worker()
-                    self.work.colored_buffers = ["" for _ in range(32)]
-                    self.work.colored_buffer_lengths = [0] * 32
-                
-                if not hasattr(self.work, 'colored_buffers'):
-                    self.work.colored_buffers = ["" for _ in range(32)]
-                    logger.debug("_on_playback_data_with_color: Created missing colored_buffers")
-                if not hasattr(self.work, 'colored_buffer_lengths'):
-                    self.work.colored_buffer_lengths = [0] * 32
-                    logger.debug("_on_playback_data_with_color: Created missing colored_buffer_lengths")
-                
-                # 为对应通道添加原始数据（使用字符串拼接而不是append）
-                self.work.colored_buffers[channel] += data
-                # 更新缓冲区长度
-                self.work.colored_buffer_lengths[channel] = len(self.work.colored_buffers[channel])
-                
-                # 为ALL通道（索引0）添加带颜色的数据
-                if channel != 0:
-                    self.work.colored_buffers[0] += colored_data
-                    # 更新ALL通道的缓冲区长度
-                    self.work.colored_buffer_lengths[0] = len(self.work.colored_buffers[0])
-                
-                # 设置相应的page_dirty_flags标记，触发UI更新
-                self.page_dirty_flags[channel + 1] = True  # 通道1-32对应索引1-32
-                self.page_dirty_flags[0] = True  # ALL通道对应索引0
-                
-                # 直接调用_update_from_worker方法立即更新UI
-                self._update_from_worker()
-        except Exception as e:
-            logger.error(f"Error in colored playback data handler: {e}", exc_info=True)
-    
-    @Slot(int, str)
-    def _on_playback_data(self, channel, data):
-        """处理回放数据，将其添加到work的缓冲区"""
-        try:
-            # 确保通道索引有效
-            if 0 <= channel < 32:
-                # 确保work对象和必要的缓冲区属性存在
-                if not hasattr(self, 'work'):
-                    logger.warning("_on_playback_data: self.work not found, creating...")
-                    self.work = Worker()
-                    self.work.colored_buffers = ["" for _ in range(32)]
-                    self.work.colored_buffer_lengths = [0] * 32
-                
-                if not hasattr(self.work, 'colored_buffers'):
-                    self.work.colored_buffers = ["" for _ in range(32)]
-                    logger.debug("_on_playback_data: Created missing colored_buffers")
-                if not hasattr(self.work, 'colored_buffer_lengths'):
-                    self.work.colored_buffer_lengths = [0] * 32
-                    logger.debug("_on_playback_data: Created missing colored_buffer_lengths")
-                
-                # 将数据添加到对应通道的缓冲区（使用字符串拼接而不是append）
-                self.work.colored_buffers[channel] += data
-                # 更新缓冲区长度
-                self.work.colored_buffer_lengths[channel] = len(self.work.colored_buffers[channel])
-                
-                # 设置相应的page_dirty_flags标记，触发UI更新
-                self.page_dirty_flags[channel + 1] = True  # 通道1-32对应索引1-32
-                self.page_dirty_flags[0] = True  # ALL通道对应索引0
-                
-                # 直接调用_update_from_worker方法立即更新UI
-                self._update_from_worker()
-                
-                logger.info(f"_on_playback_data: channel={channel}, buffer_len={self.work.colored_buffer_lengths[channel]}, dirty_flags={self.page_dirty_flags[:2]}")
-                    
-        except Exception as e:
-            logger.error(f"Error in playback data handler: {e}", exc_info=True)
-    
-    # 移除重写的_update_from_worker方法，直接使用父类DeviceMdiWindow的实现
+    # 移除了_on_playback_data和_on_playback_data_with_color方法，因为现在直接使用Worker类的process_bytes方法处理数据
+    # 这样可以确保回放流程与RTT连接流程使用完全相同的数据处理机制
+    # 直接使用父类DeviceMdiWindow的_update_from_worker方法
     
     @Slot()
     def _on_playback_finished(self):
-        """回放完成后的处理"""
+        """回放完成后的处理
+        
+        设计目标：确保回放完成后正确清理资源，并通知UI更新
+        """
         logger.info(f"Playback completed for file: {self.playback_file_path}")
         
+        # 确保所有缓冲区数据都被处理完毕
+        if hasattr(self, 'work') and hasattr(self.work, 'flush_log_buffers'):
+            self.work.flush_log_buffers()
+        
+        # 触发一次UI更新，确保所有数据都显示出来
+        if hasattr(self, '_update_from_worker'):
+            self._update_from_worker()
+    
     def closeEvent(self, event):
-        """回放窗口关闭事件 - 停止回放并清理资源"""
+        """回放窗口关闭事件 - 停止回放并清理资源
+        
+        设计目标：优雅地关闭窗口，确保所有资源都被正确释放
+        """
         logger.info(f"PlaybackMdiWindow closing for file: {self.playback_file_path}")
         
-        # 停止回放线程
-        if hasattr(self, 'playback_thread') and self.playback_thread and self.playback_thread.isRunning():
-            self.playback_thread.stop()
+        # 停止回放线程 - 确保线程安全地终止
+        if hasattr(self, 'playback_thread') and self.playback_thread:
+            if self.playback_thread.isRunning():
+                logger.debug("Stopping playback thread during window close")
+                self.playback_thread.stop()
         
-        # 停止更新定时器
+        # 停止更新定时器 - 避免定时器回调导致的问题
         if hasattr(self, 'update_timer'):
+            logger.debug("Stopping update timer during window close")
             self.update_timer.stop()
+        
+        # 清理Worker资源 - 确保缓冲区被清空
+        if hasattr(self, 'work'):
+            logger.debug("Cleaning up worker resources")
+            if hasattr(self.work, 'flush_log_buffers'):
+                self.work.flush_log_buffers()
+            # 清空缓冲区引用，帮助垃圾回收
+            self.work = None
         
         # 通知主窗口关闭此设备会话
         if hasattr(self, 'parent') and self.parent() and hasattr(self.parent(), '_on_mdi_window_closed'):
+            logger.debug("Notifying parent window of session closure")
             self.parent()._on_mdi_window_closed(self.device_session)
         
         # 调用父类的关闭事件处理
@@ -7235,7 +7303,7 @@ class RTTMainWindow(QMainWindow):
                     # 处理可能的编码问题，确保数据可以被正确解析
                     try:
                         # 将数据发送到process_bytes方法
-                        rtt2uart.rtt_data_processor.process_bytes(chunk)
+                        rtt2uart.worker.process_bytes(chunk)
                         self._playback_position += len(chunk)
                         
                         # 显示进度
@@ -11077,6 +11145,12 @@ class Worker(QObject):
         (re.compile(r'\x1B\[1;34m([^\x1B]*)'), r'<span style="color: #0000FF;">\1</span>'),
         (re.compile(r'\x1B\[0m'), '</span>')  # 重置代码
     ]
+    
+    # 通道前缀正则表达式
+    _channel_prefix_regex = re.compile(r'^(\d{1,2})[>\s]|^\[(\d{1,2})\]\s|^\[(0x[0-9A-Fa-f]{1,2})\]\s')
+    
+    # 通道标识正则表达式，支持多种格式
+    _channel_identifier_regex = re.compile(r'\[(0x[0-9A-Fa-f]+)\]|\[(\d+)\]')
 
     def _has_ansi_codes(self, text):
         """检查文本是否包含ANSI控制符"""
@@ -11086,6 +11160,65 @@ class Worker(QObject):
         except Exception:
             return False
 
+    def _process_text_with_channel_colors(self, index, text, is_all_tab=True):
+        """处理文本，根据通道索引应用不同的颜色标记
+        
+        Args:
+            index: 通道索引
+            text: 输入文本
+            is_all_tab: 是否为ALL标签页
+            
+        Returns:
+            处理后的文本，包含ANSI颜色转义序列
+        """
+        # 对于非ALL页面，我们直接返回原始文本
+        # 这样可以保留原始的ANSI颜色信息，让text_edit._parse_ansi_fast来处理
+        if not is_all_tab or not hasattr(self.parent, 'config'):
+            return text
+        
+        try:
+            # 直接按行分割文本，逐行处理
+            lines = text.split('\n')
+            result_lines = []
+            
+            # 直接使用传入的index参数作为通道索引
+            channel_idx = index
+            
+            for line in lines:
+                # 去除每行末尾可能存在的\r字符
+                line = line.rstrip('\r')
+                
+                if line:  # 只处理非空行
+                    # 如果是有效的通道索引，应用通道特定的颜色
+                    if 0 <= channel_idx <= 15:
+                        try:
+                            # 从配置管理器获取通道颜色
+                            fg_color, bg_color = self.parent.config.get_channel_color(channel_idx)
+                            
+                            # 创建ANSI转义序列来设置前景色和背景色
+                            # 格式：\033[38;2;R;G;B;48;2;R;G;Bm文本\033[0m
+                            # 将十六进制颜色转换为RGB
+                            r_fg, g_fg, b_fg = int(fg_color[0:2], 16), int(fg_color[2:4], 16), int(fg_color[4:6], 16)
+                            r_bg, g_bg, b_bg = int(bg_color[0:2], 16), int(bg_color[2:4], 16), int(bg_color[4:6], 16)
+                            
+                            # 分别设置前景色和背景色，确保正确解析
+                            # 先重置所有属性，然后分别设置前景色和背景色
+                            colored_line = f"\033[0m\033[38;2;{r_fg};{g_fg};{b_fg}m\033[48;2;{r_bg};{g_bg};{b_bg}m{line}\033[0m"
+                            result_lines.append(colored_line)
+                        except Exception as e:
+                            # 获取颜色失败时，使用默认格式
+                            logger.warning(f"Failed to process channel color for {channel_idx}: {e}")
+                            result_lines.append(line)
+                    else:
+                        result_lines.append(line)
+                else:
+                    result_lines.append('')
+            
+            return '\n'.join(result_lines)
+        except Exception as e:
+            logger.error(f"Error processing text with channel colors: {e}")
+            return text
+    
     def _convert_ansi_to_html(self, text):
         """将ANSI控制符转换为HTML格式 - 性能优化版本"""
         try:
@@ -11153,8 +11286,10 @@ class Worker(QObject):
     def _process_batch_buffer(self, index):
         """处理批量缓冲区"""
         if len(self.batch_buffers[index]) > 0:
-            batch_data = bytes(self.batch_buffers[index])
-            self.batch_buffers[index].clear()
+            # 直接使用batch_buffers[index]，因为它已经是bytes类型
+            batch_data = self.batch_buffers[index]
+            # 重置batch_buffers为新的空bytes对象
+            self.batch_buffers[index] = b''
             self._process_buffer_data(index, batch_data)
             
             # 🚀 Turbo模式优化：批量处理后强制触发UI更新
@@ -11203,10 +11338,8 @@ class Worker(QObject):
         
         # 优化的ANSI处理和缓冲区管理
         try:
-            # 批量处理：移除ANSI控制符
-            import re
-            ansi_regex = re.compile(r'\x1B\[[0-9;]*[mJ]')
-            clean_data = ansi_regex.sub('', data)
+            # 批量处理：移除ANSI控制符（用于普通缓冲区）
+            clean_data = self._ansi_pattern.sub('', data)
             
             # 修复多余换行问题
             if clean_data.endswith('\n\n'):
@@ -11214,12 +11347,24 @@ class Worker(QObject):
             
             # 批量缓冲区追加：避免重复调用
             self._append_to_buffer(index+1, clean_data)
-            self._append_to_buffer(0, prefix + clean_data)
+            
+            # 对于ALL页面，应用通道颜色处理
+            all_data = prefix + clean_data
+            processed_all_data = self._process_text_with_channel_colors(index, all_data, is_all_tab=True)
+            self._append_to_buffer(0, processed_all_data)
+            
+            # 对于非ALL页面，我们需要确保原始ANSI颜色能被正确处理
+            # 但在这个方法中，我们只处理文本缓冲区，彩色缓冲区会处理ANSI
             
             # 为彩色显示保留原始ANSI文本
             if hasattr(self, 'colored_buffers'):
+                # 非ALL页面：直接使用包含ANSI控制符的原始数据，让text_edit._parse_ansi_fast处理颜色
                 self._append_to_colored_buffer(index+1, data)
-                self._append_to_colored_buffer(0, prefix + data)
+                
+                    # 对于ALL页面的彩色显示，先去除原始ANSI颜色，再应用通道配色
+                colored_all_data = prefix + clean_data  # 使用去除了ANSI控制符的clean_data
+                processed_colored_all_data = self._process_text_with_channel_colors(index, colored_all_data, is_all_tab=True)
+                self._append_to_colored_buffer(0, processed_colored_all_data)
                     
         except Exception as e:
             # 错误处理：使用更简单的回退机制
@@ -11246,6 +11391,9 @@ class Worker(QObject):
                 # 转发所有数据（TAB 0）包含通道前缀
                 buffer_parts = ["%02u> " % index, data]
                 self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
+            else:
+                # 确保buffer_parts始终有定义，即使没有串口转发功能
+                buffer_parts = ["%02u> " % index, data]
 
             # 📋 统一日志处理：
             # 1. ALL页面日志 - 每次都写入，确保完整记录
@@ -11381,30 +11529,81 @@ class Worker(QObject):
         }
         
     def process_bytes(self, data):
-        """处理原始字节数据，按0xFF分隔符分段
+        """处理原始字节数据，智能处理带分隔符和不带分隔符的数据
         
         Args:
             data: 原始字节数据
         """
         try:
-            self.remaining_data.extend(data)
-            while self.remaining_data:
-                # 查找分隔符位置
-                separator_pos = self.remaining_data.find(b'\xFF')
-                if separator_pos == -1:
-                    # 没有找到分隔符，保留数据等待下一批
-                    break
-                separator = self.remaining_data[separator_pos:separator_pos+1]
-                # 提取分隔符前的数据段
-                chunk = self.remaining_data[:separator_pos]
-                # 更新剩余数据
-                self.remaining_data = self.remaining_data[separator_pos + 1:]
+            # 确保remaining_data是bytes类型
+            if not isinstance(self.remaining_data, bytes):
+                self.remaining_data = b''
+            
+            # 使用bytes的连接操作
+            self.remaining_data += data
+            
+            # 如果数据中包含0xFF分隔符，使用分隔符模式处理（实时连接）
+            if b'\xFF' in self.remaining_data:
+                while self.remaining_data:
+                    # 查找分隔符位置
+                    separator_pos = self.remaining_data.find(b'\xFF')
+                    if separator_pos == -1:
+                        # 没有找到分隔符，保留数据等待下一批
+                        break
+                    # 提取分隔符前的数据段
+                    chunk = self.remaining_data[:separator_pos]
+                    # 更新剩余数据
+                    self.remaining_data = self.remaining_data[separator_pos + 1:]
 
-                if chunk:
-                    # 处理数据段
-                    self._process_chunk(chunk)
+                    if chunk:
+                        # 处理数据段
+                        self._process_chunk(chunk)
+            else:
+                # 如果没有0xFF分隔符，按行解析处理（回放模式）
+                # 这种情况通常发生在日志文件回放时，数据是连续的
+                if self.remaining_data:
+                    # 标准化行尾
+                    temp_data = self.remaining_data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+                    
+                    # 按行分割数据
+                    lines = temp_data.split(b'\n')
+                    
+                    # 处理每一行数据
+                    for line in lines[:-1]:  # 除了最后一行，可能不完整
+                        if line:  # 忽略空行
+                            # 尝试从行首解析通道标记 [XX]
+                            try:
+                                # 检查行首是否有 [XX] 格式的通道标记
+                                if line.startswith(b'[') and b']' in line[:6]:  # 最多检查前6个字符
+                                    # 提取通道号
+                                    channel_end = line.index(b']')
+                                    channel_str = line[1:channel_end].strip()
+                                    # 尝试将通道号转换为整数
+                                    channel_index = int(channel_str)
+                                    # 提取实际数据部分（去掉通道标记）
+                                    actual_data = line[channel_end+1:].strip()
+                                    
+                                    # 构建通道数据格式，模拟实时模式的格式
+                                    # 首字节为通道号（0-15对应0-F的ASCII）
+                                    if 0 <= channel_index <= 15:
+                                        # 构建新的数据块：通道号ASCII + 实际数据
+                                        new_chunk = bytes([0x30 + channel_index]) + actual_data
+                                        self._process_chunk(new_chunk)
+                                        continue
+                            except (ValueError, IndexError):
+                                # 解析失败，回退到默认处理
+                                pass
+                            
+                            # 默认处理：直接处理整行
+                            self._process_chunk(line)
+                    
+                    # 保存可能不完整的最后一行
+                    if lines[-1]:
+                        self.remaining_data = lines[-1]
+                    else:
+                        self.remaining_data = b''
         except Exception as e:
-            logger.error(f"Error processing bytes: {e}")
+            logger.error(f"Error processing bytes: {e}", exc_info=True)
     
     def _process_chunk(self, chunk):
         """处理单个数据段
@@ -11424,10 +11623,7 @@ class Worker(QObject):
         else:
             data_content = chunk
 
-        if(self.channel_idx >= 3 and self.channel_idx <= 13):
-            pass
-        
-        # 转换通道标识并添加到缓冲区
+        # 转换通道标识并添加到缓冲区 - 所有文本处理都在这里完成
         self.addToBuffer(self.channel_idx, data_content)
     
     def _extract_increment_from_chunks(self, chunks, last_size, max_bytes=None):

@@ -33,8 +33,6 @@ class FastAnsiTextEdit(QTextEdit):
         # 标签页索引和配置管理器
         self.tab_index = tab_index  # -1表示普通标签页，0表示ALL标签页，1-15表示通道标签页
         self.config_manager = config_manager
-        # 当前通道索引，用于连续行的通道颜色继承
-        self._current_channel = 0
         
         # 是否禁用内容限制（用于回放窗口）
         self.disable_content_limit = disable_content_limit
@@ -86,11 +84,7 @@ class FastAnsiTextEdit(QTextEdit):
         self._last_update_time = 0
         self._update_count = 0
         
-        # 初始化通道前缀正则表达式
-        import re
-        # 匹配常见的通道前缀格式：[CH0], CH1:, [0], 0:, [Channel 2], etc.
-        # 增强版正则，支持更多格式包括日志格式如 "[02]" 或 "02[" 等
-        self._channel_prefix_regex = re.compile(r'^\[(?:CH|Channel)?(\d{1,2})\]|^(?:CH|Channel)?(\d{1,2}):|^\[(\d{1,2})\]|^(\d{1,2})\[', re.IGNORECASE)
+        # 不再需要通道前缀正则表达式，由Worker类处理
         
         # 初始化ANSI处理器
         self._init_ansi_processor()
@@ -104,305 +98,229 @@ class FastAnsiTextEdit(QTextEdit):
         self.tab_index = tab_index
         
     def _init_ansi_processor(self):
-        """初始化ANSI处理器"""
-        # 简化的ANSI颜色映射 - 只处理常用颜色以提升性能
-        self._ansi_colors = {
-            # 前景色
-            30: QColor(0, 0, 0),        # 黑
-            31: QColor(205, 0, 0),      # 红
-            32: QColor(0, 205, 0),      # 绿  
-            33: QColor(205, 205, 0),    # 黄
-            34: QColor(0, 0, 238),      # 蓝
-            35: QColor(205, 0, 205),    # 洋红
-            36: QColor(0, 205, 205),    # 青
-            37: QColor(229, 229, 229),  # 白
-            
-            # 亮色 (90-97)
-            90: QColor(127, 127, 127),  # 亮黑
-            91: QColor(255, 0, 0),      # 亮红
-            92: QColor(0, 255, 0),      # 亮绿
-            93: QColor(255, 255, 0),    # 亮黄
-            94: QColor(92, 92, 255),    # 亮蓝
-            95: QColor(255, 0, 255),    # 亮洋红
-            96: QColor(0, 255, 255),    # 亮青
-            97: QColor(255, 255, 255),  # 亮白
-        }
-        
-        # 背景色映射 - 统一使用明亮黄色高亮
-        self._ansi_bg_colors = {
-            40: QColor(0, 0, 0),        # 黑色背景
-            41: QColor(205, 0, 0),      # 红色背景
-            42: QColor(0, 205, 0),      # 绿色背景
-            43: QColor(255, 255, 0),    # 🎨 明亮黄色背景 - 统一高亮颜色
-            44: QColor(0, 0, 238),      # 蓝色背景
-            45: QColor(205, 0, 205),    # 洋红背景
-            46: QColor(0, 205, 205),    # 青色背景
-            47: QColor(229, 229, 229),  # 白色背景
-        }
-        
-        # 预编译正则表达式
+        """初始化ANSI处理器 - 支持颜色代码处理"""
+        # 预编译正则表达式 - 用于ANSI颜色代码检测和提取
         self._ansi_regex = re.compile(r'\x1B\[[0-9;]*[mJ]')
+        self._ansi_color_regex = re.compile(r'\x1B\[([0-9;]*)m')
+        
+        # 初始化颜色和格式缓存
+        self._color_cache = {}
+        self._format_cache = {}
         
     def _get_cached_format(self, fg_color=None, bg_color=None, bold=False):
-        """获取缓存的文本格式"""
-        # 🔧 修复QColor hashable问题：将QColor转换为字符串作为键
-        fg_key = fg_color.name() if fg_color else None
-        bg_key = bg_color.name() if bg_color else None
-        
-        # 将字体信息也加入缓存键，确保不同字体生成不同的格式缓存
-        # 获取当前字体信息作为键的一部分
-        font = self.font()
-        font_key = (font.family(), font.pointSize())
-        
-        key = (fg_key, bg_key, bold, font_key)
-        
-        if key not in self._format_cache:
-            fmt = QTextCharFormat()
-            
-            if fg_color:
-                fmt.setForeground(fg_color)
-            if bg_color:
-                fmt.setBackground(bg_color)
-            if bold:
-                fmt.setFontWeight(QFont.Bold)
-                
-            # 使用当前文本编辑器的字体设置
-            fmt.setFont(font)
-            
-            self._format_cache[key] = fmt
-            
-        return self._format_cache[key]
+        """获取缓存的文本格式对象
+
+        Args:
+            fg_color: 前景色 (QColor)
+            bg_color: 背景色 (QColor)
+            bold: 是否粗体
+
+        Returns:
+            QTextCharFormat对象
+        """
+        # 创建缓存键 - 使用可哈希的值
+        fg_key = (fg_color.red(), fg_color.green(), fg_color.blue()) if fg_color else None
+        bg_key = (bg_color.red(), bg_color.green(), bg_color.blue()) if bg_color else None
+        key = (fg_key, bg_key, bold)
+
+        # 检查缓存
+        if key in self._format_cache:
+            return self._format_cache[key]
+
+        # 创建新的格式对象
+        format_obj = QTextCharFormat()
+
+        # 设置前景色
+        if fg_color:
+            format_obj.setForeground(fg_color)
+
+        # 设置背景色
+        if bg_color:
+            format_obj.setBackground(bg_color)
+
+        # 设置粗体
+        if bold:
+            format_obj.setFontWeight(QFont.Bold)
+
+        # 缓存格式对象
+        self._format_cache[key] = format_obj
+
+        return format_obj
         
     def _parse_ansi_fast(self, text):
-        """快速解析ANSI序列
-        在ALL标签页中，根据通道前缀使用不同的颜色配置
+        """解析ANSI颜色代码
+
+        Args:
+            text: 包含ANSI颜色代码的文本
+
+        Returns:
+            分段文本列表，每个元素包含文本和对应的格式
         """
         segments = []
+
+        # 检查是否包含清屏命令
+        if '\x1B[2J' in text:
+            # 只在 TAB 1-TAB16 执行清屏操作
+            if 1 <= self.tab_index <= 16:
+                self.clear_content()
+            # 移除清屏命令
+            text = text.replace('\x1B[2J', '')
+
+        # 如果不包含任何ANSI代码，直接返回文本
+        if '\x1B[' not in text:
+            if text:
+                segments.append({
+                    'text': text,
+                    'format': None
+                })
+            return segments
+
+        # 当前格式状态
         current_fg = None
         current_bg = None
         current_bold = False
-        # 移除重置_current_channel的操作，保持通道颜色的连续性
-        
-        # 如果是ALL标签页（索引为0）且有配置管理器，需要根据通道前缀应用不同颜色
-        is_all_tab = self.tab_index == 0 and self.config_manager is not None
-        # logger.info(f"[颜色调试] 当前tab_index={self.tab_index}，config_manager={self.config_manager is not None}，is_all_tab={is_all_tab}")
-        
-        if is_all_tab:
-            # 1. 先删除所有原本的颜色标签（ANSI序列）
-            text_without_ansi = self._ansi_regex.sub('', text)
-            
-            # 2. 按行分割文本，逐行处理
-            lines = text_without_ansi.split('\n')
-            for line_idx, line in enumerate(lines):
-                # 去除每行末尾可能存在的\r字符，避免多余的换行
-                line = line.rstrip('\r')
-                # 为每行单独处理通道信息
-                current_is_channel_line = False
-                current_channel_fg = None
-                current_channel_bg = None
-                
-                if line:  # 只处理非空行
-                    # 3. 查找通道前缀
-                    channel_idx = self._extract_channel_index(line)
-                    # logger.info(f"[颜色调试] 行{line_idx}：文本='{line[:50]}...'，提取到通道索引={channel_idx}")
-                    
-                    # 标记是否为有效的通道行
-                    current_is_channel_line = 0 <= channel_idx <= 15
-                    # logger.info(f"[颜色调试] 行{line_idx}：是否为有效通道行={current_is_channel_line}")
-                    
-                    # 如果是有效的通道行，获取通道颜色
-                    if current_is_channel_line:
-                        try:
-                            # 从配置获取颜色
-                            fg_hex, bg_hex = self.config_manager.get_channel_color(channel_idx)
-                            # logger.info(f"[颜色调试] 行{line_idx}：通道{channel_idx}的颜色配置 - 前景色={fg_hex}，背景色={bg_hex}")
-                            
-                            # 创建QColor对象
-                            current_channel_fg = QColor(f"#{fg_hex}")
-                            current_channel_bg = QColor(f"#{bg_hex}")
-                            # logger.info(f"[颜色调试] 行{line_idx}：成功创建通道{channel_idx}的颜色对象")
-                        except Exception as e:
-                            # 配置获取失败时使用默认颜色
-                            # logger.info(f"[颜色调试] 行{line_idx}：获取通道{channel_idx}颜色配置失败 - {str(e)}")
-                            current_is_channel_line = False
-                    
-                    # 4. 给每行添加当前通道的颜色标签
-                    if current_is_channel_line:
-                        # 使用通道特定颜色
-                        # logger.info(f"[颜色调试] 行{line_idx}：应用通道{channel_idx}的颜色")
-                        segments.append({
-                            'text': line,
-                            'format': self._get_cached_format(current_channel_fg, current_channel_bg, False)
-                        })
-                    else:
-                        # 使用默认颜色
-                        # logger.info(f"[颜色调试] 行{line_idx}：应用默认颜色")
-                        segments.append({
-                            'text': line,
-                            'format': self._get_cached_format(current_fg, current_bg, current_bold)
-                        })
-                
-                # 添加换行符（除了最后一行）
-                if line_idx < len(lines) - 1:
-                    # 如果是通道行，确保换行符也使用通道颜色
-                    if line and current_is_channel_line and current_channel_fg is not None:
-                        segments.append({
-                            'text': '\n',
-                            'format': self._get_cached_format(current_channel_fg, current_channel_bg, False)
-                        })
-                    else:
-                        segments.append({
-                            'text': '\n',
-                            'format': self._get_cached_format(current_fg, current_bg, current_bold)
-                        })
-        else:
-            # 普通标签页，使用原始的ANSI解析逻辑
-            # 使用正则分割文本和ANSI序列
-            parts = self._ansi_regex.split(text)
-            ansi_codes = self._ansi_regex.findall(text)
-            
-            for i, part in enumerate(parts):
-                if part:  # 非空文本
+
+        # 遍历ANSI颜色代码
+        last_end = 0
+        for match in self._ansi_color_regex.finditer(text):
+            start, end = match.span()
+
+            # 获取匹配的代码部分
+            code_str = match.group(1)
+
+            # 提取代码前的普通文本
+            if start > last_end:
+                plain_text = text[last_end:start]
+                if plain_text:
+                    format_obj = self._get_cached_format(current_fg, current_bg, current_bold)
                     segments.append({
-                        'text': part,
-                        'format': self._get_cached_format(current_fg, current_bg, current_bold)
+                        'text': plain_text,
+                        'format': format_obj
                     })
+
+            # 处理ANSI代码
+            codes = code_str.split(';')
+            i = 0
+            while i < len(codes):
+                code = codes[i]
+                if not code:
+                    i += 1
+                    continue
+
+                try:
+                    code_num = int(code)
+
+                    # 重置所有属性
+                    if code_num == 0:
+                        current_fg = None
+                        current_bg = None
+                        current_bold = False
+                    # 粗体
+                    elif code_num == 1:
+                        current_bold = True
+                    # 前景色设置 - 标准颜色代码 (30-37)
+                    elif 30 <= code_num <= 37:
+                        # 标准颜色映射
+                        color_map = {
+                            30: QColor(0, 0, 0),      # 黑色
+                            31: QColor(255, 0, 0),    # 红色
+                            32: QColor(0, 255, 0),    # 绿色
+                            33: QColor(255, 255, 0),  # 黄色
+                            34: QColor(0, 0, 255),    # 蓝色
+                            35: QColor(255, 0, 255),  # 洋红色
+                            36: QColor(0, 255, 255),  # 青色
+                            37: QColor(255, 255, 255) # 白色
+                        }
+                        current_fg = color_map[code_num]
+                    # 前景色设置 - 亮颜色代码 (90-97)
+                    elif 90 <= code_num <= 97:
+                        # 亮颜色映射
+                        color_map = {
+                            90: QColor(128, 128, 128),    # 亮黑色
+                            91: QColor(255, 100, 100),    # 亮红色
+                            92: QColor(100, 255, 100),    # 亮绿色
+                            93: QColor(255, 255, 100),    # 亮黄色
+                            94: QColor(100, 100, 255),    # 亮蓝色
+                            95: QColor(255, 100, 255),    # 亮洋红色
+                            96: QColor(100, 255, 255),    # 亮青色
+                            97: QColor(255, 255, 255)     # 亮白色
+                        }
+                        current_fg = color_map[code_num]
+                    # 前景色设置 - 24位真彩色 (38;2;R;G;B)
+                    elif code_num == 38 and i + 4 < len(codes) and codes[i+1] == '2':
+                        try:
+                            r = int(codes[i+2])
+                            g = int(codes[i+3])
+                            b = int(codes[i+4])
+                            current_fg = QColor(r, g, b)
+                            # 跳过已处理的代码
+                            i += 4
+                        except (ValueError, IndexError):
+                            pass
+                    # 背景色设置 - 标准颜色代码 (40-47)
+                    elif 40 <= code_num <= 47:
+                        # 标准背景色映射
+                        color_map = {
+                            40: QColor(0, 0, 0),      # 黑色背景
+                            41: QColor(255, 0, 0),    # 红色背景
+                            42: QColor(0, 255, 0),    # 绿色背景
+                            43: QColor(255, 255, 0),  # 黄色背景
+                            44: QColor(0, 0, 255),    # 蓝色背景
+                            45: QColor(255, 0, 255),  # 洋红色背景
+                            46: QColor(0, 255, 255),  # 青色背景
+                            47: QColor(255, 255, 255) # 白色背景
+                        }
+                        current_bg = color_map[code_num]
+                    # 背景色设置 - 亮颜色代码 (100-107)
+                    elif 100 <= code_num <= 107:
+                        # 亮背景色映射
+                        color_map = {
+                            100: QColor(128, 128, 128),    # 亮黑色背景
+                            101: QColor(255, 100, 100),    # 亮红色背景
+                            102: QColor(100, 255, 100),    # 亮绿色背景
+                            103: QColor(255, 255, 100),    # 亮黄色背景
+                            104: QColor(100, 100, 255),    # 亮蓝色背景
+                            105: QColor(255, 100, 255),    # 亮洋红色背景
+                            106: QColor(100, 255, 255),    # 亮青色背景
+                            107: QColor(255, 255, 255)     # 亮白色背景
+                        }
+                        current_bg = color_map[code_num]
+                    # 背景色设置 - 24位真彩色 (48;2;R;G;B)
+                    elif code_num == 48 and i + 4 < len(codes) and codes[i+1] == '2':
+                        try:
+                            r = int(codes[i+2])
+                            g = int(codes[i+3])
+                            b = int(codes[i+4])
+                            current_bg = QColor(r, g, b)
+                            # 跳过已处理的代码
+                            i += 4
+                        except (ValueError, IndexError):
+                            pass
+                except ValueError:
+                    pass
                 
-                # 处理ANSI序列
-                if i < len(ansi_codes):
-                    code = ansi_codes[i]
-                    # 检查是否为清屏命令 \x1B[2J
-                    if code == '\x1B[2J':
-                        # 只在 TAB 1-TAB16 执行清屏操作
-                        if 1 <= self.tab_index <= 16:
-                            self.clear_content()
-                        continue
-                    
-                    # 解析数字序列
-                    numbers = []
-                    try:
-                        num_str = code[2:-1]  # 去掉\x1B[和m
-                        if num_str:
-                            numbers = [int(x) for x in num_str.split(';') if x.isdigit()]
-                        else:
-                            numbers = [0]  # 默认重置
-                    except:
-                        continue
-                        
-                    for num in numbers:
-                        if num == 0:  # 重置
-                            current_fg = None
-                            current_bg = None
-                            current_bold = False
-                        elif num == 1:  # 加粗
-                            current_bold = True
-                        elif num == 22:  # 取消加粗
-                            current_bold = False
-                        elif 30 <= num <= 37:  # 前景色
-                            current_fg = self._ansi_colors.get(num)
-                        elif 40 <= num <= 47:  # 背景色
-                            current_bg = self._ansi_bg_colors.get(num)
-                        elif 90 <= num <= 97:  # 亮前景色
-                            current_fg = self._ansi_colors.get(num)
-                        
+                i += 1
+
+            last_end = end
+
+        # 添加最后一段文本
+        if last_end < len(text):
+            remaining_text = text[last_end:]
+            if remaining_text:
+                format_obj = self._get_cached_format(current_fg, current_bg, current_bold)
+                segments.append({
+                    'text': remaining_text,
+                    'format': format_obj
+                })
+
         return segments
         
     def _extract_channel_index(self, text: str) -> int:
-        """从文本中提取通道索引
+        """已废弃的通道索引提取方法
         
-        Args:
-            text: 输入文本
-        
-        Returns:
-            通道索引（0-15），如果未找到或超出范围则返回-1
+        所有通道处理逻辑已移至Worker类
         """
-        # logger.info(f"[颜色调试] 提取通道索引：输入文本='{text[:50]}...'")
-        # 1. 首先尝试匹配日志格式中的通道标识，支持多种格式
-        # 如 "0x11:11:08:45:721[0x64096852]]" 或 "[8043965]" 或 "ascu_list-receive [80]"
-        import re
-        
-        # 增强版正则表达式，支持更多格式
-        # 匹配：[0xXX], [XX], [XXXXXXXX]等格式
-        hex_match = re.search(r'\[(0x[0-9A-Fa-f]+)\]|\[(\d+)\]', text)
-        if hex_match:
-            channel_str = hex_match.group(1) or hex_match.group(2)
-            try:
-                if channel_str.startswith('0x'):
-                    # 十六进制转换
-                    channel_idx = int(channel_str, 16)
-                    # 对于长十六进制数，提取第一个字节作为通道号
-                    if channel_idx > 255:
-                        channel_idx = (channel_idx >> 24) & 0xFF  # 提取第一个字节
-                else:
-                    # 十进制转换
-                    channel_idx = int(channel_str)
-                    # 对于长十进制数，提取高位作为通道号或直接取模16
-                    if channel_idx > 1000:
-                        # 尝试从长数字中提取通道信息
-                        # 方法1：取第一个数字
-                        first_digit = int(str(channel_idx)[0])
-                        if 0 <= first_digit <= 15:
-                            return first_digit
-                        # 方法2：直接取模16
-                        return channel_idx % 16
-                
-                # 检查范围并映射到0-15
-                # 例如：通道80映射到0，通道81映射到1，以此类推
-                if 80 <= channel_idx <= 95:
-                    return channel_idx - 80
-                elif 0 <= channel_idx <= 15:
-                    return channel_idx
-            except ValueError:
-                pass
-        
-        # 2. 尝试原始的通道前缀匹配
-        match = self._channel_prefix_regex.match(text.strip())
-        if match:
-            # 提取数字部分（可能在任何一个捕获组中）
-            for i in range(1, 5):  # 检查所有捕获组
-                channel_str = match.group(i)
-                if channel_str:
-                    try:
-                        channel_idx = int(channel_str)
-                        # 检查范围
-                        if 0 <= channel_idx <= 15:
-                            return channel_idx
-                    except ValueError:
-                        continue
-        
-        # 3. 新增：匹配格式如 "00>"、"07>"、"15>" 这样的通道前缀
-        # 这里使用re.match确保只匹配行首
-        new_prefix_match = re.match(r'^(\d{1,2})>', text.strip())
-        if new_prefix_match:
-            channel_str = new_prefix_match.group(1)
-            try:
-                channel_idx = int(channel_str)
-                # 检查范围
-                if 0 <= channel_idx <= 15:
-                    # logger.info(f"[颜色调试] 成功匹配新格式通道前缀：{channel_str}>")
-                    self._current_channel = channel_idx
-                    return channel_idx
-                else:
-                    # 通道号超出范围，保持当前通道
-                    pass
-            except ValueError:
-                pass
-        
-        # 4. 特殊处理：检查文本是否以数字开头，后跟空格或其他分隔符
-        # 例如："02 [8043965]" 这样的格式
-        parts = text.strip().split()
-        if parts and parts[0].isdigit():
-            try:
-                channel_idx = int(parts[0])
-                if 0 <= channel_idx <= 15:
-                    # 进一步验证：检查是否包含其他标识符
-                    # 例如，确保它不是行号等
-                    if len(parts[0]) <= 2 and (len(parts) > 1 and (parts[1].startswith('[') or parts[1].startswith(':'))):
-                        return channel_idx
-            except ValueError:
-                pass
-                
-        return self._current_channel
+        return 0  # 返回默认通道
         
     def append_ansi_text(self, text, force_flush=False, on_complete=None):
         """添加ANSI文本 - 支持批处理
@@ -427,7 +345,7 @@ class FastAnsiTextEdit(QTextEdit):
             self._batch_timer.start(16)  # ~60fps
             
     def _flush_batch(self):
-        """批量处理待处理的文本"""
+        """批量处理待处理的文本 - 支持ANSI颜色代码"""
         if not self._pending_texts:
             return
             
@@ -437,16 +355,27 @@ class FastAnsiTextEdit(QTextEdit):
         combined_text = ''.join(self._pending_texts)
         self._pending_texts.clear()
         
-        # 快速解析ANSI
-        segments = self._parse_ansi_fast(combined_text)
-        
-        # 批量插入文本
+        # 解析ANSI颜色代码并应用格式
         cursor = self.textCursor()
         cursor.movePosition(QTextCursor.End)
         
+        # 解析ANSI颜色代码
+        segments = self._parse_ansi_fast(combined_text)
+        
+        # 应用每个分段的格式和文本
         for segment in segments:
-            if segment['text']:
-                cursor.insertText(segment['text'], segment['format'])
+            text = segment['text']
+            format_obj = segment['format']
+            
+            if format_obj:
+                # 应用格式
+                cursor.setCharFormat(format_obj)
+            else:
+                # 重置为默认格式
+                cursor.setCharFormat(QTextCharFormat())
+            
+            # 插入文本
+            cursor.insertText(text)
                 
         self.setTextCursor(cursor)
         
