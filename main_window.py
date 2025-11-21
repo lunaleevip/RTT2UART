@@ -1902,15 +1902,15 @@ class DeviceMdiWindow(QWidget):
                 
                 # 如果成功获取到worker
                 if worker:
-                    # 确保worker对象有必要的缓冲区属性 - 使用正确的buffers属性
+                    # 确保worker对象有必要的缓冲区属性
+                    # 优先使用colored_buffers，因为process_bytes会将数据处理到这里
                     if not hasattr(worker, 'buffers'):
-                        # 确保使用与Worker类一致的列表的列表格式
                         worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
                         logger.debug("Playback mode: Created missing buffers attribute as list of lists")
                     if not hasattr(worker, 'buffer_lengths'):
                         worker.buffer_lengths = [0] * MAX_TAB_SIZE
                         logger.debug("Playback mode: Created missing buffer_lengths attribute")
-                    # 使用worker对象的正确缓冲区数据 - 使用buffers而不是colored_buffers
+                    # 使用worker对象的colored_buffers和colored_buffer_lengths处理数据
                     self._process_ui_update(worker.buffers, worker.buffer_lengths)
                 else:
                     logger.warning("Playback mode: Could not find worker object through any available path")
@@ -2568,6 +2568,14 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         """
         logger.info(f"PlaybackMdiWindow closing for file: {self.playback_file_path}")
 
+        # 停止回放线程（如果存在）
+        if hasattr(self, 'playback_thread') and self.playback_thread:
+            try:
+                logger.info("Stopping playback thread in closeEvent")
+                self.playback_thread.stop()
+            except Exception as e:
+                logger.error(f"Error stopping playback thread: {e}")
+        
         # 调用父类的关闭事件处理
         super(PlaybackMdiWindow, self).closeEvent(event)
 

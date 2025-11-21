@@ -1,10 +1,5 @@
 import logging
-try:
-    # 优先使用性能配置
-    from performance_config import DataProcessingConfig as _DPConf
-    _RTT_READ_BUFFER_SIZE = getattr(_DPConf, 'RTT_READ_BUFFER_SIZE', 4096)
-except Exception:
-    _RTT_READ_BUFFER_SIZE = 4096
+_RTT_READ_BUFFER_SIZE = 4096
 import pylink
 import time
 import serial
