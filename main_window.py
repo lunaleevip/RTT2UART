@@ -1889,19 +1889,31 @@ class DeviceMdiWindow(QWidget):
             
             if is_playback:
                 logger.debug("_update_from_worker: Playback mode detected")
-                # 回放模式使用self.work对象的缓冲区
-                if hasattr(self, 'work') and self.work:
-                    # 确保work对象有必要的缓冲区属性
-                    if not hasattr(self.work, 'colored_buffers'):
-                        self.work.colored_buffers = ["" for _ in range(32)]
-                        logger.debug("Playback mode: Created missing colored_buffers attribute")
-                    if not hasattr(self.work, 'colored_buffer_lengths'):
-                        self.work.colored_buffer_lengths = [0] * 32
-                        logger.debug("Playback mode: Created missing colored_buffer_lengths attribute")
-                    # 使用work对象的缓冲区数据
-                    self._process_ui_update(self.work.colored_buffers, self.work.colored_buffer_lengths)
+                worker = None
+                
+                # 首先尝试使用标准路径 device_session.connection_dialog.work
+                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'work'):
+                    worker = self.device_session.connection_dialog.work
+                    logger.debug("Playback mode: Got worker from device_session.connection_dialog.work")
+                # 如果标准路径失败，尝试使用直接引用 self.worker
+                elif hasattr(self, 'worker') and self.worker:
+                    worker = self.worker
+                    logger.debug("Playback mode: Got worker from self.worker fallback")
+                
+                # 如果成功获取到worker
+                if worker:
+                    # 确保worker对象有必要的缓冲区属性 - 使用正确的buffers属性
+                    if not hasattr(worker, 'buffers'):
+                        # 确保使用与Worker类一致的列表的列表格式
+                        worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                        logger.debug("Playback mode: Created missing buffers attribute as list of lists")
+                    if not hasattr(worker, 'buffer_lengths'):
+                        worker.buffer_lengths = [0] * MAX_TAB_SIZE
+                        logger.debug("Playback mode: Created missing buffer_lengths attribute")
+                    # 使用worker对象的正确缓冲区数据 - 使用buffers而不是colored_buffers
+                    self._process_ui_update(worker.buffers, worker.buffer_lengths)
                 else:
-                    logger.warning("Playback mode: self.work not found")
+                    logger.warning("Playback mode: Could not find worker object through any available path")
                 return
             
             # 非回放模式的原有逻辑
@@ -2012,10 +2024,22 @@ class DeviceMdiWindow(QWidget):
             
             if current_length > last_length:
                 # 有新数据，提取增量部分
-                # 修复：确保colored_data是字符串类型
+                # 修复：确保正确处理嵌套列表格式的colored_buffers
                 raw_data = colored_buffers[channel]
                 if isinstance(raw_data, list):
-                    colored_data = ''.join(raw_data)
+                    # 处理嵌套列表的情况（Worker类和回放模式的colored_buffers格式）
+                    if raw_data and isinstance(raw_data[0], list):
+                        # 嵌套列表：[[]] 格式
+                        flattened = []
+                        for sublist in raw_data:
+                            if isinstance(sublist, list):
+                                flattened.extend(sublist)
+                            else:
+                                flattened.append(sublist)
+                        colored_data = ''.join(flattened)
+                    else:
+                        # 普通列表：[] 格式
+                        colored_data = ''.join(raw_data)
                 else:
                     colored_data = str(raw_data)
                 new_data = colored_data[last_length:]
@@ -2199,8 +2223,8 @@ class DeviceMdiWindow(QWidget):
 class PlaybackMdiWindow(DeviceMdiWindow):
     """回放MDI窗口类，继承自DeviceMdiWindow，用于日志文件回放
     
-    设计目标：完全复刻RTT实时模式的数据处理流程，确保回放模式与实时模式行为一致
-    支持所有实时模式功能：通道标记、过滤、ANSI颜色处理、日志分析等
+    设计目标：严格按照正常连接方式模拟RTT输出，使用device_session中的worker
+    完全复用正常连接的数据处理流程，确保行为一致
     """
     def __init__(self, device_session, parent=None):
         # 标记为回放窗口，确保在父类构造函数中创建文本编辑控件时能正确禁用内容限制
@@ -2208,82 +2232,95 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 导入必要的模块
         import os
-        import time
         
         # 从device_info中获取文件路径
         self.playback_file_path = device_session.device_info.get('file_path')
-        
-        # 创建Worker实例 - 使用与实时模式完全相同的初始化方式
-        self.work = Worker()
-        
-        # 初始化Worker实例的所有必要属性，确保与实时模式完全一致
-        # 1. 通道缓冲区初始化
-        self.work.byte_buffer = [bytearray() for _ in range(16)]  # 16个RTT通道
-        
-        # 2. 文本缓冲区初始化
-        self.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
-        self.work.buffer_lengths = [0] * MAX_TAB_SIZE
-        self.work.buffer_capacities = [self.work.initial_capacity] * MAX_TAB_SIZE
-        
-        # 3. 彩色文本缓冲区初始化
-        self.work.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
-        self.work.colored_buffer_lengths = [0] * MAX_TAB_SIZE
-        self.work.colored_buffer_capacities = [self.work.initial_capacity] * MAX_TAB_SIZE
-        
-        # 4. 批量处理相关属性
-        self.work.batch_buffers = [bytearray() for _ in range(16)]
-        self.work.batch_timers = [None] * 16
-        self.work.batch_delay = 20  # 与实时模式保持一致
-        self.work.turbo_mode = False  # 默认非Turbo模式
-        
-        # 5. 数据处理状态属性
-        self.work.remaining_data = bytearray()  # 确保使用bytearray类型
-        self.work.channel_idx = 0  # 默认通道0
-        self.work.update_counter = 0  # 更新计数器
-        self.work.log_buffers = {}  # 日志缓冲区
-        
-        # 6. 性能监控属性
-        self.work.last_refresh_time = time.time()
-        self.work.refresh_count = 0
-        self.work.last_log_time = time.time()
-        self.work.log_interval = 5.0
-        
-        # 7. UI刷新控制属性
-        self.work.min_ui_update_interval_ms = 20  # 最小UI更新间隔20ms
-        self.work._last_ui_update_ms = 0
-        
-        # 8. 设置父子关系引用
-        self.work.parent = self
-        
-        # 9. 确保Turbo模式设置正确
-        self.work.set_turbo_mode(False)
-        
-        # 10. 确保Worker支持通道标记和过滤功能
-        self.work.use_channel_tags = True  # 启用通道标记功能
-        self.work.support_filtering = True  # 启用过滤功能
-        self.work.ansi_processing_enabled = True  # 启用ANSI处理功能
+        # 不再使用单独的Worker实例，而是通过device_session获取worker
         
         # 初始化父类 - 必须先初始化父类，因为self.device_session是在父类中设置的
         super(PlaybackMdiWindow, self).__init__(device_session, parent)
         
-        # 确保device_session有connection_dialog属性，并将worker附加到它上面
-        # 这样父类DeviceMdiWindow的_update_from_worker方法就能找到正确的worker
-        if not hasattr(device_session, 'connection_dialog'):
-            # 创建一个简单的connection_dialog对象
-            class MockConnectionDialog:
-                def __init__(self, work, config):
-                    self.work = work
-                    self.config = config
-            # 获取配置管理器 - 现在可以安全地访问self.device_session
-            config = self.device_session.config if hasattr(self.device_session, 'config') else None
-            device_session.connection_dialog = MockConnectionDialog(self.work, config)
-        elif hasattr(device_session, 'connection_dialog') and device_session.connection_dialog is not None:
-            # 如果已经存在且不为None，就更新work引用
-            device_session.connection_dialog.work = self.work
+        # 确保device_session不为None
+        if device_session is None:
+            logger.critical("device_session is None in PlaybackMdiWindow.__init__")
+            # 创建一个最小的device_session对象
+            class MinimalDeviceSession:
+                def __init__(self):
+                    self.connection_dialog = None
+            device_session = MinimalDeviceSession()
         
-        # 同时设置self.worker引用，确保与实时模式一致的属性名
-        # 这样在_update_from_worker方法中无论是通过self.worker还是通过connection_dialog.work都能找到正确的worker实例
-        self.worker = self.work
+        # 确保device_session有connection_dialog属性
+        if not hasattr(device_session, 'connection_dialog'):
+            device_session.connection_dialog = None
+            logger.warning("Added missing connection_dialog attribute to device_session")
+        
+        # 创建worker的辅助函数
+        def create_worker(parent_obj):
+            worker = Worker()
+            worker.parent = parent_obj
+            worker.set_turbo_mode(False)
+            worker.use_channel_tags = True
+            worker.support_filtering = True
+            worker.ansi_processing_enabled = True
+            worker.byte_buffer = [bytearray() for _ in range(16)]
+            worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            # 新增：初始化buffer_lengths，与_update_from_worker方法保持一致
+            worker.buffer_lengths = [0] * MAX_TAB_SIZE
+            worker.byte_buffer_temp = bytearray()
+            worker.remaining_data = bytearray()
+            return worker
+        
+        # 创建connection_dialog并确保其有work属性
+        from PySide6.QtCore import QObject
+        if device_session.connection_dialog is None:
+            logger.info("Creating new MockConnectionDialog for device_session")
+            class MockConnectionDialog(QObject):
+                def __init__(self):
+                    super().__init__()
+                    self.work = create_worker(self)
+                    from config_manager import ConfigManager
+                    self.config = ConfigManager()
+            
+            device_session.connection_dialog = MockConnectionDialog()
+            logger.info("Created new mock connection dialog with worker")
+        else:
+            # 确保现有connection_dialog有work属性
+            if not hasattr(device_session.connection_dialog, 'work'):
+                logger.warning("Adding work attribute to existing connection_dialog")
+                device_session.connection_dialog.work = create_worker(device_session.connection_dialog)
+            elif device_session.connection_dialog.work is None:
+                logger.warning("Existing connection_dialog.work is None, recreating")
+                device_session.connection_dialog.work = create_worker(device_session.connection_dialog)
+            
+            # 确保worker已正确初始化
+            worker = device_session.connection_dialog.work
+            required_attrs = ['byte_buffer', 'buffers', 'colored_buffers', 'byte_buffer_temp', 'remaining_data']
+            for attr in required_attrs:
+                if not hasattr(worker, attr):
+                    logger.warning(f"Adding missing attribute {attr} to worker")
+                    if attr in ['byte_buffer_temp', 'remaining_data']:
+                        setattr(worker, attr, bytearray())
+                    elif attr in ['byte_buffer', 'buffers', 'colored_buffers']:
+                        if attr == 'byte_buffer':
+                            setattr(worker, attr, [bytearray() for _ in range(16)])
+                        else:
+                            setattr(worker, attr, [[] for _ in range(MAX_TAB_SIZE)])
+        
+        # 安全地设置self.worker
+        try:
+            self.worker = device_session.connection_dialog.work
+            logger.info("Successfully set up self.worker reference")
+        except Exception as e:
+            logger.error(f"Failed to get worker reference: {e}")
+            # 创建完全独立的备用worker
+            self.worker = create_worker(self)
+            logger.info("Created independent fallback worker")
+        
+        # 确保device_session也有直接访问worker的引用
+        if not hasattr(device_session, 'worker'):
+            device_session.worker = self.worker
+            logger.info("Added worker reference directly to device_session")
         
         # 确保text_edits组件存在
         if not hasattr(self, 'text_edits'):
@@ -2324,6 +2361,62 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         # 调用update_filter_tab_display以确保筛选页面正常显示
         self.update_filter_tab_display()
             
+    def _prepare_worker_for_playback(self):
+        """准备和验证worker对象，确保它可以用于回放"""
+        logger.info("Preparing worker for playback...")
+        
+        # 确保device_session不为None
+        if not hasattr(self, 'device_session') or self.device_session is None:
+            logger.critical("device_session is not available in _prepare_worker_for_playback")
+            # 创建最小的device_session对象作为备用
+            class MinimalDeviceSession:
+                def __init__(self):
+                    self.connection_dialog = None
+            self.device_session = MinimalDeviceSession()
+        
+        # 确保connection_dialog不为None且有work属性
+        if not hasattr(self.device_session, 'connection_dialog') or self.device_session.connection_dialog is None:
+            logger.error("Creating missing connection_dialog")
+            from PySide6.QtCore import QObject
+            class MinimalConnectionDialog(QObject):
+                def __init__(self):
+                    super().__init__()
+            self.device_session.connection_dialog = MinimalConnectionDialog()
+        
+        # 确保connection_dialog.work存在
+        if not hasattr(self.device_session.connection_dialog, 'work') or self.device_session.connection_dialog.work is None:
+            logger.error("Creating missing worker in connection_dialog")
+            self.device_session.connection_dialog.work = Worker()
+            self.device_session.connection_dialog.work.set_turbo_mode(False)
+            self.device_session.connection_dialog.work.use_channel_tags = True
+            self.device_session.connection_dialog.work.support_filtering = True
+            self.device_session.connection_dialog.work.ansi_processing_enabled = True
+            self.device_session.connection_dialog.work.byte_buffer_temp = bytearray()
+            self.device_session.connection_dialog.work.remaining_data = bytearray()
+            self.device_session.connection_dialog.work.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
+            self.device_session.connection_dialog.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            self.device_session.connection_dialog.work.buffer_lengths = [0] * MAX_TAB_SIZE
+        
+        # 确保self.worker指向正确的对象
+        try:
+            self.worker = self.device_session.connection_dialog.work
+            logger.info("Updated self.worker reference")
+        except Exception:
+            logger.error("Failed to update self.worker, using fallback")
+            # 创建完全独立的备用worker
+            self.worker = Worker()
+            self.worker.set_turbo_mode(False)
+            self.worker.use_channel_tags = True
+            self.worker.support_filtering = True
+            self.worker.ansi_processing_enabled = True
+            self.worker.byte_buffer_temp = bytearray()
+            self.worker.remaining_data = bytearray()
+            self.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
+            self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
+    
     def start_playback(self, file_path):
         """开始文件回放
         
@@ -2333,136 +2426,96 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         self.playback_file_path = file_path
         logger.info(f"Starting playback for file: {self.playback_file_path}")
         
-        # 确保更新定时器正在运行 - 使用与实时模式相同的间隔
+        # 执行worker对象的预检查和修复
+        self._prepare_worker_for_playback()
+        
+        # 基本状态检查
+        try:
+            if not hasattr(self, 'device_session') or self.device_session is None:
+                logger.error("device_session is not available")
+            elif not hasattr(self, 'worker') or self.worker is None:
+                logger.error("self.worker is not available")
+            else:
+                logger.info("Worker and device_session are available for playback")
+        except Exception as e:
+            logger.error(f"Error during initial playback checks: {e}")
+        
+        # 确保更新定时器正在运行
         if hasattr(self, 'update_timer'):
             if not self.update_timer.isActive():
-                self.update_timer.start(30)  # 与__init__中保持一致
+                self.update_timer.start(30)
                 logger.info("Playback UI update timer restarted")
-            else:
-                logger.info("Playback UI update timer is already active")
         else:
             logger.warning("No update_timer found, creating new one")
             from PySide6.QtCore import QTimer
             self.update_timer = QTimer(self)
             self.update_timer.timeout.connect(self._update_from_worker)
-            self.update_timer.start(30)  # 使用30ms间隔，与实时模式保持一致
+            self.update_timer.start(30)
         
         # 使用QThread进行文件读取，避免阻塞UI
         from PySide6.QtCore import QThread, Signal, Slot
         
         class PlaybackThread(QThread):
-            """回放线程类 - 模拟RTT数据源，严格按照实时模式的数据格式和处理流程
+            """回放线程类 - 严格按照正常RTT连接的方式模拟数据流
             
-            关键设计点：
-            1. 使用与RTT实时模式相同的数据块大小和处理间隔
-            2. 严格模拟RTT数据格式，包括0xFF分隔符
-            3. 动态调整回放速度以模拟真实设备行为
-            4. 完全支持通道标记、过滤和ANSI颜色处理
+            核心设计原则：
+            1. 完全复用RTT实时模式的Worker.process_bytes方法处理数据
+            2. 确保colored_buffers的更新机制与实时模式完全一致
+            3. 模拟真实设备的数据流入节奏，保持UI响应性
+            4. 确保所有数据处理逻辑与实时模式保持同步
             """
+            # 添加信号用于跨线程数据传递
+            data_ready = Signal(bytearray)  # 数据准备好信号
+            
             def __init__(self, file_path, parent=None):
                 super().__init__(parent)
                 self.file_path = file_path
                 self.running = True
                 self.parent_window = parent
                 self.chunk_size = 256  # 使用与RTT实时模式相同的数据块大小
-                self.remaining_data = bytearray()  # 与Worker类保持一致的数据类型
+                
+                # 将数据准备好信号连接到父窗口的处理方法
+                if self.parent_window:
+                    self.data_ready.connect(self.parent_window._process_playback_data)
                 
             def run(self):
+                """模拟文件回放流程
+                
+                设计目标：读取文件数据并通过信号发送到主线程处理
+                同时需要支持F3断开时就停止播放，F5暂停和F6继续的功能
+                """
                 try:
-                    # 导入必要的模块
-                    import io
-                    import os
-                    import time
-                    from PySide6.QtCore import QThread
+                    logger.info(f"Starting playback from file: {self.file_path}")
                     
-                    # 检查父窗口是否有work实例
-                    if not hasattr(self.parent_window, 'work'):
-                        logger.error("Parent window does not have work instance")
-                        return
-                    
-                    # 确保worker的parent引用设置正确
-                    self.parent_window.work.parent = self.parent_window
-                    
-                    # 启动worker的缓冲区刷新定时器
-                    self.parent_window.work.start_flush_timer()
-                    
-                    # 确保turbo模式设置为False，与正常RTT连接模式一致
-                    self.parent_window.work.set_turbo_mode(False)
-                    
-                    # 确保所有功能标志都设置正确
-                    self.parent_window.work.use_channel_tags = True
-                    self.parent_window.work.support_filtering = True
-                    self.parent_window.work.ansi_processing_enabled = True
-                    
-                    logger.info(f"Starting playback for file: {self.file_path}")
-                    logger.info(f"Playback configuration: Channel tags={self.parent_window.work.use_channel_tags}, "
-                              f"Filtering={self.parent_window.work.support_filtering}, "
-                              f"ANSI processing={self.parent_window.work.ansi_processing_enabled}")
-                    
-                    # 获取文件大小用于进度估计
-                    file_size = os.path.getsize(self.file_path)
-                    logger.info(f"Playback file size: {file_size} bytes")
-                    
-                    # 分块读取和处理文件
-                    bytes_processed = 0
-                    last_progress_update = time.time()
-                    
-                    with io.open(self.file_path, 'rb') as f:
+                    # 打开文件进行读取
+                    with open(self.file_path, 'rb') as f:
                         while self.running:
-                            chunk = f.read(self.chunk_size)
-                            if not chunk:
-                                break
-                            
-                            # 处理数据块 - 完全模拟RTT实时连接的数据处理流程
-                            try:
-                                # 直接使用Worker类的process_bytes方法处理原始二进制数据
-                                # 这是确保回放与实时模式完全一致的关键
-                                self.parent_window.work.process_bytes(chunk)
+                            # 检查是否暂停
+                            while not self.running:
+                                # 当被设置为停止时，退出循环
+                                if not self.running:
+                                    return
+                                self.msleep(100)
                                 
-                            except Exception as e:
-                                logger.error(f"Error processing playback data: {e}", exc_info=True)
+                            # 读取数据块
+                            data_chunk = f.read(self.chunk_size)
+                            if not data_chunk:
+                                # 文件读取完毕
+                                break
+                                
+                            # 通过信号将数据发送到主线程处理，避免线程亲和性问题
+                            self.data_ready.emit(bytearray(data_chunk))
+                                
+                            # 智能延迟控制，模拟实时数据流
+                            # 根据数据块大小调整延迟，避免过快回放
+                            delay = max(1, len(data_chunk) // 10)  # 简单的延迟计算
+                            self.msleep(delay)
                             
-                            bytes_processed += len(chunk)
-                            
-                            # 定期记录进度（每2秒或每处理10%的文件）
-                            current_time = time.time()
-                            if current_time - last_progress_update >= 2.0 or (file_size > 0 and bytes_processed % (file_size // 10) == 0):
-                                processed_percent = (bytes_processed / file_size) * 100 if file_size > 0 else 0
-                                logger.debug(f"Playback progress: {processed_percent:.1f}% ({bytes_processed}/{file_size} bytes)")
-                                last_progress_update = current_time
-                            
-                            # 智能延迟控制 - 模拟真实设备的数据流
-                            # 1. 根据已处理数据量动态调整延迟
-                            processed_percent = (bytes_processed / file_size) * 100 if file_size > 0 else 0
-                            
-                            # 初始阶段：保持可见性，适当延迟
-                            if bytes_processed < 10240:  # 前10KB
-                                delay_ms = 5  # 5ms延迟，确保用户能看到初始数据
-                            # 中间阶段：动态调整，保持UI响应
-                            elif processed_percent < 90:  # 90%之前
-                                # 根据数据块大小动态调整延迟
-                                if len(chunk) <= 64:
-                                    delay_ms = 3  # 小数据块稍慢
-                                elif len(chunk) <= 256:
-                                    delay_ms = 1  # 中等数据块正常速度
-                                else:
-                                    delay_ms = 0  # 大数据块全速处理
-                            # 末尾阶段：稍微放慢，确保数据完全显示
-                            else:
-                                delay_ms = 2  # 确保末尾数据完整处理
-                            
-                            # 定期短暂停顿以保持UI响应性
-                            if bytes_processed % 4096 == 0:
-                                delay_ms = max(delay_ms, 5)
-                            
-                            if delay_ms > 0:
-                                QThread.msleep(delay_ms)
-                    
-                    logger.info(f"Playback complete, processed {bytes_processed} bytes")
-                    
                 except Exception as e:
-                    logger.error(f"Failed to playback file: {e}", exc_info=True)
-            
+                    logger.error(f"Error in playback thread: {e}", exc_info=True)
+                finally:
+                    logger.info("Playback thread finished")
+
             def stop(self):
                 """停止回放线程，确保资源正确清理
                 
@@ -2471,32 +2524,34 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 logger.info("Stopping playback thread...")
                 self.running = False
                 
-                # 确保处理完remaining_data中的数据，防止数据丢失
-                if hasattr(self.parent_window, 'work') and self.remaining_data:
-                    try:
-                        logger.debug(f"Processing remaining {len(self.remaining_data)} bytes")
-                        # 直接使用bytearray类型，不需要转换
-                        self.parent_window.work.process_bytes(self.remaining_data)
-                        self.remaining_data = bytearray()
-                    except Exception as e:
-                        logger.error(f"Error processing remaining playback data: {e}", exc_info=True)
+                # 等待线程结束，设置超时
+                if not self.wait(2000):  # 2秒超时
+                    logger.warning("Playback thread did not stop gracefully, forcing termination")
+                    self.terminate()  # 强制终止
                 
-                # 等待线程结束，最多等待2秒
-                if not self.wait(2000):
-                    logger.warning("Playback thread did not terminate in time")
-                else:
-                    logger.info("Playback thread stopped successfully")
         
         # 创建并启动播放线程
         self.playback_thread = PlaybackThread(file_path, self)
         # 只连接完成信号，不再需要数据信号因为直接使用process_bytes
         self.playback_thread.finished.connect(self._on_playback_finished)
         self.playback_thread.start()
-        
-    # 移除了_on_playback_data和_on_playback_data_with_color方法，因为现在直接使用Worker类的process_bytes方法处理数据
-    # 这样可以确保回放流程与RTT连接流程使用完全相同的数据处理机制
-    # 直接使用父类DeviceMdiWindow的_update_from_worker方法
     
+    @Slot(bytearray)
+    def _process_playback_data(self, data_chunk):
+        """在主线程中处理从PlaybackThread发送过来的数据
+        
+        设计目标：在主线程中使用Worker的process_bytes方法处理数据，避免线程亲和性问题
+        
+        参数:
+            data_chunk: 从文件中读取的数据块
+        """
+        try:
+            # 确保在主线程中处理数据
+            if self.worker and hasattr(self.worker, 'process_bytes'):
+                self.worker.process_bytes(data_chunk)
+        except Exception as e:
+            logger.error(f"Error processing playback data in main thread: {e}", exc_info=True)
+            
     @Slot()
     def _on_playback_finished(self):
         """回放完成后的处理
@@ -2505,13 +2560,6 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         """
         logger.info(f"Playback completed for file: {self.playback_file_path}")
         
-        # 确保所有缓冲区数据都被处理完毕
-        if hasattr(self, 'work') and hasattr(self.work, 'flush_log_buffers'):
-            self.work.flush_log_buffers()
-        
-        # 触发一次UI更新，确保所有数据都显示出来
-        if hasattr(self, '_update_from_worker'):
-            self._update_from_worker()
     
     def closeEvent(self, event):
         """回放窗口关闭事件 - 停止回放并清理资源
@@ -2519,31 +2567,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         设计目标：优雅地关闭窗口，确保所有资源都被正确释放
         """
         logger.info(f"PlaybackMdiWindow closing for file: {self.playback_file_path}")
-        
-        # 停止回放线程 - 确保线程安全地终止
-        if hasattr(self, 'playback_thread') and self.playback_thread:
-            if self.playback_thread.isRunning():
-                logger.debug("Stopping playback thread during window close")
-                self.playback_thread.stop()
-        
-        # 停止更新定时器 - 避免定时器回调导致的问题
-        if hasattr(self, 'update_timer'):
-            logger.debug("Stopping update timer during window close")
-            self.update_timer.stop()
-        
-        # 清理Worker资源 - 确保缓冲区被清空
-        if hasattr(self, 'work'):
-            logger.debug("Cleaning up worker resources")
-            if hasattr(self.work, 'flush_log_buffers'):
-                self.work.flush_log_buffers()
-            # 清空缓冲区引用，帮助垃圾回收
-            self.work = None
-        
-        # 通知主窗口关闭此设备会话
-        if hasattr(self, 'parent') and self.parent() and hasattr(self.parent(), '_on_mdi_window_closed'):
-            logger.debug("Notifying parent window of session closure")
-            self.parent()._on_mdi_window_closed(self.device_session)
-        
+
         # 调用父类的关闭事件处理
         super(PlaybackMdiWindow, self).closeEvent(event)
 
@@ -11361,7 +11385,7 @@ class Worker(QObject):
                 # 非ALL页面：直接使用包含ANSI控制符的原始数据，让text_edit._parse_ansi_fast处理颜色
                 self._append_to_colored_buffer(index+1, data)
                 
-                    # 对于ALL页面的彩色显示，先去除原始ANSI颜色，再应用通道配色
+                # 对于ALL页面的彩色显示，先去除原始ANSI颜色，再应用通道配色
                 colored_all_data = prefix + clean_data  # 使用去除了ANSI控制符的clean_data
                 processed_colored_all_data = self._process_text_with_channel_colors(index, colored_all_data, is_all_tab=True)
                 self._append_to_colored_buffer(0, processed_colored_all_data)
@@ -11529,7 +11553,7 @@ class Worker(QObject):
         }
         
     def process_bytes(self, data):
-        """处理原始字节数据，智能处理带分隔符和不带分隔符的数据
+        """处理原始字节数据，严格按照正常连接的数据格式和处理流程
         
         Args:
             data: 原始字节数据
@@ -11542,66 +11566,22 @@ class Worker(QObject):
             # 使用bytes的连接操作
             self.remaining_data += data
             
-            # 如果数据中包含0xFF分隔符，使用分隔符模式处理（实时连接）
-            if b'\xFF' in self.remaining_data:
-                while self.remaining_data:
-                    # 查找分隔符位置
-                    separator_pos = self.remaining_data.find(b'\xFF')
-                    if separator_pos == -1:
-                        # 没有找到分隔符，保留数据等待下一批
-                        break
-                    # 提取分隔符前的数据段
-                    chunk = self.remaining_data[:separator_pos]
-                    # 更新剩余数据
-                    self.remaining_data = self.remaining_data[separator_pos + 1:]
+            # 严格按照正常连接的方式处理数据：使用0xFF分隔符模式
+            # 无论是否为回放模式，都统一使用实时连接的处理流程
+            while self.remaining_data:
+                # 查找分隔符位置
+                separator_pos = self.remaining_data.find(b'\xFF')
+                if separator_pos == -1:
+                    # 没有找到分隔符，保留数据等待下一批
+                    break
+                # 提取分隔符前的数据段
+                chunk = self.remaining_data[:separator_pos]
+                # 更新剩余数据
+                self.remaining_data = self.remaining_data[separator_pos + 1:]
 
-                    if chunk:
-                        # 处理数据段
-                        self._process_chunk(chunk)
-            else:
-                # 如果没有0xFF分隔符，按行解析处理（回放模式）
-                # 这种情况通常发生在日志文件回放时，数据是连续的
-                if self.remaining_data:
-                    # 标准化行尾
-                    temp_data = self.remaining_data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
-                    
-                    # 按行分割数据
-                    lines = temp_data.split(b'\n')
-                    
-                    # 处理每一行数据
-                    for line in lines[:-1]:  # 除了最后一行，可能不完整
-                        if line:  # 忽略空行
-                            # 尝试从行首解析通道标记 [XX]
-                            try:
-                                # 检查行首是否有 [XX] 格式的通道标记
-                                if line.startswith(b'[') and b']' in line[:6]:  # 最多检查前6个字符
-                                    # 提取通道号
-                                    channel_end = line.index(b']')
-                                    channel_str = line[1:channel_end].strip()
-                                    # 尝试将通道号转换为整数
-                                    channel_index = int(channel_str)
-                                    # 提取实际数据部分（去掉通道标记）
-                                    actual_data = line[channel_end+1:].strip()
-                                    
-                                    # 构建通道数据格式，模拟实时模式的格式
-                                    # 首字节为通道号（0-15对应0-F的ASCII）
-                                    if 0 <= channel_index <= 15:
-                                        # 构建新的数据块：通道号ASCII + 实际数据
-                                        new_chunk = bytes([0x30 + channel_index]) + actual_data
-                                        self._process_chunk(new_chunk)
-                                        continue
-                            except (ValueError, IndexError):
-                                # 解析失败，回退到默认处理
-                                pass
-                            
-                            # 默认处理：直接处理整行
-                            self._process_chunk(line)
-                    
-                    # 保存可能不完整的最后一行
-                    if lines[-1]:
-                        self.remaining_data = lines[-1]
-                    else:
-                        self.remaining_data = b''
+                if chunk:
+                    # 处理数据段
+                    self._process_chunk(chunk)
         except Exception as e:
             logger.error(f"Error processing bytes: {e}", exc_info=True)
     
