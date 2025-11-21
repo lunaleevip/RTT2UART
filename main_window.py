@@ -37,7 +37,7 @@ if not getattr(sys, 'frozen', False):
     log_handlers.append(logging.StreamHandler())
 
 logging.basicConfig(
-    level=logging.WARN,  # INFO 级别以查看更新日志
+    level=logging.DEBUG,  # INFO 级别以查看更新日志
     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s',
     handlers=log_handlers,
     force=True  # 强制重新配置
@@ -1770,11 +1770,25 @@ class DeviceMdiWindow(QWidget):
     def _force_refresh_tab(self, channel):
         """强制刷新指定TAB的内容 - 从Worker缓冲区重新加载所有数据"""
         try:
-            if not self.device_session.connection_dialog:
-                return
+            # 检测是否是回放模式
+            is_playback = hasattr(self, 'playback_file_path') and self.playback_file_path
             
-            worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            # 查找正确的worker对象（回放模式和普通模式）
+            worker = None
+            if is_playback:
+                # 回放模式：尝试多种方式获取worker
+                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'work'):
+                    worker = self.device_session.connection_dialog.work
+                elif hasattr(self, 'worker') and self.worker:
+                    worker = self.worker
+            else:
+                # 普通模式：使用标准路径
+                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog'):
+                    worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            
+            # 确保worker存在
             if not worker:
+                logger.warning(f"_force_refresh_tab: Worker not found for channel {channel}")
                 return
             
             if channel < 0 or channel >= MAX_TAB_SIZE or channel >= len(self.text_edits):
@@ -1903,15 +1917,23 @@ class DeviceMdiWindow(QWidget):
                 # 如果成功获取到worker
                 if worker:
                     # 确保worker对象有必要的缓冲区属性
-                    # 优先使用colored_buffers，因为process_bytes会将数据处理到这里
+                    # 关键修复：优先使用colored_buffers，因为process_bytes会将数据处理到这里
+                    if not hasattr(worker, 'colored_buffers'):
+                        worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                        logger.debug("Playback mode: Created missing colored_buffers attribute")
+                    if not hasattr(worker, 'colored_buffer_lengths'):
+                        worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+                        logger.debug("Playback mode: Created missing colored_buffer_lengths attribute")
+                    # 确保基本缓冲区属性也存在
                     if not hasattr(worker, 'buffers'):
                         worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
-                        logger.debug("Playback mode: Created missing buffers attribute as list of lists")
+                        logger.debug("Playback mode: Created missing buffers attribute")
                     if not hasattr(worker, 'buffer_lengths'):
                         worker.buffer_lengths = [0] * MAX_TAB_SIZE
                         logger.debug("Playback mode: Created missing buffer_lengths attribute")
-                    # 使用worker对象的colored_buffers和colored_buffer_lengths处理数据
-                    self._process_ui_update(worker.buffers, worker.buffer_lengths)
+                    
+                    # 关键修复：使用colored_buffers和colored_buffer_lengths处理数据，这是正确的数据来源
+                    self._process_ui_update(worker.colored_buffers, worker.colored_buffer_lengths)
                 else:
                     logger.warning("Playback mode: Could not find worker object through any available path")
                 return
@@ -2018,9 +2040,22 @@ class DeviceMdiWindow(QWidget):
             if current_length > last_length + 1024:
                 tab_type = "Current" if is_active_tab else "Inactive"
                 #logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
+                force_refresh_success = False
+                
+                # 尝试强制刷新，但捕获可能的失败
                 if hasattr(self, '_force_refresh_tab'):
-                    self._force_refresh_tab(channel)
-                continue
+                    try:
+                        self._force_refresh_tab(channel)
+                        # 检查是否成功更新了last_display_lengths
+                        if self.last_display_lengths[channel] >= last_length:
+                            force_refresh_success = True
+                    except Exception as e:
+                        logger.warning(f"🔧 [CH{channel}] Force refresh failed: {e}")
+                
+                # 如果强制刷新失败（例如在回放模式下缺少device_session），
+                # 不要跳过更新，而是进行正常的增量更新
+                if force_refresh_success:
+                    continue
             
             if current_length > last_length:
                 # 有新数据，提取增量部分
@@ -2548,7 +2583,17 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         try:
             # 确保在主线程中处理数据
             if self.worker and hasattr(self.worker, 'process_bytes'):
+                # 处理数据
                 self.worker.process_bytes(data_chunk)
+                
+                # 关键修复：确保所有批量数据都被立即处理
+                if hasattr(self.worker, '_process_batch_buffer'):
+                    # 检查是否有未处理的批量数据并立即处理
+                    if hasattr(self.worker, 'batch_buffers'):
+                        for i in range(16):  # 遍历所有通道
+                            if hasattr(self.worker, 'batch_buffers') and i < len(self.worker.batch_buffers) and self.worker.batch_buffers[i]:
+                                self.worker._process_batch_buffer(i)
+                                logger.debug(f"Processed pending batch buffer for channel {i}")
         except Exception as e:
             logger.error(f"Error processing playback data in main thread: {e}", exc_info=True)
             
