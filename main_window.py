@@ -37,7 +37,7 @@ if not getattr(sys, 'frozen', False):
     log_handlers.append(logging.StreamHandler())
 
 logging.basicConfig(
-    level=logging.DEBUG,  # INFO 级别以查看更新日志
+    level=logging.WARN,  # INFO 级别以查看更新日志
     format='%(asctime)s - [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s',
     handlers=log_handlers,
     force=True  # 强制重新配置
@@ -2260,6 +2260,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
     
     设计目标：严格按照正常连接方式模拟RTT输出，使用device_session中的worker
     完全复用正常连接的数据处理流程，确保行为一致
+    支持F3断开、F5暂停、F6恢复功能和筛选通道功能
     """
     def __init__(self, device_session, parent=None):
         # 标记为回放窗口，确保在父类构造函数中创建文本编辑控件时能正确禁用内容限制
@@ -2267,26 +2268,204 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 导入必要的模块
         import os
+        import sys
+        
+        # 添加调试日志
+        print(f"[DEBUG] PlaybackMdiWindow.__init__: device_session={device_session}")
+        print(f"[DEBUG] PlaybackMdiWindow.__init__: parent={parent}")
+        print(f"[DEBUG] PlaybackMdiWindow.__init__: sys.executable={sys.executable}")
+        print(f"[DEBUG] PlaybackMdiWindow.__init__: sys.version={sys.version}")
         
         # 从device_info中获取文件路径
         self.playback_file_path = device_session.device_info.get('file_path')
+        print(f"[DEBUG] PlaybackMdiWindow.__init__: playback_file_path={self.playback_file_path}")
         # 不再使用单独的Worker实例，而是通过device_session获取worker
         
         # 初始化父类 - 必须先初始化父类，因为self.device_session是在父类中设置的
+        print("[DEBUG] PlaybackMdiWindow.__init__: Calling parent constructor...")
         super(PlaybackMdiWindow, self).__init__(device_session, parent)
+        print("[DEBUG] PlaybackMdiWindow.__init__: Parent constructor completed")
+        
+        # 添加F3/F5/F6快捷键支持
+        print("[DEBUG] PlaybackMdiWindow.__init__: Setting up playback shortcuts...")
+        self._setup_playback_shortcuts()
+        print("[DEBUG] PlaybackMdiWindow.__init__: Playback shortcuts set up")
+        
+        # 确保筛选功能正常工作
+        self._filters_loaded = False
+        
+        # 确保回放模式下有正确的配置管理器
+        print("[DEBUG] PlaybackMdiWindow.__init__: Ensuring filter config...")
+        self._ensure_filter_config()
+        print("[DEBUG] PlaybackMdiWindow.__init__: Filter config ensured")
+        
+        # 确保筛选TAB正确显示
+        print("[DEBUG] PlaybackMdiWindow.__init__: Updating filter tab display...")
+        self.update_filter_tab_display()
+        print("[DEBUG] PlaybackMdiWindow.__init__: Filter tab display updated")
+        
+        # 在初始化阶段就准备worker对象，避免运行时错误
+        print("[DEBUG] PlaybackMdiWindow.__init__: Preparing worker for playback...")
+        self._prepare_worker_for_playback()
+        print("[DEBUG] PlaybackMdiWindow.__init__: Worker prepared")
+        
+        print("[DEBUG] PlaybackMdiWindow.__init__: Initialization completed")
+        
+    def _setup_playback_shortcuts(self):
+        """设置回放模式的快捷键支持
+        
+        设计目标：添加F3断开、F5暂停和F6恢复功能的快捷键支持
+        使用焦点管理确保只有活动窗口响应快捷键，避免冲突
+        """
+        from PySide6.QtGui import QAction, QKeySequence
+        from PySide6.QtCore import Qt
+        
+        # 创建动作并设置快捷键（使用原始F3/F5/F6快捷键）
+        self.pause_playback_action = QAction("暂停回放 (F5)", self)
+        self.pause_playback_action.setShortcut(QKeySequence("F5"))
+        self.pause_playback_action.triggered.connect(self._pause_playback)
+        self.addAction(self.pause_playback_action)
+        
+        self.resume_playback_action = QAction("恢复回放 (F6)", self)
+        self.resume_playback_action.setShortcut(QKeySequence("F6"))
+        self.resume_playback_action.triggered.connect(self._resume_playback)
+        self.addAction(self.resume_playback_action)
+        
+        self.stop_playback_action = QAction("停止回放 (F3)", self)
+        self.stop_playback_action.setShortcut(QKeySequence("F3"))
+        self.stop_playback_action.triggered.connect(self._stop_playback)
+        self.addAction(self.stop_playback_action)
+        
+        # 连接焦点事件，管理快捷键响应
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.focusInEvent = self._on_focus_in
+        self.focusOutEvent = self._on_focus_out
+        
+        # 初始状态：默认启用快捷键
+        self._update_shortcut_enabled(True)
+        
+    def _on_focus_in(self, event):
+        """当窗口获得焦点时启用快捷键"""
+        self._update_shortcut_enabled(True)
+        # 调用原始的focusInEvent
+        super(PlaybackMdiWindow, self).focusInEvent(event)
+        
+    def _on_focus_out(self, event):
+        """当窗口失去焦点时禁用快捷键"""
+        self._update_shortcut_enabled(False)
+        # 调用原始的focusOutEvent
+        super(PlaybackMdiWindow, self).focusOutEvent(event)
+        
+    def _update_shortcut_enabled(self, enabled):
+        """更新快捷键的启用状态"""
+        self.pause_playback_action.setEnabled(enabled)
+        self.resume_playback_action.setEnabled(enabled)
+        self.stop_playback_action.setEnabled(enabled)
+        
+        # 移除错误的初始状态设置，确保UI状态与实际播放状态同步
+        
+    def _pause_playback(self):
+        """暂停回放（F5快捷键）
+        
+        设计目标：实现与实时模式F5相同的暂停功能
+        """
+        try:
+            import os
+            logger.info(f"Pausing playback for file: {self.playback_file_path}")
+            self._playback_paused = True
+            
+            # 暂停回放线程
+            if hasattr(self, 'playback_thread') and self.playback_thread:
+                self.playback_thread.pause()
+            
+            # 更新状态
+            logger.info(f"回放已暂停: {os.path.basename(self.playback_file_path)}")
+            # 如果有父窗口，可以通过父窗口显示状态并同步UI按钮
+            if hasattr(self.parent(), 'statusBar'):
+                self.parent().statusBar().showMessage(
+                    f"回放已暂停: {os.path.basename(self.playback_file_path)}", 
+                    3000
+                )
+                # 同步更新父窗口的暂停/恢复按钮状态
+                if hasattr(self.parent(), 'ui') and hasattr(self.parent().ui, 'radioButton_pause_refresh'):
+                    self.parent().ui.radioButton_pause_refresh.setChecked(True)
+        except Exception as e:
+            logger.error(f"Failed to pause playback: {e}", exc_info=True)
+            
+    def _resume_playback(self):
+        """恢复回放（F6快捷键）
+        
+        设计目标：实现与实时模式F6相同的恢复功能
+        """
+        try:
+            import os
+            logger.info(f"Resuming playback for file: {self.playback_file_path}")
+            self._playback_paused = False
+            
+            # 恢复回放线程
+            if hasattr(self, 'playback_thread') and self.playback_thread:
+                self.playback_thread.resume()
+            
+            # 更新状态
+            logger.info(f"回放已恢复: {os.path.basename(self.playback_file_path)}")
+            # 如果有父窗口，可以通过父窗口显示状态并同步UI按钮
+            if hasattr(self.parent(), 'statusBar'):
+                self.parent().statusBar().showMessage(
+                    f"回放已恢复: {os.path.basename(self.playback_file_path)}", 
+                    3000
+                )
+                # 同步更新父窗口的暂停/恢复按钮状态
+                if hasattr(self.parent(), 'ui') and hasattr(self.parent().ui, 'radioButton_resume_refresh'):
+                    self.parent().ui.radioButton_resume_refresh.setChecked(True)
+        except Exception as e:
+            logger.error(f"Failed to resume playback: {e}", exc_info=True)
+            
+    def _stop_playback(self):
+        """停止回放（F3快捷键）
+        
+        设计目标：实现与实时模式F3相同的断开功能
+        """
+        try:
+            import os
+            logger.info(f"Stopping playback for file: {self.playback_file_path}")
+            
+            # 停止回放线程
+            if hasattr(self, 'playback_thread') and self.playback_thread:
+                self.playback_thread.stop()
+            
+            # 更新状态
+            logger.info(f"回放已停止: {os.path.basename(self.playback_file_path)}")
+            # 如果有父窗口，可以通过父窗口显示状态并同步UI按钮
+            if hasattr(self.parent(), 'statusBar'):
+                self.parent().statusBar().showMessage(
+                    f"回放已停止: {os.path.basename(self.playback_file_path)}", 
+                    3000
+                )
+                # 同步更新父窗口的暂停/恢复按钮状态
+                if hasattr(self.parent(), 'ui'):
+                    if hasattr(self.parent().ui, 'radioButton_pause_refresh'):
+                        self.parent().ui.radioButton_pause_refresh.setChecked(False)
+                    if hasattr(self.parent().ui, 'radioButton_resume_refresh'):
+                        self.parent().ui.radioButton_resume_refresh.setChecked(False)
+            
+            # 停止更新定时器
+            if hasattr(self, 'update_timer'):
+                self.update_timer.stop()
+        except Exception as e:
+            logger.error(f"Failed to stop playback: {e}", exc_info=True)
         
         # 确保device_session不为None
-        if device_session is None:
-            logger.critical("device_session is None in PlaybackMdiWindow.__init__")
+        if not hasattr(self, 'device_session') or self.device_session is None:
+            logger.critical("self.device_session is None in PlaybackMdiWindow._stop_playback")
             # 创建一个最小的device_session对象
             class MinimalDeviceSession:
                 def __init__(self):
                     self.connection_dialog = None
-            device_session = MinimalDeviceSession()
+            self.device_session = MinimalDeviceSession()
         
         # 确保device_session有connection_dialog属性
-        if not hasattr(device_session, 'connection_dialog'):
-            device_session.connection_dialog = None
+        if not hasattr(self.device_session, 'connection_dialog'):
+            self.device_session.connection_dialog = None
             logger.warning("Added missing connection_dialog attribute to device_session")
         
         # 创建worker的辅助函数
@@ -2308,7 +2487,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 创建connection_dialog并确保其有work属性
         from PySide6.QtCore import QObject
-        if device_session.connection_dialog is None:
+        if self.device_session.connection_dialog is None:
             logger.info("Creating new MockConnectionDialog for device_session")
             class MockConnectionDialog(QObject):
                 def __init__(self):
@@ -2317,16 +2496,16 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                     from config_manager import ConfigManager
                     self.config = ConfigManager()
             
-            device_session.connection_dialog = MockConnectionDialog()
+            self.device_session.connection_dialog = MockConnectionDialog()
             logger.info("Created new mock connection dialog with worker")
         else:
             # 确保现有connection_dialog有work属性
-            if not hasattr(device_session.connection_dialog, 'work'):
+            if not hasattr(self.device_session.connection_dialog, 'work'):
                 logger.warning("Adding work attribute to existing connection_dialog")
-                device_session.connection_dialog.work = create_worker(device_session.connection_dialog)
-            elif device_session.connection_dialog.work is None:
+                self.device_session.connection_dialog.work = create_worker(self.device_session.connection_dialog)
+            elif self.device_session.connection_dialog.work is None:
                 logger.warning("Existing connection_dialog.work is None, recreating")
-                device_session.connection_dialog.work = create_worker(device_session.connection_dialog)
+                self.device_session.connection_dialog.work = create_worker(self.device_session.connection_dialog)
             
             # 确保worker已正确初始化
             worker = device_session.connection_dialog.work
@@ -2396,18 +2575,51 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         # 调用update_filter_tab_display以确保筛选页面正常显示
         self.update_filter_tab_display()
             
-    def _prepare_worker_for_playback(self):
-        """准备和验证worker对象，确保它可以用于回放"""
-        logger.info("Preparing worker for playback...")
+    def _ensure_filter_config(self):
+        """确保回放模式下有正确的配置管理器用于筛选功能"""
+        logger.info("Ensuring filter configuration for playback mode...")
         
         # 确保device_session不为None
         if not hasattr(self, 'device_session') or self.device_session is None:
-            logger.critical("device_session is not available in _prepare_worker_for_playback")
-            # 创建最小的device_session对象作为备用
+            logger.error("device_session is None, creating minimal device_session")
             class MinimalDeviceSession:
                 def __init__(self):
                     self.connection_dialog = None
             self.device_session = MinimalDeviceSession()
+        
+        # 确保connection_dialog存在并配置正确
+        if not hasattr(self.device_session, 'connection_dialog') or self.device_session.connection_dialog is None:
+            logger.info("Creating connection_dialog with config manager")
+            from PySide6.QtCore import QObject
+            from config_manager import ConfigManager
+            
+            class MockConnectionDialog(QObject):
+                def __init__(self):
+                    super().__init__()
+                    self.config = ConfigManager()
+                    self.work = None
+            
+            self.device_session.connection_dialog = MockConnectionDialog()
+        
+        # 确保connection_dialog有config属性
+        elif not hasattr(self.device_session.connection_dialog, 'config') or self.device_session.connection_dialog.config is None:
+            logger.info("Adding config manager to existing connection_dialog")
+            from config_manager import ConfigManager
+            self.device_session.connection_dialog.config = ConfigManager()
+        
+        logger.info("Filter configuration setup completed for playback mode")
+    
+    def _prepare_worker_for_playback(self):
+        """准备和验证worker对象，确保它可以用于回放"""
+        logger.info("Preparing worker for playback...")
+        
+        # 确保筛选配置正确
+        self._ensure_filter_config()
+        
+        # 确保device_session不为None
+        if not hasattr(self, 'device_session') or self.device_session is None:
+            logger.critical("device_session is not available in _prepare_worker_for_playback")
+            return
         
         # 确保connection_dialog不为None且有work属性
         if not hasattr(self.device_session, 'connection_dialog') or self.device_session.connection_dialog is None:
@@ -2432,6 +2644,8 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
             self.device_session.connection_dialog.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
             self.device_session.connection_dialog.work.buffer_lengths = [0] * MAX_TAB_SIZE
+            # 确保worker有正确的parent引用
+            self.device_session.connection_dialog.work.parent = self
         
         # 确保self.worker指向正确的对象
         try:
@@ -2451,6 +2665,8 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
             self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
             self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
+            # 确保worker有正确的parent引用
+            self.worker.parent = self
     
     def start_playback(self, file_path):
         """开始文件回放
@@ -2506,6 +2722,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 super().__init__(parent)
                 self.file_path = file_path
                 self.running = True
+                self.paused = False  # 新增：控制暂停状态
                 self.parent_window = parent
                 self.chunk_size = 256  # 使用与RTT实时模式相同的数据块大小
                 
@@ -2526,11 +2743,13 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                     with open(self.file_path, 'rb') as f:
                         while self.running:
                             # 检查是否暂停
-                            while not self.running:
-                                # 当被设置为停止时，退出循环
-                                if not self.running:
-                                    return
+                            while self.paused and self.running:
+                                logger.debug("Playback paused, waiting for resume...")
                                 self.msleep(100)
+                                
+                            # 当被设置为停止时，退出循环
+                            if not self.running:
+                                return
                                 
                             # 读取数据块
                             data_chunk = f.read(self.chunk_size)
@@ -2558,11 +2777,28 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 """
                 logger.info("Stopping playback thread...")
                 self.running = False
+                self.paused = False  # 确保暂停状态也被清除
                 
                 # 等待线程结束，设置超时
                 if not self.wait(2000):  # 2秒超时
                     logger.warning("Playback thread did not stop gracefully, forcing termination")
                     self.terminate()  # 强制终止
+                    
+            def pause(self):
+                """暂停回放线程
+                
+                设计目标：支持F5暂停功能，暂停数据读取但不停止线程
+                """
+                logger.info("Pausing playback...")
+                self.paused = True
+                
+            def resume(self):
+                """恢复回放线程
+                
+                设计目标：支持F6恢复功能，继续数据读取
+                """
+                logger.info("Resuming playback...")
+                self.paused = False
                 
         
         # 创建并启动播放线程
@@ -2583,6 +2819,36 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         try:
             # 确保在主线程中处理数据
             if self.worker and hasattr(self.worker, 'process_bytes'):
+                # 确保worker有正确的parent引用
+                self.worker.parent = self
+                
+                # 确保筛选配置正确
+                self._ensure_filter_config()
+                
+                # 确保colored_buffers和buffer_lengths属性存在并已正确初始化
+                if not hasattr(self.worker, 'colored_buffers') or self.worker.colored_buffers is None:
+                    self.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                if not hasattr(self.worker, 'buffer_lengths') or self.worker.buffer_lengths is None:
+                    self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
+                if not hasattr(self.worker, 'buffers') or self.worker.buffers is None:
+                    self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                # 确保colored_buffer_lengths已初始化
+                if not hasattr(self.worker, 'colored_buffer_lengths') or self.worker.colored_buffer_lengths is None:
+                    self.worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+                
+                # 确保worker支持筛选功能
+                self.worker.support_filtering = True
+                
+                # 标记筛选已加载
+                if not self._filters_loaded:
+                    self._filters_loaded = True
+                    # 加载筛选配置
+                    if hasattr(self, 'load_filters_config'):
+                        try:
+                            self.load_filters_config()
+                        except Exception as e:
+                            logger.error(f"Error loading filters config: {e}")
+                
                 # 处理数据
                 self.worker.process_bytes(data_chunk)
                 
@@ -2594,6 +2860,18 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                             if hasattr(self.worker, 'batch_buffers') and i < len(self.worker.batch_buffers) and self.worker.batch_buffers[i]:
                                 self.worker._process_batch_buffer(i)
                                 logger.debug(f"Processed pending batch buffer for channel {i}")
+                
+                # 确保筛选功能正常工作
+                if hasattr(self, 'update_filter_tab_display'):
+                    # 通知筛选标签更新
+                    self.update_filter_tab_display()
+                
+                # 确保数据被正确显示在UI中
+                if hasattr(self, '_update_from_worker'):
+                    try:
+                        self._update_from_worker()
+                    except Exception as e:
+                        logger.error(f"Error updating UI from worker: {e}")
         except Exception as e:
             logger.error(f"Error processing playback data in main thread: {e}", exc_info=True)
             
@@ -2603,7 +2881,33 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         设计目标：确保回放完成后正确清理资源，并通知UI更新
         """
-        logger.info(f"Playback completed for file: {self.playback_file_path}")
+        try:
+            import os
+            logger.info(f"Playback completed for file: {self.playback_file_path}")
+            
+            # 确保所有剩余数据都被处理
+            if hasattr(self.worker, 'batch_buffers') and hasattr(self.worker, '_process_batch_buffer'):
+                for i in range(16):  # 遍历所有通道
+                    if i < len(self.worker.batch_buffers) and self.worker.batch_buffers[i]:
+                        self.worker._process_batch_buffer(i)
+                        logger.debug(f"Processed final batch buffer for channel {i}")
+            
+            # 强制更新UI，确保所有数据都显示出来
+            if hasattr(self, '_update_from_worker'):
+                self._update_from_worker()
+            
+            # 更新状态信息
+            if hasattr(self, 'statusBar'):
+                self.statusBar().showMessage(
+                    f"回放已完成: {os.path.basename(self.playback_file_path)}", 
+                    5000
+                )
+            
+            # 确保筛选标签已更新
+            if hasattr(self, 'update_filter_tab_display'):
+                self.update_filter_tab_display()
+        except Exception as e:
+            logger.error(f"Error during playback finish processing: {e}", exc_info=True)
         
     
     def closeEvent(self, event):
@@ -3580,12 +3884,17 @@ class RTTMainWindow(QMainWindow):
             return None
     
     def _get_active_mdi_window(self):
-        """获取当前激活的 MDI 窗口"""
+        """获取当前激活的 MDI 窗口（支持DeviceMdiWindow和PlaybackMdiWindow）"""
         try:
             active_mdi_sub = self.mdi_area.activeSubWindow()
             if active_mdi_sub:
                 content_widget = active_mdi_sub.widget()
-                if content_widget and isinstance(content_widget, DeviceMdiWindow):
+                # 支持DeviceMdiWindow和PlaybackMdiWindow类型
+                if content_widget and (
+                    isinstance(content_widget, DeviceMdiWindow) or 
+                    isinstance(content_widget, PlaybackMdiWindow) or
+                    'PlaybackMdiWindow' in content_widget.__class__.__name__
+                ):
                     return content_widget
             return None
         except Exception as e:
@@ -5565,41 +5874,52 @@ class RTTMainWindow(QMainWindow):
             self.ui.sent.setText(QCoreApplication.translate("main_window", "Send Failed"))
 
     def on_dis_connect_clicked(self):
-        """F3 - 断开当前激活设备的连接"""
+        """F3 - 断开当前激活设备的连接或停止回放"""
         try:
-            # 获取当前激活的设备会话
-            session = self._get_active_device_session()
-            if not session:
-                logger.warning("No active device session to disconnect")
-                return
+            # 获取当前激活的窗口
+            active_window = self._get_active_mdi_window()
             
-            logger.info(f"Disconnecting device: {session.get_display_name()}")
-            self.append_jlink_log(QCoreApplication.translate("main_window", "Disconnecting device: %s") % session.get_display_name())
-            
-            # 标记为手动断开，停止自动重连定时器
-            self.manual_disconnect = True
-            if hasattr(self, 'data_check_timer'):
-                self.data_check_timer.stop()
-                logger.info("Auto reconnect timer stopped due to manual disconnect")
-            
-            # 断开该设备的连接
-            if session.rtt2uart:
-                try:
-                    session.rtt2uart.stop()
-                    logger.info(f"RTT stopped for device: {session.get_display_name()}")
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "RTT stopped for device: %s") % session.get_display_name())
-                except Exception as e:
-                    logger.error(f"Failed to stop RTT: {e}")
-                    self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to stop RTT: %s") % str(e))
-            
-            session.is_connected = False
-            logger.info(f"Device disconnected: {session.get_display_name()}")
-            self.append_jlink_log(QCoreApplication.translate("main_window", "Device disconnected: %s") % session.get_display_name())
-            
-            # 检查是否还有其他连接的设备，如果没有则禁用 RTT Chain Info 菜单
-            if hasattr(self, 'rtt_info_action'):
-                has_connected = any(s.is_connected for s in self.device_sessions if s.rtt2uart)
-                self.rtt_info_action.setEnabled(has_connected)
+            # 检查是否为回放窗口
+            if active_window and hasattr(active_window, '_stop_playback'):
+                # 调用回放窗口的停止方法
+                active_window._stop_playback()
+                logger.info("Playback stopped via F3")
+                self.statusBar().showMessage(QCoreApplication.translate("main_window", "Playback stopped"), 3000)
+            else:
+                # 标准设备断开连接逻辑
+                # 获取当前激活的设备会话
+                session = self._get_active_device_session()
+                if not session:
+                    logger.warning("No active device session to disconnect")
+                    return
+                
+                logger.info(f"Disconnecting device: {session.get_display_name()}")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Disconnecting device: %s") % session.get_display_name())
+                
+                # 标记为手动断开，停止自动重连定时器
+                self.manual_disconnect = True
+                if hasattr(self, 'data_check_timer'):
+                    self.data_check_timer.stop()
+                    logger.info("Auto reconnect timer stopped due to manual disconnect")
+                
+                # 断开该设备的连接
+                if session.rtt2uart:
+                    try:
+                        session.rtt2uart.stop()
+                        logger.info(f"RTT stopped for device: {session.get_display_name()}")
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "RTT stopped for device: %s") % session.get_display_name())
+                    except Exception as e:
+                        logger.error(f"Failed to stop RTT: {e}")
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "Failed to stop RTT: %s") % str(e))
+                
+                session.is_connected = False
+                logger.info(f"Device disconnected: {session.get_display_name()}")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Device disconnected: %s") % session.get_display_name())
+                
+                # 检查是否还有其他连接的设备，如果没有则禁用 RTT Chain Info 菜单
+                if hasattr(self, 'rtt_info_action'):
+                    has_connected = any(s.is_connected for s in self.device_sessions if s.rtt2uart)
+                    self.rtt_info_action.setEnabled(has_connected)
             
         except Exception as e:
             logger.error(f"Failed to disconnect device: {e}", exc_info=True)
@@ -6028,65 +6348,89 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to sync state on MDI activation: {e}", exc_info=True)
     
     def pause_ui_refresh(self):
-        """F5 暂停UI刷新 - 在rtt2uart中暂停数据处理"""
+        """F5 暂停UI刷新或回放"""
         try:
-            # 获取当前激活的设备会话
-            session = self._get_active_device_session()
-            if not session:
-                logger.warning("No active device session to pause refresh")
-                return
+            # 获取当前激活的窗口
+            active_window = self._get_active_mdi_window()
             
-            # 设置rtt2uart的暂停标志
-            if session.rtt2uart:
-                session.rtt2uart.ui_refresh_paused = True
-                logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
-                self.statusBar().showMessage(
-                    QCoreApplication.translate("main_window", "UI refresh paused - Device %s") % session.get_display_name(), 
-                    3000
-                )
-                
+            # 检查是否为回放窗口
+            if active_window and hasattr(active_window, '_pause_playback'):
+                # 调用回放窗口的暂停方法
+                active_window._pause_playback()
                 # 更新UI单选按钮状态
                 if hasattr(self.ui, 'radioButton_pause_refresh'):
-                    self.ui.radioButton_pause_refresh.setChecked(True)
+                    self.ui.radioButton_pause_refresh.setChecked(True)				
+                logger.info("Playback paused via F5")
             else:
-                logger.warning("No RTT connection to pause")
+                # 原始的实时设备暂停逻辑
+                session = self._get_active_device_session()
+                if not session:
+                    logger.warning("No active device session to pause refresh")
+                    return
                 
+                # 设置rtt2uart的暂停标志
+                if session.rtt2uart:
+                    session.rtt2uart.ui_refresh_paused = True
+                    logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
+                    self.statusBar().showMessage(
+                        QCoreApplication.translate("main_window", "UI refresh paused - Device %s") % session.get_display_name(), 
+                        3000
+                    )
+                    
+                    # 更新UI单选按钮状态
+                    if hasattr(self.ui, 'radioButton_pause_refresh'):
+                        self.ui.radioButton_pause_refresh.setChecked(True)
+                else:
+                    logger.warning("No RTT connection to pause")
+                    
         except Exception as e:
             logger.error(f"Failed to pause UI refresh: {e}", exc_info=True)
     
     def resume_ui_refresh(self):
-        """F6 恢复UI刷新 - 在rtt2uart中恢复数据处理"""
+        """F6 恢复UI刷新或回放"""
         try:
-            # 获取当前激活的设备会话
-            session = self._get_active_device_session()
-            if not session:
-                logger.warning("No active device session to resume refresh")
-                return
+            # 获取当前激活的窗口
+            active_window = self._get_active_mdi_window()
             
-            # 恢复rtt2uart的刷新并处理暂停期间的数据
-            if session.rtt2uart:
-                # 先清除暂停标志，这样flush_paused_data处理的数据会正常发送
-                session.rtt2uart.ui_refresh_paused = False
-                
-                # 一次性处理暂停期间积累的所有数据（仅在非关闭状态下）
-                if not self._is_closing:
-                    session.rtt2uart.flush_paused_data()
-                else:
-                    # 关闭时直接清空，不处理
-                    session.rtt2uart.clear_paused_data()
-                
-                logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh resumed") % session.get_display_name())
-                self.statusBar().showMessage(
-                    QCoreApplication.translate("main_window", "UI refresh resumed - Device %s") % session.get_display_name(), 
-                    3000
-                )
-                
+            # 检查是否为回放窗口
+            if active_window and hasattr(active_window, '_resume_playback'):
+                # 调用回放窗口的恢复方法
+                active_window._resume_playback()
                 # 更新UI单选按钮状态
                 if hasattr(self.ui, 'radioButton_resume_refresh'):
                     self.ui.radioButton_resume_refresh.setChecked(True)
+                logger.info("Playback resumed via F6")
             else:
-                logger.warning("No RTT connection to resume")
+                # 原始的实时设备恢复逻辑
+                session = self._get_active_device_session()
+                if not session:
+                    logger.warning("No active device session to resume refresh")
+                    return
                 
+                # 恢复rtt2uart的刷新并处理暂停期间的数据
+                if session.rtt2uart:
+                    # 先清除暂停标志，这样flush_paused_data处理的数据会正常发送
+                    session.rtt2uart.ui_refresh_paused = False
+                    
+                    # 一次性处理暂停期间积累的所有数据（仅在非关闭状态下）
+                    if not self._is_closing:
+                        session.rtt2uart.flush_paused_data()
+                    else:
+                        # 关闭时直接清空，不处理
+                        session.rtt2uart.clear_paused_data()
+                    
+                    logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh resumed") % session.get_display_name())
+                    self.statusBar().showMessage(
+                        QCoreApplication.translate("main_window", "UI refresh resumed - Device %s") % session.get_display_name(), 
+                        3000
+                    )
+                    
+                    # 更新UI单选按钮状态
+                    if hasattr(self.ui, 'radioButton_resume_refresh'):
+                        self.ui.radioButton_resume_refresh.setChecked(True)
+                else:
+                    logger.warning("No RTT connection to resume")
+                    
         except Exception as e:
             logger.error(f"Failed to resume UI refresh: {e}", exc_info=True)
     
@@ -11462,32 +11806,30 @@ class Worker(QObject):
                 self.parent.main_window.page_dirty_flags[0] = True
         
         # 串口转发功能：将指定TAB的数据转发到串口
-            if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
-                # 转发单个通道的数据（index+1对应TAB索引）
-                self.parent.rtt2uart.add_tab_data_for_forwarding(index+1, data)
-                # 转发所有数据（TAB 0）包含通道前缀
-                buffer_parts = ["%02u> " % index, data]
-                self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
-            else:
-                # 确保buffer_parts始终有定义，即使没有串口转发功能
-                buffer_parts = ["%02u> " % index, data]
+        if hasattr(self.parent, 'rtt2uart') and self.parent.rtt2uart:
+            # 转发单个通道的数据（index+1对应TAB索引）
+            self.parent.rtt2uart.add_tab_data_for_forwarding(index+1, data)
+            # 转发所有数据（TAB 0）包含通道前缀
+            buffer_parts = ["%02u> " % index, data]
+            self.parent.rtt2uart.add_tab_data_for_forwarding(0, ''.join(buffer_parts))
+        else:
+            # 确保buffer_parts始终有定义，即使没有串口转发功能
+            buffer_parts = ["%02u> " % index, data]
 
-            # 📋 统一日志处理：
-            # 1. ALL页面日志 - 每次都写入，确保完整记录
-            all_data = ''.join(buffer_parts)
-            self.write_data_to_buffer_log(0, all_data, "all")
-            
-            # 2. 通道页面日志 - 减少写入频率：只在数据量较大或周期性写入
-            self.write_data_to_buffer_log(index+1, clean_data, str(index))
+        # 📋 统一日志处理：
+        # 1. ALL页面日志 - 每次都写入，确保完整记录
+        all_data = ''.join(buffer_parts)
+        self.write_data_to_buffer_log(0, all_data, "all")
+        
+        # 2. 通道页面日志 - 减少写入频率：只在数据量较大或周期性写入
+        self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
+        # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
+        if clean_data.strip():  # 只处理非空数据
+            clean_lines = [line for line in clean_data.split('\n') if line.strip()]
+            self.process_filter_lines(clean_lines)
 
-
-            # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
-            if clean_data.strip():  # 只处理非空数据
-                clean_lines = [line for line in clean_data.split('\n') if line.strip()]
-                self.process_filter_lines(clean_lines)
-
-            self.finished.emit()
+        self.finished.emit()
     
     def _append_to_buffer(self, index, data):
         """🚀 智能缓冲区追加：预分配 + 成倍扩容机制 + 连续重复检查"""
