@@ -519,6 +519,345 @@ class DeviceTableModel(QtCore.QAbstractTableModel):
         return None
 
 
+class JLinkDeviceDatabaseDriver:
+    """JLink设备数据库驱动层 - 统一管理设备数据库的读取和内存缓存"""
+    
+    # 类变量：存储JLink设备数据库XML内容（内存缓存）
+    _xml_content = None
+    _is_loaded = False
+    
+    @classmethod
+    def get_xml_content(cls):
+        """获取JLink设备数据库XML内容
+        
+        优先从内存缓存获取，如果缓存中没有则从多个位置尝试加载并缓存
+        
+        Returns:
+            str: XML文件内容字符串
+            
+        Raises:
+            Exception: 如果无法获取设备数据库
+        """
+        # 1. 优先从内存缓存获取
+        if cls._is_loaded and cls._xml_content:
+            logger.debug("Using JLink devices XML content from memory cache")
+            return cls._xml_content
+        
+        logger.info("Starting to load JLink device database...")
+        searched_paths = []
+        
+        # 2. 尝试从JLink安装目录读取（通过pylink库）
+        try:
+            import pylink
+            lib = pylink.library.Library()
+            lib.load_default()
+            # 尝试获取DLL路径
+            jlink_lib_path = None
+            if hasattr(lib, 'dll') and lib.dll:
+                if hasattr(lib.dll, '_name'):
+                    jlink_lib_path = lib.dll._name
+                elif hasattr(lib.dll, 'name'):
+                    jlink_lib_path = lib.dll.name
+                elif isinstance(lib.dll, str):
+                    jlink_lib_path = lib.dll
+            
+            if jlink_lib_path and os.path.exists(jlink_lib_path):
+                jlink_dir = os.path.dirname(jlink_lib_path)
+                # 尝试多个可能的文件名（优先JLinkDevices.xml）
+                for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
+                    jlink_xml = os.path.join(jlink_dir, xml_filename)
+                    searched_paths.append(jlink_xml)
+                    if os.path.exists(jlink_xml):
+                        logger.info(f"Loading JLink device database from installation: {jlink_xml}")
+                        xml_content = cls._read_file_with_encoding(jlink_xml)
+                        if xml_content and len(xml_content.strip()) > 0:
+                            cls._xml_content = xml_content
+                            cls._is_loaded = True
+                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                            return xml_content
+                        else:
+                            logger.warning(f"File exists but content is empty: {jlink_xml}")
+        except Exception as e:
+            logger.debug(f"Could not locate JLink installation directory via pylink: {e}")
+        
+        # 2.0. 尝试通过JLink.exe命令导出设备数据库
+        try:
+            xml_content = cls._export_from_jlink_exe()
+            if xml_content:
+                cls._xml_content = xml_content
+                cls._is_loaded = True
+                logger.info(f"Exported and loaded XML content from JLink.exe (size: {len(xml_content)} bytes)")
+                return xml_content
+        except Exception as e:
+            logger.debug(f"Failed to export device database from JLink.exe: {e}")
+        
+        # 2.1. 尝试从Windows Program Files目录读取
+        try:
+            if sys.platform == 'win32':
+                program_files_dirs = [
+                    os.path.join(os.environ.get('ProgramFiles', ''), 'SEGGER', 'JLink'),
+                    os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'SEGGER', 'JLink'),
+                ]
+                for jlink_dir in program_files_dirs:
+                    if jlink_dir and os.path.exists(jlink_dir):
+                        # 尝试多个可能的文件名（优先JLinkDevices.xml）
+                        for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
+                            program_files_xml = os.path.join(jlink_dir, xml_filename)
+                            searched_paths.append(program_files_xml)
+                            if os.path.exists(program_files_xml):
+                                logger.info(f"Loading JLink device database from Program Files: {program_files_xml}")
+                                xml_content = cls._read_file_with_encoding(program_files_xml)
+                                if xml_content and len(xml_content.strip()) > 0:
+                                    cls._xml_content = xml_content
+                                    cls._is_loaded = True
+                                    logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                                    return xml_content
+                                else:
+                                    logger.warning(f"File exists but content is empty: {program_files_xml}")
+        except Exception as e:
+            logger.debug(f"Could not locate JLink in Program Files: {e}")
+        
+        # 2.2. 尝试从Windows注册表查找JLink安装路径
+        try:
+            if sys.platform == 'win32':
+                import winreg
+                reg_paths = [
+                    r'SOFTWARE\SEGGER\J-Link',
+                    r'SOFTWARE\WOW6432Node\SEGGER\J-Link'
+                ]
+                for reg_path in reg_paths:
+                    try:
+                        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                            jlink_path = winreg.QueryValueEx(key, 'InstallPath')[0]
+                            if jlink_path and os.path.exists(jlink_path):
+                                # 优先JLinkDevices.xml
+                                for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
+                                    reg_xml = os.path.join(jlink_path, xml_filename)
+                                    searched_paths.append(reg_xml)
+                                    if os.path.exists(reg_xml):
+                                        logger.info(f"Loading JLink device database from registry path: {reg_xml}")
+                                        xml_content = cls._read_file_with_encoding(reg_xml)
+                                        if xml_content and len(xml_content.strip()) > 0:
+                                            cls._xml_content = xml_content
+                                            cls._is_loaded = True
+                                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                                            return xml_content
+                    except Exception as e:
+                        logger.debug(f"Registry path {reg_path} failed: {e}")
+        except ImportError:
+            logger.debug("winreg module not available")
+        except Exception as e:
+            logger.debug(f"Failed to read registry: {e}")
+        
+        # 3. 开发环境：从当前目录读取（尝试多个文件名）
+        for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml', 'jlink_devices_database.xml']:
+            current_dir_xml = os.path.abspath(xml_filename)
+            searched_paths.append(current_dir_xml)
+            if os.path.exists(current_dir_xml):
+                logger.info(f"Loading local device database: {current_dir_xml}")
+                xml_content = cls._read_file_with_encoding(current_dir_xml)
+                if xml_content and len(xml_content.strip()) > 0:
+                    cls._xml_content = xml_content
+                    cls._is_loaded = True
+                    logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                    return xml_content
+                else:
+                    logger.warning(f"File exists but content is empty: {current_dir_xml}")
+        
+        # 4. 打包后环境：从资源目录读取（尝试多个文件名）
+        try:
+            if hasattr(sys, '_MEIPASS'):
+                for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
+                    resource_path = os.path.join(sys._MEIPASS, xml_filename)
+                    searched_paths.append(resource_path)
+                    if os.path.exists(resource_path):
+                        logger.info(f"Loading packaged device database: {resource_path}")
+                        xml_content = cls._read_file_with_encoding(resource_path)
+                        if xml_content and len(xml_content.strip()) > 0:
+                            cls._xml_content = xml_content
+                            cls._is_loaded = True
+                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                            return xml_content
+                        else:
+                            logger.warning(f"File exists but content is empty: {resource_path}")
+            
+            # 尝试从当前可执行文件目录读取（尝试多个文件名）
+            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+            for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
+                exe_resource_path = os.path.join(exe_dir, xml_filename)
+                searched_paths.append(exe_resource_path)
+                if os.path.exists(exe_resource_path):
+                    logger.info(f"Loading device database from exe directory: {exe_resource_path}")
+                    xml_content = cls._read_file_with_encoding(exe_resource_path)
+                    if xml_content and len(xml_content.strip()) > 0:
+                        cls._xml_content = xml_content
+                        cls._is_loaded = True
+                        logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                        return xml_content
+                    else:
+                        logger.warning(f"File exists but content is empty: {exe_resource_path}")
+        except Exception as e:
+            logger.warning(f"Failed to locate device database from resources: {e}")
+        
+        # 记录所有搜索过的路径
+        logger.error(f"Failed to find device database. Searched {len(searched_paths)} paths:")
+        for path in searched_paths:
+            logger.error(f"  - {path} (exists: {os.path.exists(path) if path else False})")
+        # 如果都找不到，抛出异常
+        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+    
+    @classmethod
+    def _export_from_jlink_exe(cls):
+        """通过JLink.exe命令导出设备数据库
+        
+        Returns:
+            str: XML内容，如果失败返回None
+        """
+        try:
+            import subprocess
+            import tempfile
+            
+            # 查找JLink.exe
+            jlink_exe_paths = []
+            
+            # 1. 从环境变量查找
+            if sys.platform == 'win32':
+                program_files_dirs = [
+                    os.path.join(os.environ.get('ProgramFiles', ''), 'SEGGER', 'JLink'),
+                    os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'SEGGER', 'JLink'),
+                ]
+                for jlink_dir in program_files_dirs:
+                    if jlink_dir and os.path.exists(jlink_dir):
+                        jlink_exe = os.path.join(jlink_dir, 'JLink.exe')
+                        if os.path.exists(jlink_exe):
+                            jlink_exe_paths.append(jlink_exe)
+                
+                # 2. 从注册表查找
+                try:
+                    import winreg
+                    reg_paths = [
+                        r'SOFTWARE\SEGGER\J-Link',
+                        r'SOFTWARE\WOW6432Node\SEGGER\J-Link'
+                    ]
+                    for reg_path in reg_paths:
+                        try:
+                            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                                jlink_path = winreg.QueryValueEx(key, 'InstallPath')[0]
+                                if jlink_path:
+                                    jlink_exe = os.path.join(jlink_path, 'JLink.exe')
+                                    if os.path.exists(jlink_exe):
+                                        jlink_exe_paths.append(jlink_exe)
+                        except:
+                            pass
+                except:
+                    pass
+            
+            # 尝试每个找到的JLink.exe
+            for jlink_exe in jlink_exe_paths:
+                try:
+                    logger.info(f"Trying to export device database using: {jlink_exe}")
+                    
+                    # 创建临时命令文件
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.jlink', delete=False, encoding='utf-8') as cmd_file:
+                        # 使用deviceinfo命令导出XML
+                        cmd_file.write('deviceinfo -xml\n')
+                        cmd_file.write('exit\n')
+                        cmd_file_path = cmd_file.name
+                    
+                    try:
+                        # 执行JLink命令
+                        result = subprocess.run(
+                            [jlink_exe, '-CommandFile', cmd_file_path],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                        )
+                        
+                        # 清理临时文件
+                        try:
+                            os.unlink(cmd_file_path)
+                        except:
+                            pass
+                        
+                        # 从输出中提取XML内容
+                        all_output = result.stdout + result.stderr
+                        if all_output:
+                            # 查找XML开始标记
+                            xml_start = all_output.find('<?xml')
+                            if xml_start == -1:
+                                xml_start = all_output.find('<DataBase')
+                            if xml_start == -1:
+                                xml_start = all_output.find('<JLinkDevices')
+                            
+                            if xml_start != -1:
+                                xml_content = all_output[xml_start:]
+                                # 查找XML结束标记
+                                xml_end = xml_content.rfind('</DataBase>')
+                                if xml_end == -1:
+                                    xml_end = xml_content.rfind('</JLinkDevices>')
+                                if xml_end != -1:
+                                    xml_end += len('</JLinkDevices>') if '</JLinkDevices>' in xml_content else len('</DataBase>')
+                                    xml_content = xml_content[:xml_end]
+                                
+                                if len(xml_content.strip()) > 100:  # 确保有足够的内容
+                                    logger.info(f"Successfully exported device database from JLink.exe (size: {len(xml_content)} bytes)")
+                                    return xml_content
+                    except subprocess.TimeoutExpired:
+                        logger.debug(f"JLink.exe command timed out")
+                    except Exception as e:
+                        logger.debug(f"Failed to execute JLink.exe: {e}")
+                except Exception as e:
+                    logger.debug(f"Failed to export from {jlink_exe}: {e}")
+            
+        except Exception as e:
+            logger.debug(f"Failed to export device database from JLink.exe: {e}")
+        
+        return None
+    
+    @staticmethod
+    def _read_file_with_encoding(file_path):
+        """尝试多种编码读取文件
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            str: 文件内容，如果读取失败返回None
+        """
+        encodings = ['utf-8', 'iso-8859-1', 'gbk']
+        for encoding in encodings:
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    return f.read()
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                logger.debug(f"Failed to read file with {encoding}: {e}")
+                continue
+        return None
+    
+    @classmethod
+    def clear_cache(cls):
+        """清除内存缓存（用于重新加载）"""
+        cls._xml_content = None
+        cls._is_loaded = False
+        logger.debug("JLink device database cache cleared")
+    
+    @classmethod
+    def is_available(cls):
+        """检查设备数据库是否可用
+        
+        Returns:
+            bool: 如果数据库可用返回True，否则返回False
+        """
+        try:
+            xml_content = cls.get_xml_content()
+            return xml_content is not None and len(xml_content.strip()) > 0
+        except Exception:
+            return False
+
+
 class DeviceSelectDialog(QDialog):
     def __init__(self, parent=None):
         # 初始化回放控制相关变量
@@ -560,9 +899,20 @@ class DeviceSelectDialog(QDialog):
         
         self._target = None
 
-        filepath = self.get_jlink_devices_list_file()
-        if filepath != '':
-            self.devices_list = self.parse_jlink_devices_list_file(filepath)
+        # 使用驱动层获取XML内容
+        self.devices_list = []
+        try:
+            xml_content = JLinkDeviceDatabaseDriver.get_xml_content()
+            logger.info(f"Got XML content from driver, length: {len(xml_content) if xml_content else 0}")
+            if xml_content:
+                self.devices_list = self.parse_jlink_devices_list_file(xml_content)
+                logger.info(f"Parsed {len(self.devices_list)} devices from database")
+            else:
+                logger.warning("XML content is empty")
+                self.devices_list = []
+        except Exception as e:
+            logger.error(f"Failed to load device database: {e}", exc_info=True)
+            self.devices_list = []
 
         if len(self.devices_list):
             # 从 header_data 中取出数据，放入到模型中
@@ -607,9 +957,7 @@ class DeviceSelectDialog(QDialog):
         self.ui.buttonBox.rejected.connect(self.reject)
             
     def get_jlink_devices_list_file(self):
-        """获取JLink设备数据库内容
-        
-        返回内存中的XML内容（优先），如果内存中没有则尝试从文件加载并存储到内存
+        """获取JLink设备数据库内容（使用驱动层）
         
         Returns:
             str: XML文件内容字符串
@@ -617,94 +965,11 @@ class DeviceSelectDialog(QDialog):
         Raises:
             Exception: 如果无法获取设备数据库
         """
-        # 1. 优先从内存中获取（已加载的内容）
-        if hasattr(self.__class__, '_jlink_devices_xml_content') and self.__class__._jlink_devices_xml_content:
-            logger.debug("Using JLink devices XML content from memory")
-            return self.__class__._jlink_devices_xml_content
-        
-        # 2. 尝试从JLink安装目录读取（通过pylink库）并加载到内存
-        try:
-            import pylink
-            # 尝试通过pylink获取JLink安装路径
-            jlink_lib_path = pylink.library.Library().dll_path()
-            if jlink_lib_path:
-                jlink_dir = os.path.dirname(jlink_lib_path)
-                jlink_xml = os.path.join(jlink_dir, 'JLinkDevicesBuildIn.xml')
-                if os.path.exists(jlink_xml):
-                    logger.info(f"Loading JLink device database from installation: {jlink_xml}")
-                    try:
-                        with open(jlink_xml, 'r', encoding='utf-8') as f:
-                            xml_content = f.read()
-                    except UnicodeDecodeError:
-                        with open(jlink_xml, 'r', encoding='iso-8859-1') as f:
-                            xml_content = f.read()
-                    self.__class__._jlink_devices_xml_content = xml_content
-                    logger.info(f"Loaded XML content to memory (size: {len(xml_content)} bytes)")
-                    return xml_content
-        except Exception as e:
-            logger.debug(f"Could not locate JLink installation directory: {e}")
-        
-        # 3. 开发环境：从当前目录读取并加载到内存
-        if os.path.exists('JLinkDevicesBuildIn.xml'):
-            local_path = os.path.abspath('JLinkDevicesBuildIn.xml')
-            logger.info(f"Loading local device database: {local_path}")
-            try:
-                with open(local_path, 'r', encoding='utf-8') as f:
-                    xml_content = f.read()
-            except UnicodeDecodeError:
-                with open(local_path, 'r', encoding='iso-8859-1') as f:
-                    xml_content = f.read()
-            self.__class__._jlink_devices_xml_content = xml_content
-            logger.info(f"Loaded XML content to memory (size: {len(xml_content)} bytes)")
-            return xml_content
-        
-        # 4. 打包后环境：从资源目录读取并加载到内存
-        try:
-            # PyInstaller会将资源文件解压到sys._MEIPASS目录
-            if hasattr(sys, '_MEIPASS'):
-                resource_path = os.path.join(sys._MEIPASS, 'JLinkDevicesBuildIn.xml')
-                if os.path.exists(resource_path):
-                    logger.info(f"Loading packaged device database: {resource_path}")
-                    try:
-                        with open(resource_path, 'r', encoding='utf-8') as f:
-                            xml_content = f.read()
-                    except UnicodeDecodeError:
-                        with open(resource_path, 'r', encoding='iso-8859-1') as f:
-                            xml_content = f.read()
-                    self.__class__._jlink_devices_xml_content = xml_content
-                    logger.info(f"Loaded XML content to memory (size: {len(xml_content)} bytes)")
-                    return xml_content
-            
-            # 尝试从当前可执行文件目录读取并加载到内存
-            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            exe_resource_path = os.path.join(exe_dir, 'JLinkDevicesBuildIn.xml')
-            if os.path.exists(exe_resource_path):
-                logger.info(f"Loading device database from exe directory: {exe_resource_path}")
-                try:
-                    with open(exe_resource_path, 'r', encoding='utf-8') as f:
-                        xml_content = f.read()
-                except UnicodeDecodeError:
-                    with open(exe_resource_path, 'r', encoding='iso-8859-1') as f:
-                        xml_content = f.read()
-                self.__class__._jlink_devices_xml_content = xml_content
-                logger.info(f"Loaded XML content to memory (size: {len(xml_content)} bytes)")
-                return xml_content
-                
-        except Exception as e:
-            logger.warning(f"Failed to locate JLinkDevicesBuildIn.xml from resources: {e}")
-        
-        # 如果都找不到，抛出异常
-        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+        return JLinkDeviceDatabaseDriver.get_xml_content()
     
     def _device_database_exists(self):
-        """检查设备数据库内容是否可用（内存存储）"""
-        try:
-            # 获取XML内容，检查是否为空或无效
-            xml_content = self.get_jlink_devices_list_file()
-            return xml_content is not None and len(xml_content.strip()) > 0
-        except Exception as e:
-            logger.debug(f"Device database check failed: {e}")
-            return False
+        """检查设备数据库内容是否可用（使用驱动层）"""
+        return JLinkDeviceDatabaseDriver.is_available()
     
     def _get_jlink_command_file_path(self):
         """获取JLinkCommandFile.jlink文件路径"""
@@ -733,63 +998,183 @@ class DeviceSelectDialog(QDialog):
         # 如果都找不到，返回默认路径（向后兼容）
         return 'JLinkCommandFile.jlink'
 
-    def parse_jlink_devices_list_file(self, path):
-        """解析JLink设备数据库文件"""
+    def parse_jlink_devices_list_file(self, xml_content_or_path):
+        """解析JLink设备数据库文件或XML字符串内容
+        
+        Args:
+            xml_content_or_path: XML文件路径（str）或XML内容字符串
+            
+        Returns:
+            list: 设备列表
+        """
+        xml_content = None
+        
+        # 判断是文件路径还是XML字符串内容
+        if isinstance(xml_content_or_path, str):
+            # 优先检查是否是实际存在的文件路径
+            if os.path.exists(xml_content_or_path) and os.path.isfile(xml_content_or_path):
+                # 是文件路径，读取文件
+                logger.info(f"Reading XML from file: {xml_content_or_path}")
+                try:
+                    with open(xml_content_or_path, 'r', encoding='utf-8') as parsefile:
+                        xml_content = parsefile.read()
+                except UnicodeDecodeError:
+                    try:
+                        with open(xml_content_or_path, 'r', encoding='gbk') as parsefile:
+                            xml_content = parsefile.read()
+                    except UnicodeDecodeError:
+                        with open(xml_content_or_path, 'r', encoding='iso-8859-1') as parsefile:
+                            xml_content = parsefile.read()
+            else:
+                # 是XML字符串内容（通过检查是否以XML声明或根元素开头来判断）
+                xml_content = xml_content_or_path
+                logger.debug(f"Treating input as XML string content (length: {len(xml_content)})")
+        else:
+            raise ValueError("xml_content_or_path must be a string (file path or XML content)")
+        
+        if not xml_content:
+            logger.error("XML content is empty after processing")
+            return []
+        
+        # 从字符串解析XML
         try:
-            # 尝试使用UTF-8编码打开文件
-            with open(path, 'r', encoding='utf-8') as parsefile:
-                tree = ET.ElementTree(file=parsefile)
-        except UnicodeDecodeError:
-            # 如果UTF-8失败，尝试使用系统默认编码
-            try:
-                with open(path, 'r', encoding='gbk') as parsefile:
-                    tree = ET.ElementTree(file=parsefile)
-            except UnicodeDecodeError:
-                # 最后尝试使用ISO-8859-1编码
-                with open(path, 'r', encoding='iso-8859-1') as parsefile:
-                    tree = ET.ElementTree(file=parsefile)
-        except Exception as e:
-            logger.error(f"Failed to open JLinkDevicesBuildIn.xml: {e}")
+            root = ET.fromstring(xml_content)
+            tree = ET.ElementTree(root)
+            logger.debug(f"XML root tag: {root.tag}")
+        except ET.ParseError as e:
+            logger.error(f"Failed to parse XML content: {e}")
+            logger.debug(f"XML content preview (first 500 chars): {xml_content[:500]}")
             raise Exception(QCoreApplication.translate("main_window", "Failed to parse device database file!"))
 
         jlink_devices_list = []
 
-        for VendorInfo in tree.findall('VendorInfo'):
-            for DeviceInfo in VendorInfo.findall('DeviceInfo'):
-                device_item = []
+        # 查找VendorInfo元素（旧格式：VendorInfo/DeviceInfo）
+        vendor_infos = tree.findall('VendorInfo')
+        logger.info(f"Found {len(vendor_infos)} VendorInfo elements")
+        
+        if len(vendor_infos) > 0:
+            # 旧格式：VendorInfo/DeviceInfo
+            for VendorInfo in vendor_infos:
+                device_infos = VendorInfo.findall('DeviceInfo')
+                logger.debug(f"Found {len(device_infos)} DeviceInfo elements in vendor: {VendorInfo.attrib.get('Name', 'Unknown')}")
+                
+                for DeviceInfo in device_infos:
+                    try:
+                        device_item = []
 
-                # get Manufacturer
-                device_item.append(VendorInfo.attrib['Name'])
-                # get Device
-                device_item.append(DeviceInfo.attrib['Name'])
-                # get Core
-                device_item.append(DeviceInfo.attrib['Core'])
-                # get NumCores
-                # now fix 1
-                device_item.append('1')
-                # get Flash Size
-                flash_size = 0
-                for FlashBankInfo in DeviceInfo.findall('FlashBankInfo'):
-                    flash_size += int(FlashBankInfo.attrib['Size'], 16)
+                        # get Manufacturer
+                        manufacturer = VendorInfo.attrib.get('Name', 'Unknown')
+                        device_item.append(manufacturer)
+                        
+                        # get Device
+                        device_name = DeviceInfo.attrib.get('Name', 'Unknown')
+                        device_item.append(device_name)
+                        
+                        # get Core
+                        core = DeviceInfo.attrib.get('Core', 'Unknown')
+                        device_item.append(core)
+                        
+                        # get NumCores
+                        device_item.append('1')
+                        
+                        # get Flash Size
+                        flash_size = 0
+                        flash_banks = DeviceInfo.findall('FlashBankInfo')
+                        for FlashBankInfo in flash_banks:
+                            if 'Size' in FlashBankInfo.attrib:
+                                try:
+                                    flash_size += int(FlashBankInfo.attrib['Size'], 16)
+                                except (ValueError, KeyError) as e:
+                                    logger.debug(f"Failed to parse flash size: {e}")
 
-                flash_size = flash_size // 1024
-                if flash_size < 1024:
-                    device_item.append(str(flash_size)+' KB')
-                else:
+                        flash_size = flash_size // 1024
+                        if flash_size < 1024:
+                            device_item.append(str(flash_size)+' KB')
+                        else:
+                            flash_size = flash_size // 1024
+                            device_item.append(str(flash_size)+' MB')
+                        
+                        # get RAM Size
+                        ram_size = 0
+                        if 'WorkRAMSize' in DeviceInfo.attrib:
+                            try:
+                                ram_size = int(DeviceInfo.attrib['WorkRAMSize'], 16)
+                            except (ValueError, KeyError) as e:
+                                logger.debug(f"Failed to parse RAM size: {e}")
+
+                        device_item.append(str(ram_size//1024)+' KB' if ram_size > 0 else '0 KB')
+
+                        # add item to list
+                        jlink_devices_list.append(device_item)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse device info: {e}", exc_info=True)
+                        continue
+        else:
+            # 新格式：DataBase/Device/ChipInfo
+            logger.info("No VendorInfo elements found, trying DataBase/Device/ChipInfo structure...")
+            devices = tree.findall('Device')
+            logger.info(f"Found {len(devices)} Device elements")
+            
+            for Device in devices:
+                try:
+                    chip_info = Device.find('ChipInfo')
+                    if chip_info is None:
+                        continue
+                    
+                    device_item = []
+
+                    # get Manufacturer (from ChipInfo Vendor attribute)
+                    manufacturer = chip_info.attrib.get('Vendor', 'Unknown')
+                    device_item.append(manufacturer)
+                    
+                    # get Device (from ChipInfo Name attribute)
+                    device_name = chip_info.attrib.get('Name', 'Unknown')
+                    device_item.append(device_name)
+                    
+                    # get Core (from ChipInfo Core attribute)
+                    core = chip_info.attrib.get('Core', 'Unknown')
+                    device_item.append(core)
+                    
+                    # get NumCores
+                    device_item.append('1')
+                    
+                    # get Flash Size (from FlashBankInfo MaxSize)
+                    flash_size = 0
+                    flash_banks = Device.findall('FlashBankInfo')
+                    for FlashBankInfo in flash_banks:
+                        # 尝试MaxSize或Size属性
+                        size_attr = FlashBankInfo.attrib.get('MaxSize') or FlashBankInfo.attrib.get('Size')
+                        if size_attr:
+                            try:
+                                flash_size += int(size_attr, 16)
+                            except (ValueError, KeyError) as e:
+                                logger.debug(f"Failed to parse flash size: {e}")
+
                     flash_size = flash_size // 1024
-                    device_item.append(str(flash_size)+' MB')
-                # get RAM Size
-                ram_size = 0
-                if 'WorkRAMSize' in DeviceInfo.attrib.keys():
-                    ram_size += int(DeviceInfo.attrib['WorkRAMSize'], 16)
+                    if flash_size < 1024:
+                        device_item.append(str(flash_size)+' KB' if flash_size > 0 else '0 KB')
+                    else:
+                        flash_size = flash_size // 1024
+                        device_item.append(str(flash_size)+' MB')
+                    
+                    # get RAM Size (from ChipInfo WorkRAMSize)
+                    ram_size = 0
+                    work_ram_size = chip_info.attrib.get('WorkRAMSize')
+                    if work_ram_size:
+                        try:
+                            ram_size = int(work_ram_size, 16)
+                        except (ValueError, KeyError) as e:
+                            logger.debug(f"Failed to parse RAM size: {e}")
 
-                device_item.append(str(ram_size//1024)+' KB')
+                    device_item.append(str(ram_size//1024)+' KB' if ram_size > 0 else '0 KB')
 
-                # add item to list
-                jlink_devices_list.append(device_item)
+                    # add item to list
+                    jlink_devices_list.append(device_item)
+                except Exception as e:
+                    logger.warning(f"Failed to parse device info: {e}", exc_info=True)
+                    continue
 
-        parsefile.close()
-
+        logger.info(f"Successfully parsed {len(jlink_devices_list)} devices")
         return jlink_devices_list
 
     def refresh_selected_device(self):
@@ -7831,21 +8216,14 @@ class RTTMainWindow(QMainWindow):
             
             # 解析JLink设备数据库内容
             import xml.etree.ElementTree as ET
-            # 获取XML内容
+            # 获取XML内容（使用驱动层）
             try:
-                # 尝试从connection_dialog获取（如果可用）
-                if hasattr(self, 'connection_dialog') and self.connection_dialog and hasattr(self.connection_dialog, 'get_jlink_devices_list_file'):
-                    xml_content = self.connection_dialog.get_jlink_devices_list_file()
-                else:
-                    # 尝试从自身获取
-                    xml_content = self.get_jlink_devices_list_file()
-                
+                xml_content = JLinkDeviceDatabaseDriver.get_xml_content()
                 if not xml_content:
-                    raise ValueError("get_jlink_devices_list_file returned empty content")
+                    raise ValueError("get_xml_content returned empty content")
                     
-            except (AttributeError, ValueError, Exception) as e:
+            except Exception as e:
                 logger.error(f"Failed to get device list content: {e}")
-                # 不再使用硬编码路径，让错误能够被检测到
                 return None, None
             
             try:
@@ -9880,7 +10258,7 @@ class ConnectionDialog(QDialog):
     # 删除了不再需要的_apply_saved_settings_to_main_window方法
     
     def get_jlink_devices_list_file(self):
-        """获取JLink设备数据库内容，支持开发环境和打包后的资源访问
+        """获取JLink设备数据库内容（使用驱动层）
         
         Returns:
             str: XML文件内容字符串
@@ -9888,49 +10266,11 @@ class ConnectionDialog(QDialog):
         Raises:
             Exception: 如果无法获取设备数据库
         """
-        # 1. 优先从内存中获取（已加载的内容）
-        if hasattr(self.__class__, '_jlink_devices_xml_content') and self.__class__._jlink_devices_xml_content:
-            logger.debug("Using JLink devices XML content from memory")
-            return self.__class__._jlink_devices_xml_content
-        
-        # 2. 尝试从开发环境中的资源文件加载
-        try:
-            # 尝试从resources_rc中获取JLinkDevicesBuildIn.xml
-            import resources_rc
-            
-            # 检查资源文件是否存在于当前工作目录中
-            current_dir = os.getcwd()
-            db_file_path = os.path.join(current_dir, "JLinkDevicesBuildIn.xml")
-            
-            if os.path.exists(db_file_path):
-                logger.info(f"Loading local device database: {db_file_path}")
-                try:
-                    with open(db_file_path, 'r', encoding='utf-8') as f:
-                        xml_content = f.read()
-                except UnicodeDecodeError:
-                    with open(db_file_path, 'r', encoding='iso-8859-1') as f:
-                        xml_content = f.read()
-                self.__class__._jlink_devices_xml_content = xml_content
-                logger.info(f"Loaded XML content to memory (size: {len(xml_content)} bytes)")
-                return xml_content
-            
-        except ImportError:
-            logger.warning("resources_rc module not found, trying alternative methods")
-        except Exception as e:
-            logger.warning(f"Failed to locate JLinkDevicesBuildIn.xml from resources: {e}")
-        
-        # 如果都找不到，抛出异常
-        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+        return JLinkDeviceDatabaseDriver.get_xml_content()
     
     def _device_database_exists(self):
-        """检查设备数据库内容是否可用（内存存储）"""
-        try:
-            # 获取XML内容，检查是否为空或无效
-            xml_content = self.get_jlink_devices_list_file()
-            return xml_content is not None and len(xml_content.strip()) > 0
-        except Exception as e:
-            logger.debug(f"Device database check failed: {e}")
-            return False
+        """检查设备数据库内容是否可用（使用驱动层）"""
+        return JLinkDeviceDatabaseDriver.is_available()
     
     def _check_and_handle_jlink_conflicts(self):
         """检测并处理JLink占用冲突"""
