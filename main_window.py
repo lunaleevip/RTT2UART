@@ -3007,9 +3007,10 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             logger.warning("Added missing connection_dialog attribute to device_session")
         
         # 创建worker的辅助函数
+        # parent_obj应该是connection_dialog对象，因为它有config属性
         def create_worker(parent_obj):
             worker = Worker()
-            worker.parent = parent_obj
+            worker.parent = parent_obj  # parent应该是connection_dialog
             worker.set_turbo_mode(False)
             worker.use_channel_tags = True
             worker.support_filtering = True
@@ -3021,6 +3022,8 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             worker.buffer_lengths = [0] * MAX_TAB_SIZE
             worker.byte_buffer_temp = bytearray()
             worker.remaining_data = bytearray()
+            # 新增：初始化colored_buffer_lengths
+            worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
             return worker
         
         # 创建connection_dialog并确保其有work属性
@@ -3182,8 +3185,9 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
             self.device_session.connection_dialog.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
             self.device_session.connection_dialog.work.buffer_lengths = [0] * MAX_TAB_SIZE
-            # 确保worker有正确的parent引用
-            self.device_session.connection_dialog.work.parent = self
+            self.device_session.connection_dialog.work.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+            # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
+            self.device_session.connection_dialog.work.parent = self.device_session.connection_dialog
         
         # 确保self.worker指向正确的对象
         try:
@@ -3203,8 +3207,12 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
             self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
             self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
-            # 确保worker有正确的parent引用
-            self.worker.parent = self
+            self.worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+            # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
+            if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                self.worker.parent = self.device_session.connection_dialog
+            else:
+                self.worker.parent = self
     
     def start_playback(self, file_path):
         """开始文件回放
@@ -3357,8 +3365,11 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         try:
             # 确保在主线程中处理数据
             if self.worker and hasattr(self.worker, 'process_bytes'):
-                # 确保worker有正确的parent引用
-                self.worker.parent = self
+                # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
+                if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                    self.worker.parent = self.device_session.connection_dialog
+                else:
+                    self.worker.parent = self
                 
                 # 确保筛选配置正确
                 self._ensure_filter_config()
