@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1200</width>
+    <width>1218</width>
     <height>800</height>
    </rect>
   </property>
@@ -111,39 +111,6 @@
            <property name="spacing">
             <number>5</number>
            </property>
-           <item row="1" column="7">
-            <widget class="QCheckBox" name="auto_reconnect_checkbox">
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
-             </property>
-             <property name="toolTip">
-              <string>F8</string>
-             </property>
-             <property name="text">
-              <string>Auto Reconnect</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="19">
-            <widget class="QPushButton" name="pushButton">
-             <property name="maximumSize">
-              <size>
-               <width>80</width>
-               <height>26</height>
-              </size>
-             </property>
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
-             </property>
-             <property name="text">
-              <string>Send</string>
-             </property>
-            </widget>
-           </item>
            <item row="1" column="8">
             <widget class="QLineEdit" name="reconnect_timeout_edit">
              <property name="maximumSize">
@@ -165,18 +132,66 @@
              </property>
             </widget>
            </item>
-           <item row="1" column="2">
-            <widget class="QPushButton" name="dis_connect">
+           <item row="1" column="0">
+            <widget class="QPushButton" name="openfolder">
              <property name="font">
               <font>
                <family>Arial</family>
               </font>
              </property>
              <property name="toolTip">
-              <string>F3</string>
+              <string>F1</string>
              </property>
              <property name="text">
-              <string>Disconnect</string>
+              <string>Open Folder</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="3">
+            <widget class="QPushButton" name="clear">
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="toolTip">
+              <string>F4</string>
+             </property>
+             <property name="text">
+              <string>Clear</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="20">
+            <widget class="QPushButton" name="pushButton">
+             <property name="maximumSize">
+              <size>
+               <width>80</width>
+               <height>26</height>
+              </size>
+             </property>
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="text">
+              <string>Send</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="4">
+            <widget class="QRadioButton" name="radioButton_pause_refresh">
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="toolTip">
+              <string>F5</string>
+             </property>
+             <property name="text">
+              <string>Pause Refresh</string>
              </property>
             </widget>
            </item>
@@ -192,21 +207,6 @@
              </property>
              <property name="text">
               <string>Reconnect</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="6">
-            <widget class="QCheckBox" name="light_checkbox">
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
-             </property>
-             <property name="toolTip">
-              <string>F7</string>
-             </property>
-             <property name="text">
-              <string>Light Mode</string>
              </property>
             </widget>
            </item>
@@ -228,18 +228,31 @@
              </property>
             </widget>
            </item>
-           <item row="1" column="3">
-            <widget class="QPushButton" name="clear">
+           <item row="1" column="9">
+            <widget class="QPushButton" name="restart_app_button">
              <property name="font">
               <font>
                <family>Arial</family>
               </font>
              </property>
              <property name="toolTip">
-              <string>F4</string>
+              <string>F9</string>
              </property>
              <property name="text">
-              <string>Clear</string>
+              <string>Restart APP</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="13" colspan="2">
+            <widget class="QLabel" name="sent">
+             <property name="minimumSize">
+              <size>
+               <width>100</width>
+               <height>20</height>
+              </size>
+             </property>
+             <property name="text">
+              <string/>
              </property>
             </widget>
            </item>
@@ -264,6 +277,34 @@
              </property>
             </widget>
            </item>
+           <item row="1" column="6">
+            <widget class="QCheckBox" name="light_checkbox">
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="toolTip">
+              <string>F7</string>
+             </property>
+             <property name="text">
+              <string>Light Mode</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="19">
+            <spacer name="horizontalSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
            <item row="1" column="11">
             <widget class="QSpinBox" name="fontsize_box">
              <property name="font">
@@ -282,7 +323,37 @@
              </property>
             </widget>
            </item>
-           <item row="0" column="0" colspan="19">
+           <item row="1" column="2">
+            <widget class="QPushButton" name="dis_connect">
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="toolTip">
+              <string>F3</string>
+             </property>
+             <property name="text">
+              <string>Disconnect</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="7">
+            <widget class="QCheckBox" name="auto_reconnect_checkbox">
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
+             </property>
+             <property name="toolTip">
+              <string>F8</string>
+             </property>
+             <property name="text">
+              <string>Auto Reconnect</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="0" colspan="20">
             <widget class="QComboBox" name="cmd_buffer">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -303,76 +374,26 @@
              </property>
             </widget>
            </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="openfolder">
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
+           <item row="1" column="12">
+            <widget class="QComboBox" name="rtt_block_combo">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
              </property>
-             <property name="toolTip">
-              <string>F1</string>
-             </property>
-             <property name="text">
-              <string>Open Folder</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="4">
-            <widget class="QRadioButton" name="radioButton_pause_refresh">
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
-             </property>
-             <property name="toolTip">
-              <string>F5</string>
-             </property>
-             <property name="text">
-              <string>Pause Refresh</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="9">
-            <widget class="QPushButton" name="restart_app_button">
-             <property name="font">
-              <font>
-               <family>Arial</family>
-              </font>
-             </property>
-             <property name="toolTip">
-              <string>F9</string>
-             </property>
-             <property name="text">
-              <string>Restart APP</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="12" colspan="2">
-            <widget class="QLabel" name="sent">
              <property name="minimumSize">
               <size>
                <width>100</width>
                <height>20</height>
               </size>
              </property>
-             <property name="text">
-              <string/>
+             <property name="font">
+              <font>
+               <family>Arial</family>
+              </font>
              </property>
             </widget>
-           </item>
-           <item row="1" column="18">
-            <spacer name="horizontalSpacer">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
            </item>
           </layout>
          </widget>
@@ -502,7 +523,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1200</width>
+     <width>1218</width>
      <height>21</height>
     </rect>
    </property>

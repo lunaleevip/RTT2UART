@@ -133,6 +133,11 @@ class DeviceSession:
         # 筛选器设置（17-31通道）
         self.filters = {}
         
+        # RTT块管理
+        self.rtt_block_list = []  # RTT块地址列表
+        self.current_rtt_block = None  # 当前使用的RTT块地址
+        self.rtt_block_search_thread = None  # 后台搜索线程
+        
         logger.info(f"DeviceSession created: {self.session_id} for device {self.device_serial}")
     
     def get_display_name(self):
@@ -546,6 +551,51 @@ class JLinkDeviceDatabaseDriver:
         logger.info("Starting to load JLink device database...")
         searched_paths = []
         
+        # 用于存储主数据库和用户自定义数据库
+        main_xml_content = None
+        user_xml_content = None
+        
+        # 🔧 优先级1: 项目内置数据库（最高优先级）- 确保打包后能正常工作
+        builtin_search_paths = []
+        
+        # 1.1. PyInstaller打包后环境：从临时资源目录读取
+        if hasattr(sys, '_MEIPASS'):
+            builtin_search_paths.append(('_MEIPASS', sys._MEIPASS))
+        
+        # 1.2. 脚本文件所在目录（开发环境，最常用）
+        if __file__:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            builtin_search_paths.append(('script_dir', script_dir))
+        
+        # 1.3. 可执行文件目录（打包后）
+        exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+        builtin_search_paths.append(('exe_dir', exe_dir))
+        
+        # 1.4. 当前工作目录
+        builtin_search_paths.append(('cwd', os.getcwd()))
+        
+        # 遍历所有路径，查找内置数据库
+        for label, search_dir in builtin_search_paths:
+            for xml_filename in ['JLinkDevicesBuildIn.xml', 'jlink_devices_database.xml']:
+                builtin_xml = os.path.join(search_dir, xml_filename)
+                searched_paths.append(builtin_xml)
+                if os.path.exists(builtin_xml):
+                    logger.info(f"📦 Found built-in device database [{label}]: {builtin_xml}")
+                    xml_content = cls._read_file_with_encoding(builtin_xml)
+                    if xml_content and len(xml_content.strip()) > 0:
+                        device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                        main_xml_content = xml_content
+                        logger.info(f"✅ Loaded built-in {xml_filename}: {len(xml_content)} bytes, ~{device_count} devices")
+                        break
+                    else:
+                        logger.warning(f"File exists but content is empty: {builtin_xml}")
+            
+            if main_xml_content:
+                break  # 找到主数据库，跳出外层循环
+        
+        if not main_xml_content:
+            logger.info("Built-in database not found, trying JLink installation...")
+        
         # 2. 尝试从JLink安装目录读取（通过pylink库）
         try:
             import pylink
@@ -561,150 +611,268 @@ class JLinkDeviceDatabaseDriver:
                 elif isinstance(lib.dll, str):
                     jlink_lib_path = lib.dll
             
-            if jlink_lib_path and os.path.exists(jlink_lib_path):
+            if jlink_lib_path and os.path.exists(jlink_lib_path) and not main_xml_content:
                 jlink_dir = os.path.dirname(jlink_lib_path)
-                # 尝试多个可能的文件名（优先JLinkDevices.xml）
-                for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
+                # 🔧 优先使用JLinkDevicesBuildIn.xml（官方完整数据库），JLinkDevices.xml是用户自定义列表
+                for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
                     jlink_xml = os.path.join(jlink_dir, xml_filename)
                     searched_paths.append(jlink_xml)
                     if os.path.exists(jlink_xml):
-                        logger.info(f"Loading JLink device database from installation: {jlink_xml}")
+                        logger.info(f"📁 Found device database: {jlink_xml}")
                         xml_content = cls._read_file_with_encoding(jlink_xml)
                         if xml_content and len(xml_content.strip()) > 0:
-                            cls._xml_content = xml_content
-                            cls._is_loaded = True
-                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
-                            return xml_content
+                            # 快速统计设备数量
+                            device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                            main_xml_content = xml_content
+                            logger.info(f"✅ Loaded {xml_filename}: {len(xml_content)} bytes, ~{device_count} devices")
+                            break
                         else:
                             logger.warning(f"File exists but content is empty: {jlink_xml}")
         except Exception as e:
             logger.debug(f"Could not locate JLink installation directory via pylink: {e}")
         
         # 2.0. 尝试通过JLink.exe命令导出设备数据库
-        try:
-            xml_content = cls._export_from_jlink_exe()
-            if xml_content:
-                cls._xml_content = xml_content
-                cls._is_loaded = True
-                logger.info(f"Exported and loaded XML content from JLink.exe (size: {len(xml_content)} bytes)")
-                return xml_content
-        except Exception as e:
-            logger.debug(f"Failed to export device database from JLink.exe: {e}")
+        if not main_xml_content:
+            try:
+                xml_content = cls._export_from_jlink_exe()
+                if xml_content:
+                    main_xml_content = xml_content
+                    logger.info(f"Exported and loaded XML content from JLink.exe (size: {len(xml_content)} bytes)")
+            except Exception as e:
+                logger.debug(f"Failed to export device database from JLink.exe: {e}")
         
         # 2.1. 尝试从Windows Program Files目录读取
-        try:
-            if sys.platform == 'win32':
-                program_files_dirs = [
-                    os.path.join(os.environ.get('ProgramFiles', ''), 'SEGGER', 'JLink'),
-                    os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'SEGGER', 'JLink'),
-                ]
-                for jlink_dir in program_files_dirs:
-                    if jlink_dir and os.path.exists(jlink_dir):
-                        # 尝试多个可能的文件名（优先JLinkDevices.xml）
-                        for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
-                            program_files_xml = os.path.join(jlink_dir, xml_filename)
-                            searched_paths.append(program_files_xml)
-                            if os.path.exists(program_files_xml):
-                                logger.info(f"Loading JLink device database from Program Files: {program_files_xml}")
-                                xml_content = cls._read_file_with_encoding(program_files_xml)
-                                if xml_content and len(xml_content.strip()) > 0:
-                                    cls._xml_content = xml_content
-                                    cls._is_loaded = True
-                                    logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
-                                    return xml_content
-                                else:
-                                    logger.warning(f"File exists but content is empty: {program_files_xml}")
-        except Exception as e:
-            logger.debug(f"Could not locate JLink in Program Files: {e}")
+        if not main_xml_content:
+            try:
+                if sys.platform == 'win32':
+                    program_files_dirs = [
+                        os.path.join(os.environ.get('ProgramFiles', ''), 'SEGGER', 'JLink'),
+                        os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'SEGGER', 'JLink'),
+                    ]
+                    for jlink_dir in program_files_dirs:
+                        if jlink_dir and os.path.exists(jlink_dir):
+                            # 🔧 优先使用JLinkDevicesBuildIn.xml（官方完整数据库）
+                            for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
+                                program_files_xml = os.path.join(jlink_dir, xml_filename)
+                                searched_paths.append(program_files_xml)
+                                if os.path.exists(program_files_xml):
+                                    logger.info(f"📁 Found device database: {program_files_xml}")
+                                    xml_content = cls._read_file_with_encoding(program_files_xml)
+                                    if xml_content and len(xml_content.strip()) > 0:
+                                        device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                                        main_xml_content = xml_content
+                                        logger.info(f"✅ Loaded {xml_filename}: {len(xml_content)} bytes, ~{device_count} devices")
+                                        break
+                                    else:
+                                        logger.warning(f"File exists but content is empty: {program_files_xml}")
+                        if main_xml_content:
+                            break
+            except Exception as e:
+                logger.debug(f"Could not locate JLink in Program Files: {e}")
         
         # 2.2. 尝试从Windows注册表查找JLink安装路径
-        try:
-            if sys.platform == 'win32':
-                import winreg
-                reg_paths = [
-                    r'SOFTWARE\SEGGER\J-Link',
-                    r'SOFTWARE\WOW6432Node\SEGGER\J-Link'
-                ]
-                for reg_path in reg_paths:
-                    try:
-                        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
-                            jlink_path = winreg.QueryValueEx(key, 'InstallPath')[0]
-                            if jlink_path and os.path.exists(jlink_path):
-                                # 优先JLinkDevices.xml
-                                for xml_filename in ['JLinkDevices.xml', 'JLinkDevicesBuildIn.xml']:
-                                    reg_xml = os.path.join(jlink_path, xml_filename)
-                                    searched_paths.append(reg_xml)
-                                    if os.path.exists(reg_xml):
-                                        logger.info(f"Loading JLink device database from registry path: {reg_xml}")
-                                        xml_content = cls._read_file_with_encoding(reg_xml)
-                                        if xml_content and len(xml_content.strip()) > 0:
-                                            cls._xml_content = xml_content
-                                            cls._is_loaded = True
-                                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
-                                            return xml_content
-                    except Exception as e:
-                        logger.debug(f"Registry path {reg_path} failed: {e}")
-        except ImportError:
-            logger.debug("winreg module not available")
-        except Exception as e:
-            logger.debug(f"Failed to read registry: {e}")
+        if not main_xml_content:
+            try:
+                if sys.platform == 'win32':
+                    import winreg
+                    reg_paths = [
+                        r'SOFTWARE\SEGGER\J-Link',
+                        r'SOFTWARE\WOW6432Node\SEGGER\J-Link'
+                    ]
+                    for reg_path in reg_paths:
+                        try:
+                            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path) as key:
+                                jlink_path = winreg.QueryValueEx(key, 'InstallPath')[0]
+                                if jlink_path and os.path.exists(jlink_path):
+                                    # 🔧 优先使用JLinkDevicesBuildIn.xml（官方完整数据库）
+                                    for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
+                                        reg_xml = os.path.join(jlink_path, xml_filename)
+                                        searched_paths.append(reg_xml)
+                                        if os.path.exists(reg_xml):
+                                            logger.info(f"📁 Found device database: {reg_xml}")
+                                            xml_content = cls._read_file_with_encoding(reg_xml)
+                                            if xml_content and len(xml_content.strip()) > 0:
+                                                device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                                                main_xml_content = xml_content
+                                                logger.info(f"✅ Loaded {xml_filename}: {len(xml_content)} bytes, ~{device_count} devices")
+                                                break
+                            if main_xml_content:
+                                break
+                        except Exception as e:
+                            logger.debug(f"Registry path {reg_path} failed: {e}")
+            except ImportError:
+                logger.debug("winreg module not available")
+            except Exception as e:
+                logger.debug(f"Failed to read registry: {e}")
         
-        # 3. 开发环境：从当前目录读取（尝试多个文件名）
-        for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml', 'jlink_devices_database.xml']:
-            current_dir_xml = os.path.abspath(xml_filename)
-            searched_paths.append(current_dir_xml)
-            if os.path.exists(current_dir_xml):
-                logger.info(f"Loading local device database: {current_dir_xml}")
-                xml_content = cls._read_file_with_encoding(current_dir_xml)
+        # 如果仍未找到主数据库，返回错误
+        if not main_xml_content:
+            logger.error(f"Failed to find device database. Searched {len(searched_paths)} paths:")
+            for path in searched_paths:
+                logger.error(f"  - {path} (exists: {os.path.exists(path) if path else False})")
+            raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+        
+        # 🔧 尝试加载用户自定义设备数据库（可选，用于扩展）
+        logger.info("Looking for user-defined device database...")
+        user_xml_content = cls._load_user_devices()
+        
+        # 合并主数据库和用户数据库
+        final_xml_content = cls._merge_device_databases(main_xml_content, user_xml_content)
+        
+        # 缓存并返回
+        cls._xml_content = final_xml_content
+        cls._is_loaded = True
+        
+        return final_xml_content
+    
+    @classmethod
+    def _load_user_devices(cls):
+        """加载用户自定义设备数据库
+        
+        从配置目录读取 JLinkDevices.xml，用于用户扩展设备列表
+        
+        Returns:
+            str: 用户XML内容，如果不存在或读取失败返回None
+        """
+        try:
+            # 获取配置目录
+            import sys
+            if sys.platform == "darwin":  # macOS
+                config_dir = os.path.expanduser("~/Library/Application Support/XexunRTT")
+            elif sys.platform == "win32":  # Windows
+                config_dir = os.path.expanduser("~/AppData/Roaming/XexunRTT")
+            else:  # Linux
+                config_dir = os.path.expanduser("~/.config/XexunRTT")
+            
+            user_xml_path = os.path.join(config_dir, 'JLinkDevices.xml')
+            
+            if os.path.exists(user_xml_path):
+                logger.info(f"👤 Found user-defined device database: {user_xml_path}")
+                xml_content = cls._read_file_with_encoding(user_xml_path)
+                
                 if xml_content and len(xml_content.strip()) > 0:
-                    cls._xml_content = xml_content
-                    cls._is_loaded = True
-                    logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
+                    device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                    logger.info(f"✅ Loaded user devices: {len(xml_content)} bytes, ~{device_count} devices")
                     return xml_content
                 else:
-                    logger.warning(f"File exists but content is empty: {current_dir_xml}")
-        
-        # 4. 打包后环境：从资源目录读取（尝试多个文件名）
-        try:
-            if hasattr(sys, '_MEIPASS'):
-                for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
-                    resource_path = os.path.join(sys._MEIPASS, xml_filename)
-                    searched_paths.append(resource_path)
-                    if os.path.exists(resource_path):
-                        logger.info(f"Loading packaged device database: {resource_path}")
-                        xml_content = cls._read_file_with_encoding(resource_path)
-                        if xml_content and len(xml_content.strip()) > 0:
-                            cls._xml_content = xml_content
-                            cls._is_loaded = True
-                            logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
-                            return xml_content
-                        else:
-                            logger.warning(f"File exists but content is empty: {resource_path}")
-            
-            # 尝试从当前可执行文件目录读取（尝试多个文件名）
-            exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-            for xml_filename in ['JLinkDevicesBuildIn.xml', 'JLinkDevices.xml']:
-                exe_resource_path = os.path.join(exe_dir, xml_filename)
-                searched_paths.append(exe_resource_path)
-                if os.path.exists(exe_resource_path):
-                    logger.info(f"Loading device database from exe directory: {exe_resource_path}")
-                    xml_content = cls._read_file_with_encoding(exe_resource_path)
-                    if xml_content and len(xml_content.strip()) > 0:
-                        cls._xml_content = xml_content
-                        cls._is_loaded = True
-                        logger.info(f"Loaded XML content to memory cache (size: {len(xml_content)} bytes)")
-                        return xml_content
-                    else:
-                        logger.warning(f"File exists but content is empty: {exe_resource_path}")
+                    logger.warning(f"User device file exists but is empty: {user_xml_path}")
+            else:
+                logger.debug(f"No user-defined device database found at: {user_xml_path}")
+                logger.debug("💡 Tip: Create JLinkDevices.xml in config directory to add custom devices")
+                
         except Exception as e:
-            logger.warning(f"Failed to locate device database from resources: {e}")
+            logger.debug(f"Failed to load user device database: {e}")
         
-        # 记录所有搜索过的路径
-        logger.error(f"Failed to find device database. Searched {len(searched_paths)} paths:")
-        for path in searched_paths:
-            logger.error(f"  - {path} (exists: {os.path.exists(path) if path else False})")
-        # 如果都找不到，抛出异常
-        raise Exception(QCoreApplication.translate("main_window", "Can not find device database !"))
+        return None
+    
+    @classmethod
+    def _merge_device_databases(cls, main_xml, user_xml):
+        """合并主数据库和用户自定义数据库
+        
+        Args:
+            main_xml: 主数据库XML内容
+            user_xml: 用户数据库XML内容（可选）
+            
+        Returns:
+            str: 合并后的XML内容
+        """
+        if not user_xml:
+            # 没有用户数据库，直接返回主数据库
+            return main_xml
+        
+        try:
+            import xml.etree.ElementTree as ET
+            
+            # 解析主数据库
+            main_root = ET.fromstring(main_xml)
+            
+            # 解析用户数据库
+            user_root = ET.fromstring(user_xml)
+            
+            # 统计合并前的设备数量
+            main_count = len(main_root.findall('.//DeviceInfo')) + len(main_root.findall('.//ChipInfo'))
+            user_count = len(user_root.findall('.//DeviceInfo')) + len(user_root.findall('.//ChipInfo'))
+            
+            logger.info(f"Merging databases: Main={main_count} devices, User={user_count} devices")
+            
+            # 收集主数据库中的设备名称（避免重复）
+            existing_devices = set()
+            
+            # 格式1: VendorInfo/DeviceInfo
+            for vendor in main_root.findall('VendorInfo'):
+                for device in vendor.findall('DeviceInfo'):
+                    device_name = device.attrib.get('Name')
+                    if device_name:
+                        existing_devices.add(device_name)
+            
+            # 格式2: Device/ChipInfo
+            for device in main_root.findall('Device'):
+                chip = device.find('ChipInfo')
+                if chip is not None:
+                    device_name = chip.attrib.get('Name')
+                    if device_name:
+                        existing_devices.add(device_name)
+            
+            # 合并用户数据库中的设备
+            added_count = 0
+            skipped_count = 0
+            
+            # 格式1: 合并VendorInfo
+            for user_vendor in user_root.findall('VendorInfo'):
+                vendor_name = user_vendor.attrib.get('Name', 'UserVendor')
+                
+                # 查找或创建对应的VendorInfo
+                main_vendor = None
+                for vendor in main_root.findall('VendorInfo'):
+                    if vendor.attrib.get('Name') == vendor_name:
+                        main_vendor = vendor
+                        break
+                
+                if main_vendor is None:
+                    # 创建新的VendorInfo
+                    main_vendor = ET.SubElement(main_root, 'VendorInfo')
+                    main_vendor.attrib['Name'] = vendor_name
+                
+                # 添加设备
+                for user_device in user_vendor.findall('DeviceInfo'):
+                    device_name = user_device.attrib.get('Name')
+                    if device_name:
+                        if device_name not in existing_devices:
+                            main_vendor.append(user_device)
+                            existing_devices.add(device_name)
+                            added_count += 1
+                            logger.debug(f"  + Added user device: {device_name}")
+                        else:
+                            skipped_count += 1
+                            logger.debug(f"  - Skipped duplicate: {device_name}")
+            
+            # 格式2: 合并Device/ChipInfo
+            for user_device in user_root.findall('Device'):
+                chip = user_device.find('ChipInfo')
+                if chip is not None:
+                    device_name = chip.attrib.get('Name')
+                    if device_name:
+                        if device_name not in existing_devices:
+                            main_root.append(user_device)
+                            existing_devices.add(device_name)
+                            added_count += 1
+                            logger.debug(f"  + Added user device: {device_name}")
+                        else:
+                            skipped_count += 1
+                            logger.debug(f"  - Skipped duplicate: {device_name}")
+            
+            # 转换回字符串
+            merged_xml = ET.tostring(main_root, encoding='unicode')
+            
+            logger.info(f"✅ Database merge complete: Added {added_count}, Skipped {skipped_count} duplicates")
+            logger.info(f"   Total devices: {main_count + added_count}")
+            
+            return merged_xml
+            
+        except Exception as e:
+            logger.error(f"Failed to merge device databases: {e}")
+            logger.warning("Using main database only without user extensions")
+            return main_xml
     
     @classmethod
     def _export_from_jlink_exe(cls):
@@ -757,56 +925,41 @@ class JLinkDeviceDatabaseDriver:
                 try:
                     logger.info(f"Trying to export device database using: {jlink_exe}")
                     
-                    # 创建临时命令文件
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.jlink', delete=False, encoding='utf-8') as cmd_file:
-                        # 使用deviceinfo命令导出XML
-                        cmd_file.write('deviceinfo -xml\n')
-                        cmd_file.write('exit\n')
-                        cmd_file_path = cmd_file.name
-                    
+                    # 🔧 使用-ExpDevList命令直接导出设备列表（无需命令文件）
                     try:
-                        # 执行JLink命令
+                        # 创建临时输出文件
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False) as output_file:
+                            output_path = output_file.name
+                        
+                        # 执行JLink命令：JLink.exe -ExpDevList output.xml
                         result = subprocess.run(
-                            [jlink_exe, '-CommandFile', cmd_file_path],
+                            [jlink_exe, '-ExpDevList', output_path],
                             capture_output=True,
                             text=True,
-                            timeout=10,
+                            timeout=30,
                             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
                         )
                         
-                        # 清理临时文件
-                        try:
-                            os.unlink(cmd_file_path)
-                        except:
-                            pass
-                        
-                        # 从输出中提取XML内容
-                        all_output = result.stdout + result.stderr
-                        if all_output:
-                            # 查找XML开始标记
-                            xml_start = all_output.find('<?xml')
-                            if xml_start == -1:
-                                xml_start = all_output.find('<DataBase')
-                            if xml_start == -1:
-                                xml_start = all_output.find('<JLinkDevices')
-                            
-                            if xml_start != -1:
-                                xml_content = all_output[xml_start:]
-                                # 查找XML结束标记
-                                xml_end = xml_content.rfind('</DataBase>')
-                                if xml_end == -1:
-                                    xml_end = xml_content.rfind('</JLinkDevices>')
-                                if xml_end != -1:
-                                    xml_end += len('</JLinkDevices>') if '</JLinkDevices>' in xml_content else len('</DataBase>')
-                                    xml_content = xml_content[:xml_end]
-                                
-                                if len(xml_content.strip()) > 100:  # 确保有足够的内容
-                                    logger.info(f"Successfully exported device database from JLink.exe (size: {len(xml_content)} bytes)")
+                        # 读取导出的XML文件
+                        if os.path.exists(output_path):
+                            try:
+                                xml_content = cls._read_file_with_encoding(output_path)
+                                if xml_content and len(xml_content.strip()) > 100:
+                                    device_count = xml_content.count('<DeviceInfo') + xml_content.count('<ChipInfo')
+                                    logger.info(f"✅ Exported device list from JLink.exe: {len(xml_content)} bytes, ~{device_count} devices")
+                                    os.unlink(output_path)  # 删除临时文件
                                     return xml_content
+                            finally:
+                                # 确保临时文件被删除
+                                try:
+                                    if os.path.exists(output_path):
+                                        os.unlink(output_path)
+                                except:
+                                    pass
                     except subprocess.TimeoutExpired:
-                        logger.debug(f"JLink.exe command timed out")
+                        logger.debug(f"JLink.exe -ExpDevList command timed out")
                     except Exception as e:
-                        logger.debug(f"Failed to execute JLink.exe: {e}")
+                        logger.debug(f"Failed to execute JLink.exe -ExpDevList: {e}")
                 except Exception as e:
                     logger.debug(f"Failed to export from {jlink_exe}: {e}")
             
@@ -2893,7 +3046,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 self.device_session.connection_dialog.work = create_worker(self.device_session.connection_dialog)
             
             # 确保worker已正确初始化
-            worker = device_session.connection_dialog.work
+            worker = self.device_session.connection_dialog.work
             required_attrs = ['byte_buffer', 'buffers', 'colored_buffers', 'byte_buffer_temp', 'remaining_data']
             for attr in required_attrs:
                 if not hasattr(worker, attr):
@@ -2908,7 +3061,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 安全地设置self.worker
         try:
-            self.worker = device_session.connection_dialog.work
+            self.worker = self.device_session.connection_dialog.work
             logger.info("Successfully set up self.worker reference")
         except Exception as e:
             logger.error(f"Failed to get worker reference: {e}")
@@ -2917,8 +3070,8 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             logger.info("Created independent fallback worker")
         
         # 确保device_session也有直接访问worker的引用
-        if not hasattr(device_session, 'worker'):
-            device_session.worker = self.worker
+        if not hasattr(self.device_session, 'worker'):
+            self.device_session.worker = self.worker
             logger.info("Added worker reference directly to device_session")
         
         # 确保text_edits组件存在
@@ -3670,6 +3823,10 @@ class RTTMainWindow(QMainWindow):
         # 隐藏紧缩模式复选框（功能已废弃）
         if hasattr(self.ui, 'compact_mode_checkbox'):
             self.ui.compact_mode_checkbox.hide()
+        
+        # 连接RTT块选择框信号
+        if hasattr(self.ui, 'rtt_block_combo'):
+            self.ui.rtt_block_combo.currentIndexChanged.connect(self._on_rtt_block_combo_changed)
         
         # 隐藏水平和垂直滚动条锁定复选框（改为智能自动锁定）
         if hasattr(self.ui, 'LockH_checkBox'):
@@ -5235,52 +5392,189 @@ class RTTMainWindow(QMainWindow):
         rtt = self.connection_dialog.rtt2uart
         device_serial = getattr(rtt, '_connect_para', 'Unknown')
         
-        # 查找设备索引
-        device_index = None
-        if hasattr(self.connection_dialog, 'available_jlinks'):
-            logger.debug(f"Searching for device {device_serial} in available_jlinks: {self.connection_dialog.available_jlinks}")
-            for idx, dev in enumerate(self.connection_dialog.available_jlinks):
-                dev_serial = dev.get('serial', '')
-                logger.debug(f"  Comparing: '{dev_serial}' == '{device_serial}' ? {dev_serial == device_serial}")
-                if dev_serial == device_serial:
-                    device_index = idx
-                    logger.info(f"Found device index: {device_index} for serial {device_serial}")
-                    break
-            if device_index is None:
-                logger.warning(f"Device index not found for serial {device_serial}, will display without index")
+        # 🔧 修复错误1：重连同一设备时，重用已存在的session，不创建新session
+        session = None
+        for sess in self.device_sessions:
+            if sess.device_serial == device_serial:
+                session = sess
+                logger.info(f"✅ Reusing existing session for device {device_serial}")
+                break
         
-        device_info = {
-            'serial': device_serial,
-            'product_name': getattr(rtt, 'device_info', 'Unknown'),
-            'connection': 'USB',
-            'index': device_index
-        }
-        
-        # 创建新的设备会话
-        session = DeviceSession(device_info=device_info)
-        session.rtt2uart = rtt
-        session.connection_dialog = self.connection_dialog
-        session.is_connected = True
-        
-        # 添加到会话管理器
-        session_manager.add_session(session)
-        self.device_sessions.append(session)
-        
-        # 创建MDI子窗口并添加内容
-        self._create_device_session_from_connection(session)
-        
-        # 设置为当前会话
-        self.current_session = session
-        session_manager.set_active_session(session)
+        if session:
+            # 重连同一设备：更新现有session
+            session.rtt2uart = rtt
+            session.connection_dialog = self.connection_dialog
+            session.is_connected = True
+            
+            # 设置为当前会话
+            self.current_session = session
+            session_manager.set_active_session(session)
+            
+            # 激活对应的MDI窗口
+            if session.mdi_window and session.mdi_window.mdi_sub_window:
+                self.mdi_area.setActiveSubWindow(session.mdi_window.mdi_sub_window)
+            
+            logger.info(f"Session {session.session_id} reconnected for device {device_serial}")
+        else:
+            # 新设备连接：创建新session
+            # 查找设备索引
+            device_index = None
+            if hasattr(self.connection_dialog, 'available_jlinks'):
+                logger.debug(f"Searching for device {device_serial} in available_jlinks: {self.connection_dialog.available_jlinks}")
+                for idx, dev in enumerate(self.connection_dialog.available_jlinks):
+                    dev_serial = dev.get('serial', '')
+                    logger.debug(f"  Comparing: '{dev_serial}' == '{device_serial}' ? {dev_serial == device_serial}")
+                    if dev_serial == device_serial:
+                        device_index = idx
+                        logger.info(f"Found device index: {device_index} for serial {device_serial}")
+                        break
+                if device_index is None:
+                    logger.warning(f"Device index not found for serial {device_serial}, will display without index")
+            
+            device_info = {
+                'serial': device_serial,
+                'product_name': getattr(rtt, 'device_info', 'Unknown'),
+                'connection': 'USB',
+                'index': device_index
+            }
+            
+            # 创建新的设备会话
+            session = DeviceSession(device_info=device_info)
+            session.rtt2uart = rtt
+            session.connection_dialog = self.connection_dialog
+            session.is_connected = True
+            
+            # 添加到会话管理器
+            session_manager.add_session(session)
+            self.device_sessions.append(session)
+            
+            # 创建MDI子窗口并添加内容
+            self._create_device_session_from_connection(session)
+            
+            # 设置为当前会话
+            self.current_session = session
+            session_manager.set_active_session(session)
         
         # 应用保存的设置
         self._apply_saved_settings()
+        
+        # 启动后台RTT块搜索（如果是自动检测模式）
+        if self.connection_dialog:
+            rtt_cb_mode = self.connection_dialog.config.get_rtt_control_block_mode()
+            if rtt_cb_mode == 'auto':
+                QTimer.singleShot(200, lambda: self.connection_dialog._start_background_rtt_block_search(session))
         
         # 更新状态显示（MDI架构：会自动显示活动设备的状态）
         self.update_status_bar()
         
         # 显示成功消息
         self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection established successfully"), 3000)
+        
+        # 启动后台RTT块搜索（如果是自动检测模式）
+        if self.connection_dialog:
+            rtt_cb_mode = self.connection_dialog.config.get_rtt_control_block_mode()
+            if rtt_cb_mode == 'auto':
+                QTimer.singleShot(200, lambda: self.connection_dialog._start_background_rtt_block_search(session))
+        
+        # 连接rtt_block_combo信号（如果存在）
+        if hasattr(self.ui, 'rtt_block_combo'):
+            # 断开之前的连接（避免重复连接）
+            try:
+                self.ui.rtt_block_combo.currentIndexChanged.disconnect()
+            except:
+                pass
+            self.ui.rtt_block_combo.currentIndexChanged.connect(self._on_rtt_block_combo_changed)
+            # 初始化RTT块选择框
+            self._update_rtt_block_combo_for_session(session)
+    
+    def _update_rtt_block_combo_for_session(self, session):
+        """更新RTT块选择框（从主窗口调用）
+        
+        Args:
+            session: DeviceSession实例
+        """
+        try:
+            if not session or not hasattr(self.ui, 'rtt_block_combo'):
+                return
+            
+            combo = self.ui.rtt_block_combo
+            
+            # 断开信号连接（避免触发切换）
+            try:
+                combo.currentIndexChanged.disconnect()
+            except:
+                pass
+            
+            # 清空并重新填充
+            combo.clear()
+            
+            if len(session.rtt_block_list) == 0:
+                combo.addItem(QCoreApplication.translate("main_window", "No RTT blocks"))
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
+                for addr in session.rtt_block_list:
+                    addr_text = f"0x{addr:08X}"
+                    combo.addItem(addr_text, addr)
+                
+                # 恢复选择（如果存在）
+                if session.current_rtt_block:
+                    index = combo.findData(session.current_rtt_block)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+                    elif len(session.rtt_block_list) > 0:
+                        combo.setCurrentIndex(0)
+            
+            # 重新连接信号
+            combo.currentIndexChanged.connect(self._on_rtt_block_combo_changed)
+            
+        except Exception as e:
+            logger.error(f"Error updating RTT block combo for session: {e}", exc_info=True)
+    
+    def _on_rtt_block_combo_changed(self, index):
+        """RTT块选择框变更处理"""
+        try:
+            session = self._get_active_device_session()
+            if not session:
+                return
+            
+            combo = self.ui.rtt_block_combo
+            if index < 0 or index >= combo.count():
+                return
+            
+            rtt_block_addr = combo.itemData(index)
+            if rtt_block_addr is None:
+                return
+            
+            # 更新当前RTT块
+            old_block = session.current_rtt_block
+            session.current_rtt_block = rtt_block_addr
+            
+            if old_block != rtt_block_addr:
+                logger.info(f"Switched RTT block: 0x{old_block:08X} -> 0x{rtt_block_addr:08X}")
+                
+                # 重新启动RTT连接
+                if session.rtt2uart and session.rtt2uart.jlink:
+                    try:
+                        # 停止当前RTT
+                        session.rtt2uart.jlink.rtt_stop()
+                        
+                        # 使用新地址启动RTT
+                        session.rtt2uart.jlink.rtt_start(block_address=rtt_block_addr)
+                        
+                        if hasattr(self, 'append_jlink_log'):
+                            self.append_jlink_log(
+                                QCoreApplication.translate("main_window", "Switched to RTT block: 0x%08X") % rtt_block_addr
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed to switch RTT block: {e}", exc_info=True)
+                        if hasattr(self, 'append_jlink_log'):
+                            self.append_jlink_log(
+                                QCoreApplication.translate("main_window", "Failed to switch RTT block: %s") % str(e)
+                            )
+                        
+        except Exception as e:
+            logger.error(f"Error handling RTT block combo change: {e}", exc_info=True)
     
     def flush_all_log_buffers(self):
         """刷新所有设备会话中的日志缓冲区
@@ -5889,6 +6183,12 @@ class RTTMainWindow(QMainWindow):
         """处理JLink连接丢失事件 - 不退出程序，保持界面可用"""
         try:
             self.append_jlink_log(QCoreApplication.translate("main_window", "WARNING: JLink connection lost"))
+            
+            # 🔧 修复：更新当前session的连接状态
+            session = self._get_active_device_session()
+            if session:
+                session.is_connected = False
+                logger.info(f"Session {session.session_id} marked as disconnected due to connection lost")
             
             # 更新连接状态显示
             if self.connection_dialog:
@@ -8242,13 +8542,54 @@ class RTTMainWindow(QMainWindow):
                     logger.error(f"Failed to parse XML content with alternative encoding: {e}")
                     return None, None
             
-            # 查找设备信息
-            for VendorInfo in tree.findall('VendorInfo'):
-                for DeviceInfo in VendorInfo.findall('DeviceInfo'):
-                    if DeviceInfo.attrib.get('Name') == device_name:
+            # 查找设备信息（支持两种格式）
+            # 格式1: VendorInfo/DeviceInfo (旧格式)
+            vendor_infos = tree.findall('VendorInfo')
+            if len(vendor_infos) > 0:
+                for VendorInfo in vendor_infos:
+                    for DeviceInfo in VendorInfo.findall('DeviceInfo'):
+                        if DeviceInfo.attrib.get('Name') == device_name:
+                            # 获取RAM起始地址和大小
+                            ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
+                            ram_size = DeviceInfo.attrib.get('WorkRAMSize')
+                            
+                            if ram_start and ram_size:
+                                # 转换为整数
+                                ram_start_addr = int(ram_start, 16)
+                                ram_size_bytes = int(ram_size, 16)
+                                logger.info(f"Found RAM info for {device_name}: addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
+                                return ram_start_addr, ram_size_bytes
+                            else:
+                                logger.warning(f"Device {device_name} found but no RAM info (WorkRAMStartAddr={ram_start}, WorkRAMSize={ram_size})")
+                                return None, None
+                        
+                        # 检查别名
+                        for AliasInfo in DeviceInfo.findall('AliasInfo'):
+                            if AliasInfo.attrib.get('Name') == device_name:
+                                ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
+                                ram_size = DeviceInfo.attrib.get('WorkRAMSize')
+                                
+                                if ram_start and ram_size:
+                                    ram_start_addr = int(ram_start, 16)
+                                    ram_size_bytes = int(ram_size, 16)
+                                    logger.info(f"Found RAM info for {device_name} (via alias): addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
+                                    return ram_start_addr, ram_size_bytes
+                                else:
+                                    logger.warning(f"Device {device_name} found via alias but no RAM info")
+                                    return None, None
+            else:
+                # 格式2: DataBase/Device/ChipInfo (新格式)
+                devices = tree.findall('Device')
+                for Device in devices:
+                    chip_info = Device.find('ChipInfo')
+                    if chip_info is None:
+                        continue
+                    
+                    chip_name = chip_info.attrib.get('Name', '')
+                    if chip_name == device_name:
                         # 获取RAM起始地址和大小
-                        ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
-                        ram_size = DeviceInfo.attrib.get('WorkRAMSize')
+                        ram_start = chip_info.attrib.get('WorkRAMAddr')
+                        ram_size = chip_info.attrib.get('WorkRAMSize')
                         
                         if ram_start and ram_size:
                             # 转换为整数
@@ -8257,23 +8598,8 @@ class RTTMainWindow(QMainWindow):
                             logger.info(f"Found RAM info for {device_name}: addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
                             return ram_start_addr, ram_size_bytes
                         else:
-                            logger.warning(f"Device {device_name} found but no RAM info (WorkRAMStartAddr={ram_start}, WorkRAMSize={ram_size})")
+                            logger.warning(f"Device {device_name} found but no RAM info (WorkRAMAddr={ram_start}, WorkRAMSize={ram_size})")
                             return None, None
-                    
-                    # 检查别名
-                    for AliasInfo in DeviceInfo.findall('AliasInfo'):
-                        if AliasInfo.attrib.get('Name') == device_name:
-                            ram_start = DeviceInfo.attrib.get('WorkRAMStartAddr')
-                            ram_size = DeviceInfo.attrib.get('WorkRAMSize')
-                            
-                            if ram_start and ram_size:
-                                ram_start_addr = int(ram_start, 16)
-                                ram_size_bytes = int(ram_size, 16)
-                                logger.info(f"Found RAM info for {device_name} (via alias): addr=0x{ram_start_addr:08X}, size={ram_size_bytes} bytes")
-                                return ram_start_addr, ram_size_bytes
-                            else:
-                                logger.warning(f"Device {device_name} found via alias but no RAM info")
-                                return None, None
             
             logger.warning(f"Device {device_name} not found in JLink device database")
             return None, None
@@ -8330,6 +8656,110 @@ class RTTMainWindow(QMainWindow):
             self.append_jlink_log(error_msg)
             logger.error(f"RAM format error: {e}")
             return False
+    
+    def _get_ram_info_for_format(self, jlink, target_device=None, session=None):
+        """获取RAM信息用于格式化
+        
+        Args:
+            jlink: pylink.JLink对象
+            target_device: 目标设备名称（可选）
+            session: DeviceSession对象（可选）
+            
+        Returns:
+            tuple: (ram_start, ram_size) 或 (None, None)
+        """
+        try:
+            # 确定设备名称
+            if not target_device:
+                if session and session.connection_dialog:
+                    target_device = session.connection_dialog.target_device
+                else:
+                    target_device = "Unknown"
+            
+            logger.info(f"Getting RAM info for device: {target_device}")
+            self.append_jlink_log(QCoreApplication.translate("main_window", "🔧 Getting RAM info for device: %s") % target_device)
+            
+            ram_start = None
+            ram_size = None
+            
+            # 打印设备核心信息（用于诊断）
+            try:
+                core_id = jlink.core_id()
+                core_name = jlink.core_name()
+                logger.info(f"Connected device: core_id={core_id}, core_name={core_name}")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Device core: %s (ID: 0x%08X)") % (core_name, core_id))
+            except Exception as e:
+                logger.debug(f"Failed to get core info: {e}")
+            
+            # 方法1: 优先使用已知设备的准确RAM范围（基于官方数据手册）
+            if 'nRF52840' in target_device or 'nrf52840' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 256 * 1024  # 256KB
+                logger.info(f"✅ Using nRF52840 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using nRF52840 specification: RAM 0x%08X - 0x%08X (256KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'nRF52833' in target_device or 'nrf52833' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 128 * 1024  # 128KB
+                logger.info(f"✅ Using nRF52833 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using nRF52833 specification: RAM 0x%08X - 0x%08X (128KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'nRF52832' in target_device or 'nrf52832' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 64 * 1024  # 64KB
+                logger.info(f"✅ Using nRF52832 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using nRF52832 specification: RAM 0x%08X - 0x%08X (64KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'nRF52811' in target_device or 'nrf52811' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 24 * 1024  # 24KB
+                logger.info(f"✅ Using nRF52811 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using nRF52811 specification: RAM 0x%08X - 0x%08X (24KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'nRF52810' in target_device or 'nrf52810' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 24 * 1024  # 24KB
+                logger.info(f"✅ Using nRF52810 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using nRF52810 specification: RAM 0x%08X - 0x%08X (24KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'nRF52' in target_device or 'nrf52' in target_device.lower():
+                # 通用nRF52，使用保守的64KB
+                ram_start = 0x20000000
+                ram_size = 64 * 1024
+                logger.info(f"✅ Using generic nRF52 specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using generic nRF52: RAM 0x%08X - 0x%08X (64KB)") % (ram_start, ram_start + ram_size - 1))
+            elif 'STM32' in target_device or 'stm32' in target_device.lower():
+                ram_start = 0x20000000
+                ram_size = 128 * 1024  # STM32通用128KB
+                logger.info(f"✅ Using STM32 default specification: RAM 0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Using STM32 default: RAM 0x%08X - 0x%08X (128KB)") % (ram_start, ram_start + ram_size - 1))
+            
+            # 方法2: 如果方法1未匹配，尝试从设备数据库查询
+            if (ram_start is None or ram_size is None) and session:
+                db_ram_start, db_ram_size = self._get_device_ram_info(session)
+                if db_ram_start and db_ram_size:
+                    ram_start = db_ram_start
+                    ram_size = db_ram_size
+                    logger.info(f"✅ RAM info from database: addr=0x{ram_start:08X}, size={ram_size} bytes ({ram_size // 1024}KB)")
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "✅ RAM from database: 0x%08X, size=%d bytes (%dKB)") % (ram_start, ram_size, ram_size // 1024))
+            
+            # 如果仍未获取，返回None
+            if ram_start is None or ram_size is None:
+                self.append_jlink_log(QCoreApplication.translate("main_window", "⚠ Cannot determine RAM range for device '%s'") % target_device)
+                logger.warning(f"Unknown device '{target_device}', cannot determine RAM range")
+                return None, None
+            
+            return ram_start, ram_size
+            
+        except Exception as e:
+            logger.error(f"Error getting RAM info: {e}", exc_info=True)
+            return None, None
+    
+    def _format_ram_direct(self, jlink, target_device=None, session=None):
+        """直接使用JLink格式化RAM（同步方式，已废弃，建议使用RamFormatThread）
+        
+        Args:
+            jlink: pylink.JLink对象
+            target_device: 目标设备名称（可选）
+            session: DeviceSession对象（可选）
+        """
+        logger.warning("_format_ram_direct is deprecated, use RamFormatThread instead")
+        # 此方法保留以兼容旧代码，但不推荐使用
 
     def restart_app_via_sfr(self):
         """通过SFR访问触发固件重启（需保持连接）"""
@@ -8378,32 +8808,150 @@ class RTTMainWindow(QMainWindow):
             session = self._get_active_device_session()
             if not session:
                 logger.warning("No active device session to restart")
+                QMessageBox.information(
+                    self,
+                    QCoreApplication.translate("main_window", "Info"),
+                    QCoreApplication.translate("main_window", "No active device session. Please connect a device first (Ctrl+S).")
+                )
                 return
             
-            # MDI架构：若未连接，则先自动连接，待连接成功后再执行
+            # 🔧 修复：断开状态下直接使用JLink连接并重启，不启动完整RTT
             if not session.is_connected:
-                if session.connection_dialog:
-                    # 连接成功后回调一次，再断开信号
-                    def _once():
-                        try:
-                            session.connection_dialog.connection_established.disconnect(_once)
-                        except Exception:
-                            pass
-                        # 确保在事件循环返回后执行，避免与连接建立时序冲突
-                        QTimer.singleShot(0, self.restart_app_execute)
-                    try:
-                        session.connection_dialog.connection_established.connect(_once)
-                    except Exception:
-                        pass
-                    # 静默启动连接
-                    session.connection_dialog.start()
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Device disconnected, attempting direct JLink connection for restart..."))
+                
+                # 检查是否有JLink对象和连接参数
+                if not session.connection_dialog:
+                    QMessageBox.information(
+                        self, 
+                        QCoreApplication.translate("main_window", "Info"), 
+                        QCoreApplication.translate("main_window", "No connection dialog available. Please reconnect device first (Ctrl+S).")
+                    )
                     return
-                else:
-                    QMessageBox.information(self, QCoreApplication.translate("main_window", "Info"), QCoreApplication.translate("main_window", "Unable to create connection dialog"))
+                
+                # 尝试直接连接JLink（不启动RTT）
+                try:
+                    import pylink
+                    
+                    # 获取连接参数
+                    jlink = session.connection_dialog.jlink
+                    target_device = session.connection_dialog.target_device
+                    connect_type = session.connection_dialog.connect_type
+                    device_serial = session.device_serial
+                    
+                    # 获取接口和速度
+                    interface_map = {'SWD': pylink.enums.JLinkInterfaces.SWD, 'JTAG': pylink.enums.JLinkInterfaces.JTAG}
+                    device_interface = interface_map.get(connect_type, pylink.enums.JLinkInterfaces.SWD)
+                    speed_list = [4000, 2000, 1000, 500, 100, 50, 'auto', 'adaptive']
+                    speed_index = session.connection_dialog.ui.comboBox_Speed.currentIndex()
+                    speed = speed_list[speed_index] if speed_index < len(speed_list) else 4000
+                    
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Connecting JLink: %s") % device_serial)
+                    
+                    # 打开JLink连接
+                    if device_serial and device_serial != 'Unknown':
+                        jlink.open(serial_no=int(device_serial))
+                    else:
+                        jlink.open()
+                    
+                    # 设置接口和速度
+                    jlink.set_tif(device_interface)
+                    if isinstance(speed, str):
+                        if speed.lower() == 'auto':
+                            jlink.set_speed(auto=True)
+                        elif speed.lower() == 'adaptive':
+                            jlink.set_speed(adaptive=True)
+                    else:
+                        jlink.set_speed(speed)
+                    
+                    # 连接目标设备
+                    jlink.connect(target_device)
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "✅ JLink connected successfully"))
+                    
+                    # 执行重启前的操作
+                    selected_sfr = hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked()
+                    format_ram_enabled = hasattr(self, 'action_format_ram') and self.action_format_ram.isChecked()
+                    
+                    # 格式化RAM（如果启用） - 使用异步线程
+                    if format_ram_enabled:
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "--- Format RAM before restart ---"))
+                        
+                        # 获取RAM信息
+                        ram_start, ram_size = self._get_ram_info_for_format(jlink, target_device, session)
+                        if ram_start is None or ram_size is None:
+                            logger.warning("Cannot determine RAM info, skipping format")
+                        else:
+                            # 创建临时session对象用于格式化线程
+                            temp_session = type('obj', (object,), {
+                                'rtt2uart': type('obj', (object,), {'jlink': jlink})(),
+                                'connection_dialog': type('obj', (object,), {'target_device': target_device})()
+                            })()
+                            
+                            # 创建并启动格式化线程
+                            format_thread = RamFormatThread(self, temp_session, ram_start, ram_size)
+                            format_thread.log_signal.connect(self.append_jlink_log)
+                            
+                            # 使用QEventLoop等待格式化完成
+                            from PySide6.QtCore import QEventLoop
+                            loop = QEventLoop()
+                            format_success = [False]  # 使用列表以便在lambda中修改
+                            
+                            def on_format_finished(success):
+                                format_success[0] = success
+                                loop.quit()
+                            
+                            format_thread.format_finished.connect(on_format_finished)
+                            format_thread.start()
+                            loop.exec()  # 等待格式化完成，但不阻塞UI
+                            
+                            if not format_success[0]:
+                                logger.warning("RAM format failed, but continuing with restart")
+                    
+                    # 检查连接状态
+                    if not jlink.opened():
+                        raise Exception("JLink connection lost after RAM format")
+                    
+                    # 执行重启
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "Executing restart via %s...") % ("SFR" if selected_sfr else "Reset Pin"))
+                    if selected_sfr:
+                        # SFR重启
+                        try:
+                            jlink.halt()
+                        except Exception:
+                            pass  # 忽略halt失败
+                        jlink.memory_write32(0xE000ED0C, [0x05FA0004])
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "✅ SFR restart command sent"))
+                    else:
+                        # 复位引脚重启
+                        jlink.reset(halt=False)
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Reset pin restart executed"))
+                    
+                    # 重启后断开JLink
+                    try:
+                        jlink.close()
+                        self.append_jlink_log(QCoreApplication.translate("main_window", "JLink disconnected after restart"))
+                    except Exception as e:
+                        logger.warning(f"JLink close warning: {e}")
+                    
+                    QMessageBox.information(
+                        self,
+                        QCoreApplication.translate("main_window", "Success"),
+                        QCoreApplication.translate("main_window", "Device restarted successfully. Please reconnect if needed (Ctrl+S).")
+                    )
+                    return
+                    
+                except Exception as e:
+                    logger.error(f"Direct JLink restart failed: {e}", exc_info=True)
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "❌ Direct restart failed: %s") % str(e))
+                    QMessageBox.warning(
+                        self,
+                        QCoreApplication.translate("main_window", "Failed"),
+                        QCoreApplication.translate("main_window", "Failed to restart device: %s\n\nPlease reconnect device first (Ctrl+S).") % str(e)
+                    )
                     return
 
-            # 已连接：按选择执行
+            # 🔧 已连接：统一使用直接同步方式（与未连接逻辑一致）
             selected_sfr = hasattr(self, 'action_restart_sfr') and self.action_restart_sfr.isChecked()
+            
             # 保存选择到配置
             try:
                 if session.connection_dialog:
@@ -8414,25 +8962,79 @@ class RTTMainWindow(QMainWindow):
             
             # 检查是否需要格式化RAM
             format_ram_enabled = hasattr(self, 'action_format_ram') and self.action_format_ram.isChecked()
-            if format_ram_enabled:
-                self.append_jlink_log(QCoreApplication.translate("main_window", "--- Format RAM before restart ---"))
+            
+            try:
+                # 获取JLink对象
+                if not session.rtt2uart or not hasattr(session.rtt2uart, 'jlink'):
+                    QMessageBox.warning(
+                        self,
+                        QCoreApplication.translate("main_window", "Error"),
+                        QCoreApplication.translate("main_window", "No JLink connection available")
+                    )
+                    return
                 
-                # 设置格式化完成后的回调函数
-                def on_format_ram_finished(success):
-                    # 即使格式化失败也尝试执行重启操作
-                    self._execute_restart(selected_sfr)
-                    # 移除回调引用以避免内存泄漏
-                    if hasattr(self, '_format_ram_finished'):
-                        delattr(self, '_format_ram_finished')
+                jlink = session.rtt2uart.jlink
+                target_device = session.connection_dialog.target_device if session.connection_dialog else None
                 
-                # 存储回调函数引用
-                self._format_ram_finished = on_format_ram_finished
+                # 格式化RAM（如果启用） - 使用异步线程
+                if format_ram_enabled:
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "--- Format RAM before restart ---"))
+                    
+                    # 获取RAM信息
+                    ram_start, ram_size = self._get_ram_info_for_format(jlink, target_device, session)
+                    if ram_start is None or ram_size is None:
+                        logger.warning("Cannot determine RAM info, skipping format")
+                    else:
+                        # 创建并启动格式化线程
+                        format_thread = RamFormatThread(self, session, ram_start, ram_size)
+                        format_thread.log_signal.connect(self.append_jlink_log)
+                        
+                        # 使用QEventLoop等待格式化完成
+                        from PySide6.QtCore import QEventLoop
+                        loop = QEventLoop()
+                        format_success = [False]  # 使用列表以便在lambda中修改
+                        
+                        def on_format_finished(success):
+                            format_success[0] = success
+                            loop.quit()
+                        
+                        format_thread.format_finished.connect(on_format_finished)
+                        format_thread.start()
+                        loop.exec()  # 等待格式化完成，但不阻塞UI
+                        
+                        if not format_success[0]:
+                            logger.warning("RAM format failed, but continuing with restart")
                 
-                # 启动异步RAM格式化
-                self._format_ram()
-            else:
-                # 不需要格式化RAM，直接执行重启
-                self._execute_restart(selected_sfr)
+                # 检查连接状态
+                if not jlink.opened():
+                    raise Exception("JLink connection lost after RAM format")
+                
+                # 执行重启
+                self.append_jlink_log(QCoreApplication.translate("main_window", "Executing restart via %s...") % ("SFR" if selected_sfr else "Reset Pin"))
+                if selected_sfr:
+                    # SFR重启
+                    try:
+                        jlink.halt()
+                    except Exception:
+                        pass  # 忽略halt失败
+                    jlink.memory_write32(0xE000ED0C, [0x05FA0004])
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "✅ SFR restart command sent"))
+                else:
+                    # 复位引脚重启
+                    jlink.reset(halt=False)
+                    self.append_jlink_log(QCoreApplication.translate("main_window", "✅ Reset pin restart executed"))
+                
+                # 已连接状态不断开JLink，保持RTT连接
+                logger.info("Device restarted, RTT connection maintained")
+                
+            except Exception as e:
+                logger.error(f"Restart failed: {e}", exc_info=True)
+                self.append_jlink_log(QCoreApplication.translate("main_window", "❌ Restart failed: %s") % str(e))
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "Failed"),
+                    QCoreApplication.translate("main_window", "Restart failed: %s") % str(e)
+                )
                 
         except Exception as e:
             logger.error(f"Restart app error: {e}")
@@ -10113,6 +10715,9 @@ class ConnectionDialog(QDialog):
                 rtt_address = self.config.get_rtt_address() if rtt_cb_mode == 'address' else ''
                 rtt_search_range = self.config.get_rtt_search_range() if rtt_cb_mode == 'search_range' else ''
                 
+                # 检查是否需要跳过RTT块识别（用于F9重启）
+                skip_rtt_block_detection = getattr(self, '_skip_rtt_block_detection', False)
+                
                 self.rtt2uart = rtt_to_serial(
                     self.worker, 
                     self.jlink, 
@@ -10129,7 +10734,8 @@ class ConnectionDialog(QDialog):
                     device_index,
                     rtt_cb_mode,  # RTT Control Block模式
                     rtt_address,  # RTT地址
-                    rtt_search_range  # RTT搜索范围
+                    rtt_search_range,  # RTT搜索范围
+                    skip_rtt_block_detection  # 跳过RTT块识别
                 )  # 重置后不再需要在rtt2uart中重置
 
                 # 🔧 在start()之前设置JLink日志回调，确保所有日志都能显示
@@ -10183,8 +10789,13 @@ class ConnectionDialog(QDialog):
                 # 更新串口转发选择框（在连接成功后更新TAB列表）
                 self._update_serial_forward_combo()
                 
-                # 发送连接成功信号
+                # 发送连接成功信号（在信号处理中会创建session）
                 self.connection_established.emit()
+                
+                # 启动后台RTT块搜索（如果未跳过RTT块识别且是自动检测模式）
+                # 注意：session在on_connection_established中创建，需要延迟获取
+                if not skip_rtt_block_detection and rtt_cb_mode == 'auto':
+                    QTimer.singleShot(100, lambda: self._start_background_rtt_block_search_after_connect())
                 
                 # 隐藏连接对话框
                 self.hide()
@@ -10561,6 +11172,132 @@ class ConnectionDialog(QDialog):
         
         # 只保存设置，不立即执行重置操作
         # 重置操作将在点击"开始"按钮时执行
+    
+    def _start_background_rtt_block_search_after_connect(self):
+        """连接成功后启动后台RTT块搜索（延迟调用以获取session）"""
+        try:
+            # 从主窗口获取当前活动的session
+            if not self.main_window:
+                return
+            
+            session = self.main_window._get_active_device_session()
+            if not session:
+                logger.debug("No active session found for RTT block search")
+                return
+            
+            self._start_background_rtt_block_search(session)
+        except Exception as e:
+            logger.error(f"Failed to start background RTT block search after connect: {e}", exc_info=True)
+    
+    def _start_background_rtt_block_search(self, session):
+        """启动后台RTT块搜索线程
+        
+        Args:
+            session: DeviceSession实例
+        """
+        try:
+            if not session or not session.rtt2uart or not session.rtt2uart.jlink:
+                return
+            
+            # 停止之前的搜索线程（如果存在）
+            if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
+                session.rtt_block_search_thread.stop()
+                session.rtt_block_search_thread.wait()
+            
+            # 创建后台搜索线程
+            search_thread = RTTBlockSearchThread(session, self.main_window)
+            session.rtt_block_search_thread = search_thread
+            
+            # 连接信号
+            search_thread.rtt_block_found.connect(lambda addr: self._on_rtt_block_found(session, addr))
+            
+            # 启动线程
+            search_thread.start()
+            logger.info(f"Started background RTT block search for session {session.session_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to start background RTT block search: {e}", exc_info=True)
+    
+    def _on_rtt_block_found(self, session, rtt_block_addr):
+        """当找到新的RTT块时调用
+        
+        Args:
+            session: DeviceSession实例
+            rtt_block_addr: RTT块地址
+        """
+        try:
+            if not session or rtt_block_addr is None:
+                return
+            
+            # 检查是否已存在
+            if rtt_block_addr in session.rtt_block_list:
+                logger.debug(f"RTT block 0x{rtt_block_addr:08X} already in list")
+                return
+            
+            # 添加到列表
+            session.rtt_block_list.append(rtt_block_addr)
+            logger.info(f"Found new RTT block: 0x{rtt_block_addr:08X}, total: {len(session.rtt_block_list)}")
+            
+            # 如果是第一个块，设置为当前块
+            if session.current_rtt_block is None:
+                session.current_rtt_block = rtt_block_addr
+                logger.info(f"Set first RTT block as current: 0x{rtt_block_addr:08X}")
+            
+            # 更新UI（在主线程中执行）
+            if self.main_window:
+                QTimer.singleShot(0, lambda: self._update_rtt_block_combo(session))
+            
+            # 显示日志
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(
+                    QCoreApplication.translate("main_window", "Found RTT block: 0x%08X (Total: %d)") % 
+                    (rtt_block_addr, len(session.rtt_block_list))
+                )
+                
+        except Exception as e:
+            logger.error(f"Error handling RTT block found: {e}", exc_info=True)
+    
+    def _update_rtt_block_combo(self, session):
+        """更新RTT块选择框
+        
+        Args:
+            session: DeviceSession实例
+        """
+        try:
+            if not session or not self.main_window:
+                return
+            
+            # 获取主窗口的rtt_block_combo
+            if not hasattr(self.main_window, 'ui') or not hasattr(self.main_window.ui, 'rtt_block_combo'):
+                return
+            
+            combo = self.main_window.ui.rtt_block_combo
+            
+            # 保存当前选择
+            current_text = combo.currentText()
+            
+            # 清空并重新填充
+            combo.clear()
+            
+            if len(session.rtt_block_list) == 0:
+                combo.addItem(QCoreApplication.translate("main_window", "No RTT blocks"))
+                combo.setEnabled(False)
+            else:
+                combo.setEnabled(True)
+                for addr in session.rtt_block_list:
+                    addr_text = f"0x{addr:08X}"
+                    combo.addItem(addr_text, addr)
+                
+                # 恢复选择（如果存在）
+                if session.current_rtt_block:
+                    index = combo.findData(session.current_rtt_block)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+                    elif len(session.rtt_block_list) > 0:
+                        combo.setCurrentIndex(0)
+            
+        except Exception as e:
+            logger.error(f"Error updating RTT block combo: {e}", exc_info=True)
     
     def detect_jlink_conflicts(self):
         """检测JLink驱动冲突"""
@@ -11497,42 +12234,81 @@ class ConnectionDialog(QDialog):
                 current_index = self.tab_widget.currentIndex()
         except Exception:
             pass
+
+
+class RTTBlockSearchThread(QThread):
+    """后台RTT块搜索线程"""
+    rtt_block_found = Signal(int)  # 找到RTT块时发出信号，参数为块地址
+    
+    def __init__(self, session, main_window):
+        super().__init__()
+        self.session = session
+        self.main_window = main_window
+        self._stop_flag = False
         
-        # 增加时间戳跟踪，用于限制UI更新频率
-        current_time_ms = int(time.time() * 1000)
-        
-        # 优先更新当前显示的页面 - 立即更新，不受脏标记和时间间隔限制
-        # 直接调用_process_ui_update方法更新UI，确保实时显示
-        self._process_ui_update(self.worker.colored_buffers, self.worker.colored_buffer_lengths)
-        # 清除当前页面的脏标记，确保current_index有效
-        if current_index >= 0 and hasattr(self.main_window, 'page_dirty_flags') and current_index < len(self.main_window.page_dirty_flags):
-            self.main_window.page_dirty_flags[current_index] = False
-        self.main_window._last_ui_update_ms = current_time_ms
-        
-        # 🎨 优化：在Turbo模式下，确保所有数据变化都能实时显示
-        # 对于非当前页面，直接更新而不进行时间限制
-        if hasattr(self.main_window, 'page_dirty_flags'):
-            # 收集所有需要更新的页面
-            dirty_pages = []
-            for i in range(MAX_TAB_SIZE):
-                if i != current_index and self.main_window.page_dirty_flags[i]:
-                    dirty_pages.append(i)
+    def stop(self):
+        """停止搜索"""
+        self._stop_flag = True
+    
+    def run(self):
+        """执行搜索"""
+        try:
+            if not self.session or not self.session.rtt2uart or not self.session.rtt2uart.jlink:
+                return
             
-            # 如果有其他脏页面需要更新
-            if dirty_pages:
-                # 简化更新逻辑，移除基于系统负载的限制
-                # 直接调用_process_ui_update更新所有页面
-                self._process_ui_update(self.worker.colored_buffers, self.worker.colored_buffer_lengths)
-                # 标记所有更新过的页面为干净
-                for page_index in dirty_pages:
-                    if page_index < len(self.main_window.page_dirty_flags):
-                        self.main_window.page_dirty_flags[page_index] = False
+            jlink = self.session.rtt2uart.jlink
+            
+            # 获取设备RAM信息
+            ram_start, ram_size = self.main_window._get_device_ram_info(self.session)
+            
+            if ram_start is None or ram_size is None:
+                logger.warning("Cannot get RAM info for RTT block search")
+                return
+            
+            logger.info(f"Starting background RTT block search in RAM: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
+            
+            rtt_id = b"SEGGER RTT"
+            search_chunk = 0x1000  # 每次搜索 4KB
+            found_blocks = set()  # 已找到的块地址集合
+            
+            # 搜索整个RAM范围
+            for offset in range(0, ram_size, search_chunk):
+                if self._stop_flag:
+                    break
                 
-                # 更新最后UI更新时间
-                self.main_window._last_ui_update_ms = current_time_ms
-        
-        # 清理策略：当页面过多时，标记低优先级页面为干净以避免内存积压
-        # 但保留脏标记直到有足够资源更新它们
+                try:
+                    addr = ram_start + offset
+                    # 读取内存块
+                    data = jlink.memory_read8(addr, min(search_chunk, ram_size - offset))
+                    data_bytes = bytes(data)
+                    
+                    # 在当前块中查找所有RTT标识符
+                    pos = 0
+                    while True:
+                        pos = data_bytes.find(rtt_id, pos)
+                        if pos < 0:
+                            break
+                        
+                        cb_addr = addr + pos
+                        
+                        # 检查是否已找到过
+                        if cb_addr not in found_blocks:
+                            found_blocks.add(cb_addr)
+                            logger.info(f"Background search found RTT block at 0x{cb_addr:08X}")
+                            # 发出信号（在主线程中处理）
+                            self.rtt_block_found.emit(cb_addr)
+                        
+                        pos += 1
+                        
+                except Exception as e:
+                    # 某些内存区域可能不可读，跳过
+                    logger.debug(f"Failed to read memory at 0x{addr:08X}: {e}")
+                    continue
+            
+            logger.info(f"Background RTT block search completed, found {len(found_blocks)} blocks")
+            
+        except Exception as e:
+            logger.error(f"Background RTT block search error: {e}", exc_info=True)
    
 
 class Worker(QObject):

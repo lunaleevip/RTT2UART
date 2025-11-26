@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  用户自定义JLink设备列表示例
+  
+  位置: ~/AppData/Roaming/XexunRTT/JLinkDevices.xml (Windows)
+       ~/Library/Application Support/XexunRTT/JLinkDevices.xml (macOS)
+       ~/.config/XexunRTT/JLinkDevices.xml (Linux)
+  
+  说明:
+  - 此文件中的设备将自动合并到主设备数据库中
+  - 如果设备名称与主数据库重复，将自动跳过（避免覆盖官方定义）
+  - 支持两种XML格式（参见下面的示例）
+  
+  使用方法:
+  1. 复制此文件到配置目录
+  2. 重命名为 JLinkDevices.xml
+  3. 添加您的自定义设备
+  4. 重启程序自动生效
+-->
+
+<DataBase>
+  <!-- 
+    格式1: VendorInfo/DeviceInfo (推荐用于自定义设备)
+    
+    属性说明:
+    - Name: 设备名称（必须唯一）
+    - WorkRAMStartAddr: RAM起始地址（十六进制，带0x前缀）
+    - WorkRAMSize: RAM大小（十六进制，带0x前缀）
+    - Core: 核心类型（JLINK_CORE_CORTEX_M4, JLINK_CORE_CORTEX_M3等）
+  -->
+  <VendorInfo Name="CustomVendor">
+    <DeviceInfo 
+      Name="MyCustomDevice_M4" 
+      WorkRAMStartAddr="0x20000000" 
+      WorkRAMSize="0x00040000"
+      Core="JLINK_CORE_CORTEX_M4">
+      <AliasInfo Name="MyDevice_Alias1"/>
+      <AliasInfo Name="MyDevice_Alias2"/>
+    </DeviceInfo>
+    
+    <DeviceInfo 
+      Name="MyCustomDevice_M3" 
+      WorkRAMStartAddr="0x20000000" 
+      WorkRAMSize="0x00008000"
+      Core="JLINK_CORE_CORTEX_M3">
+    </DeviceInfo>
+  </VendorInfo>
+  
+  <!-- 
+    格式2: Device/ChipInfo (新格式，用于更详细的配置)
+    
+    属性说明:
+    - Name: 芯片名称
+    - WorkRAMAddr: RAM起始地址
+    - WorkRAMSize: RAM大小
+    - Core: 核心类型
+  -->
+  <Device>
+    <ChipInfo 
+      Name="MyAdvancedDevice"
+      WorkRAMAddr="0x20000000"
+      WorkRAMSize="0x00010000"
+      Core="JLINK_CORE_CORTEX_M4"
+      Vendor="MyCompany"
+      FlashSize="0x00080000"
+      FlashAddr="0x00000000"/>
+  </Device>
+  
+  <!-- 
+    常见核心类型:
+    - JLINK_CORE_CORTEX_M0
+    - JLINK_CORE_CORTEX_M0PLUS  
+    - JLINK_CORE_CORTEX_M3
+    - JLINK_CORE_CORTEX_M4
+    - JLINK_CORE_CORTEX_M7
+    - JLINK_CORE_CORTEX_M23
+    - JLINK_CORE_CORTEX_M33
+    
+    RAM大小换算:
+    - 8KB  = 0x00002000
+    - 16KB = 0x00004000
+    - 32KB = 0x00008000
+    - 64KB = 0x00010000
+    - 128KB = 0x00020000
+    - 256KB = 0x00040000
+    - 512KB = 0x00080000
+    - 1MB = 0x00100000
+  -->
+</DataBase>
+
