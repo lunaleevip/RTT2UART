@@ -2315,8 +2315,8 @@ class DeviceMdiWindow(QWidget):
             worker = None
             if is_playback:
                 # 回放模式：尝试多种方式获取worker
-                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'work'):
-                    worker = self.device_session.connection_dialog.work
+                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'worker'):
+                    worker = self.device_session.connection_dialog.worker
                 elif hasattr(self, 'worker') and self.worker:
                     worker = self.worker
             else:
@@ -2443,10 +2443,10 @@ class DeviceMdiWindow(QWidget):
                 logger.debug("_update_from_worker: Playback mode detected")
                 worker = None
                 
-                # 首先尝试使用标准路径 device_session.connection_dialog.work
-                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'work'):
-                    worker = self.device_session.connection_dialog.work
-                    logger.debug("Playback mode: Got worker from device_session.connection_dialog.work")
+                # 首先尝试使用标准路径 device_session.connection_dialog.worker
+                if hasattr(self, 'device_session') and hasattr(self.device_session, 'connection_dialog') and hasattr(self.device_session.connection_dialog, 'worker'):
+                    worker = self.device_session.connection_dialog.worker
+                    logger.debug("Playback mode: Got worker from device_session.connection_dialog.worker")
                 # 如果标准路径失败，尝试使用直接引用 self.worker
                 elif hasattr(self, 'worker') and self.worker:
                     worker = self.worker
@@ -3026,30 +3026,30 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
             return worker
         
-        # 创建connection_dialog并确保其有work属性
+        # 创建connection_dialog并确保其有worker属性（ConnectionDialog使用worker，不是work）
         from PySide6.QtCore import QObject
         if self.device_session.connection_dialog is None:
             logger.info("Creating new MockConnectionDialog for device_session")
             class MockConnectionDialog(QObject):
                 def __init__(self):
                     super().__init__()
-                    self.work = create_worker(self)
+                    self.worker = create_worker(self)
                     from config_manager import ConfigManager
                     self.config = ConfigManager()
             
             self.device_session.connection_dialog = MockConnectionDialog()
             logger.info("Created new mock connection dialog with worker")
         else:
-            # 确保现有connection_dialog有work属性
-            if not hasattr(self.device_session.connection_dialog, 'work'):
-                logger.warning("Adding work attribute to existing connection_dialog")
-                self.device_session.connection_dialog.work = create_worker(self.device_session.connection_dialog)
-            elif self.device_session.connection_dialog.work is None:
-                logger.warning("Existing connection_dialog.work is None, recreating")
-                self.device_session.connection_dialog.work = create_worker(self.device_session.connection_dialog)
+            # 确保现有connection_dialog有worker属性
+            if not hasattr(self.device_session.connection_dialog, 'worker'):
+                logger.warning("Adding worker attribute to existing connection_dialog")
+                self.device_session.connection_dialog.worker = create_worker(self.device_session.connection_dialog)
+            elif self.device_session.connection_dialog.worker is None:
+                logger.warning("Existing connection_dialog.worker is None, recreating")
+                self.device_session.connection_dialog.worker = create_worker(self.device_session.connection_dialog)
             
             # 确保worker已正确初始化
-            worker = self.device_session.connection_dialog.work
+            worker = self.device_session.connection_dialog.worker
             required_attrs = ['byte_buffer', 'buffers', 'colored_buffers', 'byte_buffer_temp', 'remaining_data']
             for attr in required_attrs:
                 if not hasattr(worker, attr):
@@ -3064,7 +3064,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
         
         # 安全地设置self.worker
         try:
-            self.worker = self.device_session.connection_dialog.work
+            self.worker = self.device_session.connection_dialog.worker
             logger.info("Successfully set up self.worker reference")
         except Exception as e:
             logger.error(f"Failed to get worker reference: {e}")
@@ -3138,7 +3138,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 def __init__(self):
                     super().__init__()
                     self.config = ConfigManager()
-                    self.work = None
+                    self.worker = None
             
             self.device_session.connection_dialog = MockConnectionDialog()
         
@@ -3171,27 +3171,27 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                     super().__init__()
             self.device_session.connection_dialog = MinimalConnectionDialog()
         
-        # 确保connection_dialog.work存在
-        if not hasattr(self.device_session.connection_dialog, 'work') or self.device_session.connection_dialog.work is None:
-            logger.error("Creating missing worker in connection_dialog")
-            self.device_session.connection_dialog.work = Worker()
-            self.device_session.connection_dialog.work.set_turbo_mode(False)
-            self.device_session.connection_dialog.work.use_channel_tags = True
-            self.device_session.connection_dialog.work.support_filtering = True
-            self.device_session.connection_dialog.work.ansi_processing_enabled = True
-            self.device_session.connection_dialog.work.byte_buffer_temp = bytearray()
-            self.device_session.connection_dialog.work.remaining_data = bytearray()
-            self.device_session.connection_dialog.work.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+        # 确保connection_dialog.worker存在（ConnectionDialog使用worker属性，不是work）
+        if not hasattr(self.device_session.connection_dialog, 'worker') or self.device_session.connection_dialog.worker is None:
+            logger.warning("Creating missing worker in connection_dialog (this is a recovery operation)")
+            self.device_session.connection_dialog.worker = Worker(self.device_session.connection_dialog)
+            self.device_session.connection_dialog.worker.set_turbo_mode(False)
+            self.device_session.connection_dialog.worker.use_channel_tags = True
+            self.device_session.connection_dialog.worker.support_filtering = True
+            self.device_session.connection_dialog.worker.ansi_processing_enabled = True
+            self.device_session.connection_dialog.worker.byte_buffer_temp = bytearray()
+            self.device_session.connection_dialog.worker.remaining_data = bytearray()
+            self.device_session.connection_dialog.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
             # 新增：初始化buffers和buffer_lengths，与_update_from_worker方法保持一致
-            self.device_session.connection_dialog.work.buffers = [[] for _ in range(MAX_TAB_SIZE)]
-            self.device_session.connection_dialog.work.buffer_lengths = [0] * MAX_TAB_SIZE
-            self.device_session.connection_dialog.work.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+            self.device_session.connection_dialog.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+            self.device_session.connection_dialog.worker.buffer_lengths = [0] * MAX_TAB_SIZE
+            self.device_session.connection_dialog.worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
             # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
-            self.device_session.connection_dialog.work.parent = self.device_session.connection_dialog
+            self.device_session.connection_dialog.worker.parent = self.device_session.connection_dialog
         
         # 确保self.worker指向正确的对象
         try:
-            self.worker = self.device_session.connection_dialog.work
+            self.worker = self.device_session.connection_dialog.worker
             logger.info("Updated self.worker reference")
         except Exception:
             logger.error("Failed to update self.worker, using fallback")
@@ -5417,6 +5417,11 @@ class RTTMainWindow(QMainWindow):
             session.connection_dialog = self.connection_dialog
             session.is_connected = True
             
+            # 🔑 重置RTT块列表，准备重新搜索
+            session.rtt_block_list.clear()
+            session.current_rtt_block = None
+            logger.info(f"✅ Reset RTT block list for device {device_serial}")
+            
             # 设置为当前会话
             self.current_session = session
             session_manager.set_active_session(session)
@@ -6684,6 +6689,11 @@ class RTTMainWindow(QMainWindow):
                         existing_session.connection_dialog = temp_dialog
                         existing_session.is_connected = True
                         
+                        # 🔑 重置RTT块列表，准备重新搜索
+                        existing_session.rtt_block_list.clear()
+                        existing_session.current_rtt_block = None
+                        logger.info(f"✅ Reset RTT block list for device {device_serial}")
+                        
                         # 恢复字节计数
                         rtt.read_bytes0 = old_read_bytes0
                         rtt.read_bytes1 = old_read_bytes1
@@ -6733,6 +6743,21 @@ class RTTMainWindow(QMainWindow):
                         # 启用 RTT Chain Info 菜单
                         if hasattr(self, 'rtt_info_action'):
                             self.rtt_info_action.setEnabled(True)
+                        
+                        # 🔑 重置并更新 rtt_block_combo
+                        if hasattr(self.ui, 'rtt_block_combo'):
+                            try:
+                                self.ui.rtt_block_combo.currentIndexChanged.disconnect()
+                            except:
+                                pass
+                            self.ui.rtt_block_combo.currentIndexChanged.connect(self._on_rtt_block_combo_changed)
+                            self._update_rtt_block_combo_for_session(existing_session)
+                        
+                        # 🔑 启动后台RTT块搜索（如果是自动检测模式）
+                        if temp_dialog:
+                            rtt_cb_mode = temp_dialog.config.get_rtt_control_block_mode()
+                            if rtt_cb_mode == 'auto':
+                                QTimer.singleShot(200, lambda: temp_dialog._start_background_rtt_block_search(existing_session))
                         
                         logger.info(f"✅ Device {device_serial} reconnected")
                         return
@@ -11729,7 +11754,7 @@ class ConnectionDialog(QDialog):
             
             # 检查jlink对象是否可用
             if not hasattr(self, 'jlink') or self.jlink is None:
-                logger.warning("JLink对象未初始化，跳过设备检测")
+                logger.debug("JLink对象未初始化，跳过设备检测（这是正常的，设备检测可能在JLink对象创建之前调用）")
                 self.available_jlinks.append({
                     'serial': '',
                     'product_name': '自动检测 (JLink未初始化)',

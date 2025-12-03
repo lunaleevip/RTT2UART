@@ -147,7 +147,7 @@ class rtt_to_serial():
             
         self.log_directory = log_directory
         self.rtt_log_filename = os.path.join(log_directory, "rtt_log.raw")
-        self.rtt_data_filename = os.path.join(log_directory, "rtt_data.raw")
+        self.rtt_data_filename = os.path.join(log_directory, "rtt_data.bin")
         self.rtt_log_prefix = os.path.join(log_directory, "rtt_log")
 
 
@@ -917,10 +917,20 @@ class rtt_to_serial():
                                         pass
                                 
                                 if not cb_addr:
-                                    error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X)") % (ram_start, ram_start + ram_size)
-                                    self._log_to_gui(error_msg)
-                                    logger.error(f"RTT Control Block not found in RAM: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
-                                    raise Exception(error_msg)
+                                    # 搜索失败，尝试使用JLink自动检测作为回退
+                                    logger.warning(f"RTT Control Block not found in RAM: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}, trying JLink auto-detection...")
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X), trying JLink auto-detection...") % (ram_start, ram_start + ram_size))
+                                    try:
+                                        # 尝试使用JLink自动检测
+                                        self.jlink.rtt_start()
+                                        logger.info("JLink auto-detection succeeded")
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started using JLink auto-detection"))
+                                    except Exception as auto_e:
+                                        # 自动检测也失败，抛出错误
+                                        error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed: %s") % (ram_start, ram_start + ram_size, str(auto_e))
+                                        self._log_to_gui(error_msg)
+                                        logger.error(f"RTT Control Block not found and auto-detection failed: {auto_e}")
+                                        raise Exception(error_msg)
                                 else:
                                     # 使用找到的地址启动 RTT
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
