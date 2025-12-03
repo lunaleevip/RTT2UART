@@ -4209,9 +4209,9 @@ class RTTMainWindow(QMainWindow):
             # 打开文件选择对话框
             file_path, _ = QFileDialog.getOpenFileName(
                 self,
-                QCoreApplication.translate("main_window", "Open Log File"),
+                QCoreApplication.translate("main_window", "Open RAW File"),
                 "",
-                QCoreApplication.translate("main_window", "All Files (*);;Log Files (*.log);;Text Files (*.txt)")
+                QCoreApplication.translate("main_window", "RAW Files (*.raw)")
             )
             
             if file_path:
@@ -13514,11 +13514,37 @@ if __name__ == "__main__":
         global LOCK_SOCKET
         try:
             LOCK_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # 允许重用TIME_WAIT状态的端口（避免WinError 10013）
+            LOCK_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             LOCK_SOCKET.bind(('127.0.0.1', LOCK_PORT))
+            # 必须调用listen()才能真正占用端口
+            LOCK_SOCKET.listen(1)
             logger.info(f"✅ Single instance lock acquired on port {LOCK_PORT}")
             return True
-        except OSError:
-            logger.warning(f"⚠️ Another instance is already running (port {LOCK_PORT} in use)")
+        except OSError as e:
+            # 绑定失败 - 检查是否真的有其他进程在监听
+            try:
+                import psutil
+                current_pid = os.getpid()
+                port_in_use_by_other = False
+                listening_pid = None
+                
+                for conn in psutil.net_connections(kind='inet'):
+                    if conn.laddr.port == LOCK_PORT and conn.status == 'LISTEN':
+                        if conn.pid and conn.pid != current_pid:
+                            port_in_use_by_other = True
+                            listening_pid = conn.pid
+                            logger.warning(f"⚠️ Port {LOCK_PORT} is actively used by process PID={listening_pid}")
+                            break
+                
+                if not port_in_use_by_other:
+                    # 没有找到监听进程，可能是权限问题或其他原因
+                    logger.warning(f"⚠️ Failed to bind port {LOCK_PORT} but no listener found: {e}")
+                    logger.info("   This may be a transient socket state or permission issue")
+            except Exception as ex:
+                logger.debug(f"Could not check port status: {ex}")
+            
+            logger.warning(f"⚠️ Failed to acquire lock on port {LOCK_PORT}: {e}")
             return False
     
     def release_instance_lock():
@@ -13533,39 +13559,42 @@ if __name__ == "__main__":
             LOCK_SOCKET = None
     
     def cleanup_zombie_processes():
-        """清理僵尸进程 - 查找并终止可能遗留的XexunRTT进程"""
+        """检查僵尸进程 - 仅记录，不自动清理（避免误杀）"""
         try:
             current_pid = os.getpid()
-            exe_name = os.path.basename(sys.executable if getattr(sys, 'frozen', False) else sys.argv[0])
+            logger.info(f"🔍 Checking for zombie processes (current PID: {current_pid})")
             
-            # 查找所有XexunRTT相关进程
-            killed_count = 0
-            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+            # 查找所有XexunRTT相关进程（仅记录）
+            found_count = 0
+            for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
                 try:
-                    # 跳过当前进程
+                    # 直接使用proc.pid属性（更可靠）
                     if proc.pid == current_pid:
+                        logger.debug(f"  ✓ Skipping current process PID={proc.pid}")
                         continue
                     
-                    # 检查进程名称
+                    # 检查进程名称和命令行
                     proc_name = proc.info.get('name', '')
                     proc_exe = proc.info.get('exe', '')
+                    cmdline = proc.info.get('cmdline', [])
                     
-                    # 匹配XexunRTT进程
-                    if ('XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or
-                        (proc_exe and 'XexunRTT' in proc_exe)):
-                        logger.warning(f"🔍 Found zombie process: PID={proc.pid}, Name={proc_name}")
-                        proc.terminate()  # 先尝试优雅终止
-                        proc.wait(timeout=3)  # 等待最多3秒
-                        killed_count += 1
-                        logger.info(f"✅ Terminated zombie process: PID={proc.pid}")
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
+                    # 匹配XexunRTT进程或运行main_window.py的python进程
+                    is_xexunrtt = False
+                    if 'XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or (proc_exe and 'XexunRTT' in proc_exe):
+                        is_xexunrtt = True
+                    elif 'python' in proc_name.lower() and cmdline and any('main_window.py' in arg for arg in cmdline):
+                        is_xexunrtt = True
+                    
+                    if is_xexunrtt:
+                        found_count += 1
+                        logger.warning(f"⚠️ Found other XexunRTT instance: PID={proc.pid}, Name={proc_name}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
             
-            if killed_count > 0:
-                logger.info(f"✅ Cleaned up {killed_count} zombie process(es)")
-                time.sleep(1)  # 等待进程完全退出
+            if found_count > 0:
+                logger.warning(f"⚠️ Found {found_count} other XexunRTT instance(s) - will prompt user for action")
         except Exception as e:
-            logger.error(f"❌ Failed to cleanup zombie processes: {e}")
+            logger.error(f"❌ Failed to check zombie processes: {e}")
     
     def emergency_cleanup():
         """紧急清理函数 - 在程序异常退出时强制关闭JLink"""
@@ -13588,11 +13617,19 @@ if __name__ == "__main__":
     # 注册退出处理器
     atexit.register(emergency_cleanup)
     
-    # 1. 先清理可能的僵尸进程
-    cleanup_zombie_processes()
+    # 1. 跳过僵尸进程检查（避免误判当前进程）
+    # cleanup_zombie_processes()  # 已禁用，让用户在对话框中手动选择
     
-    # 2. 尝试获取单实例锁
-    if not acquire_instance_lock():
+    # 2. 尝试获取单实例锁（如果失败，可能是端口TIME_WAIT状态）
+    lock_acquired = acquire_instance_lock()
+    
+    # 3. 如果第一次失败，等待一小段时间后重试（处理TIME_WAIT情况）
+    if not lock_acquired:
+        logger.info("⏳ First lock attempt failed, waiting for port to be released...")
+        time.sleep(0.5)  # 等待500ms
+        lock_acquired = acquire_instance_lock()
+    
+    if not lock_acquired:
         # 如果无法获取锁，说明有其他实例在运行
         # 提示用户选择是否终止旧进程
         try:
@@ -13626,11 +13663,13 @@ if __name__ == "__main__":
                             # 检查命令行是否包含main_window.py
                             cmdline = proc.info.get('cmdline', [])
                             if cmdline and any('main_window.py' in arg for arg in cmdline):
-                                xexunrtt_processes.append({
-                                    'pid': proc.pid,
-                                    'name': proc_name,
-                                    'exe': ' '.join(cmdline)
-                                })
+                                # 再次确认不是当前进程（双重保险）
+                                if proc.pid != current_pid:
+                                    xexunrtt_processes.append({
+                                        'pid': proc.pid,
+                                        'name': proc_name,
+                                        'exe': ' '.join(cmdline)
+                                    })
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                         continue
             except ImportError:
@@ -13849,6 +13888,16 @@ if __name__ == "__main__":
     
     # Show main window first (maximized)
     main_window.showMaximized()
+    
+    # Close splash screen after main window is shown (PyInstaller splash)
+    try:
+        import pyi_splash
+        if pyi_splash.is_alive():
+            pyi_splash.close()
+            logger.info("Splash screen closed successfully")
+    except Exception as e:
+        # Not running as PyInstaller bundle or splash not available
+        logger.debug(f"Splash screen not available or already closed: {e}")
     
     # Then show connection configuration dialog
     main_window.show_connection_dialog()
