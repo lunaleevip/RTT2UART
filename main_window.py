@@ -4598,7 +4598,10 @@ class RTTMainWindow(QMainWindow):
             )
     
     def _get_active_device_session(self):
-        """获取当前激活的设备会话（基于激活的MDI窗口）"""
+        """获取当前激活的设备会话（基于激活的MDI窗口）
+        
+        如果没有激活的MDI窗口，返回第一个已连接的会话（用于窗口标题显示）
+        """
         try:
             active_mdi_sub = self.mdi_area.activeSubWindow()
             if active_mdi_sub:
@@ -4607,7 +4610,14 @@ class RTTMainWindow(QMainWindow):
                 if content_widget and isinstance(content_widget, DeviceMdiWindow):
                     logger.debug(f"[GET_ACTIVE] Found active session: {content_widget.device_session.session_id}")
                     return content_widget.device_session
-            logger.debug("[GET_ACTIVE] No active MDI window found")
+            
+            # 如果没有激活的MDI窗口，返回第一个已连接的会话（用于窗口标题显示）
+            for session in self.device_sessions:
+                if session.is_connected and session.rtt2uart:
+                    logger.debug(f"[GET_ACTIVE] No active MDI window, using first connected session: {session.session_id}")
+                    return session
+            
+            logger.debug("[GET_ACTIVE] No active MDI window and no connected session found")
             return None
         except Exception as e:
             logger.error(f"Failed to get active device session: {e}")
@@ -4658,14 +4668,12 @@ class RTTMainWindow(QMainWindow):
             
             # 3. 更新连接状态显示
             if session.is_connected:
-                self.connection_status_label.setText(
-                    QCoreApplication.translate("main_window", "Connected: %s") % session.get_display_name()
-                )
+                if hasattr(self, 'session_label'):
+                    self.session_label.setText(session.get_display_name())
                 self._set_rtt_controls_enabled(True)
             else:
-                self.connection_status_label.setText(
-                    QCoreApplication.translate("main_window", "Disconnected")
-                )
+                if hasattr(self, 'session_label'):
+                    self.session_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
                 self._set_rtt_controls_enabled(False)
             
             # 4. 更新状态栏
@@ -4825,22 +4833,102 @@ class RTTMainWindow(QMainWindow):
             logger.error(f"Failed to create device session: {e}", exc_info=True)
     
     def _create_status_bar(self):
-        """创建状态栏"""
+        """创建状态栏 - 格式：时间|session|编码|已读取|已写入"""
         self.status_bar = self.statusBar()
         
-        # 连接状态标签
-        self.connection_status_label = QLabel(QCoreApplication.translate("main_window", "Disconnected"))
-        self.status_bar.addWidget(self.connection_status_label)
+        # 1. 时间显示标签（左侧）- 固定宽度
+        self.time_label = QLabel()
+        self.time_label.setFixedWidth(150)  # 固定宽度：2025-12-04 09:42:55
+        self.time_label.setStyleSheet("padding: 0 5px;")
+        self.time_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # 左对齐
+        # 初始化时间显示
+        from datetime import datetime
+        initial_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.time_label.setText(initial_time)
+        self.status_bar.addWidget(self.time_label)
         
-        # 注释掉Turbo模式状态标签（功能保留，界面隐藏）
-        # # 🚀 Turbo模式状态标签
-        # self.turbo_status_label = QLabel("🚀 Turbo: ON")
-        # self.turbo_status_label.setStyleSheet("color: #00AA00; font-weight: bold;")
-        # self.status_bar.addPermanentWidget(self.turbo_status_label)
+        # 分隔符1
+        separator1 = QLabel("|")
+        separator1.setFixedWidth(10)
+        separator1.setStyleSheet("padding: 0 3px; color: #888888;")
+        separator1.setAlignment(Qt.AlignCenter)
+        self.status_bar.addWidget(separator1)
         
-        # 数据统计标签
-        self.data_stats_label = QLabel(QCoreApplication.translate("main_window", "Read: 0 | Write: 0"))
-        self.status_bar.addPermanentWidget(self.data_stats_label)
+        # 2. Session信息标签 - 固定宽度
+        self.session_label = QLabel(QCoreApplication.translate("main_window", "Disconnected"))
+        self.session_label.setFixedWidth(150)  # 固定宽度，足够显示设备信息
+        self.session_label.setStyleSheet("padding: 0 5px;")
+        self.session_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status_bar.addWidget(self.session_label)
+        
+        # 分隔符2
+        separator2 = QLabel("|")
+        separator2.setFixedWidth(10)
+        separator2.setStyleSheet("padding: 0 3px; color: #888888;")
+        separator2.setAlignment(Qt.AlignCenter)
+        self.status_bar.addWidget(separator2)
+        
+        # 3. 编码标签 - 固定宽度
+        self.encoding_label = QLabel("GBK")
+        self.encoding_label.setFixedWidth(80)  # 固定宽度，足够显示编码名称
+        self.encoding_label.setStyleSheet("padding: 0 5px;")
+        self.encoding_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status_bar.addWidget(self.encoding_label)
+        
+        # 分隔符3
+        separator3 = QLabel("|")
+        separator3.setFixedWidth(10)
+        separator3.setStyleSheet("padding: 0 3px; color: #888888;")
+        separator3.setAlignment(Qt.AlignCenter)
+        self.status_bar.addWidget(separator3)
+        
+        # 4. 已读取标签 - 固定宽度
+        self.read_label = QLabel(QCoreApplication.translate("main_window", "Read: 0"))
+        self.read_label.setFixedWidth(120)  # 固定宽度，足够显示 "Read: 9999999999"
+        self.read_label.setStyleSheet("padding: 0 5px;")
+        self.read_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status_bar.addWidget(self.read_label)
+        
+        # 分隔符4
+        separator4 = QLabel("|")
+        separator4.setFixedWidth(10)
+        separator4.setStyleSheet("padding: 0 3px; color: #888888;")
+        separator4.setAlignment(Qt.AlignCenter)
+        self.status_bar.addWidget(separator4)
+        
+        # 5. 已写入标签 - 固定宽度
+        self.write_label = QLabel(QCoreApplication.translate("main_window", "Write: 0"))
+        self.write_label.setFixedWidth(100)  # 固定宽度，足够显示 "Write: 9999"
+        self.write_label.setStyleSheet("padding: 0 5px;")
+        self.write_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status_bar.addWidget(self.write_label)
+        
+        # 6. 占位符（推动所有内容左对齐）- 使用空标签避免显示问题
+        spacer_label = QLabel()
+        spacer_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        spacer_label.setMinimumWidth(0)
+        self.status_bar.addPermanentWidget(spacer_label)
+        
+        # 创建时间更新定时器（每秒更新一次）
+        from PySide6.QtCore import QTimer
+        self.time_timer = QTimer(self)
+        self.time_timer.timeout.connect(self._update_time_display)
+        self.time_timer.start(1000)  # 每秒更新一次
+    
+    def _update_time_display(self):
+        """更新时间显示"""
+        try:
+            # 确保时间标签已创建
+            if not hasattr(self, 'time_label') or self.time_label is None:
+                return
+            
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.time_label.setText(current_time)
+            # 确保标签可见
+            self.time_label.setVisible(True)
+        except Exception as e:
+            logger.error(f"Failed to update time display: {e}")
     
     def _show_connection_settings(self):
         """显示连接设置对话框"""
@@ -5473,7 +5561,9 @@ class RTTMainWindow(QMainWindow):
                     QCoreApplication.translate("main_window", "Encoding switched to: %s\n\nPlease reconnect for the new encoding to take effect.") % enc
                 )
             else:
-                self.statusBar().showMessage(QCoreApplication.translate("main_window", "Encoding switched to: %s") % enc, 2000)
+                # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+                # 编码切换信息已通过状态栏的 encoding 标签显示
+                self.update_status_bar()  # 更新状态栏以显示新编码
         except Exception:
             pass
     
@@ -5660,8 +5750,8 @@ class RTTMainWindow(QMainWindow):
         # 更新状态显示（MDI架构：会自动显示活动设备的状态）
         self.update_status_bar()
         
-        # 显示成功消息
-        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection established successfully"), 3000)
+        # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+        # 成功消息已通过日志输出和状态栏的 session 标签显示
         
         # 启动后台RTT块搜索（如果是自动检测模式）
         if self.connection_dialog:
@@ -5808,8 +5898,8 @@ class RTTMainWindow(QMainWindow):
         # 更新状态显示
         self.update_status_bar()
         
-        # 显示断开消息
-        self.statusBar().showMessage(QCoreApplication.translate("main_window", "RTT connection disconnected"), 3000)
+        # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+        # 断开消息已通过日志输出和状态栏的 session 标签显示
     
     def _set_rtt_controls_enabled(self, enabled):
         """设置RTT相关控件的启用状态"""
@@ -6476,6 +6566,18 @@ class RTTMainWindow(QMainWindow):
             )
             event.ignore()
 
+    def changeEvent(self, event):
+        """处理窗口状态变化事件（最小化、最大化、激活等）"""
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.Type.WindowStateChange:
+            # 窗口状态变化时更新标题
+            self.update_window_title()
+        elif event.type() == QEvent.Type.ActivationChange:
+            # 窗口激活状态变化时更新标题
+            if self.isActiveWindow():
+                self.update_window_title()
+        super().changeEvent(event)
+    
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
         # 由于现在使用了分割器布局，让Qt自动处理大小调整
@@ -6808,7 +6910,8 @@ class RTTMainWindow(QMainWindow):
                 # 调用回放窗口的停止方法
                 active_window._stop_playback()
                 logger.info("Playback stopped via F3")
-                self.statusBar().showMessage(QCoreApplication.translate("main_window", "Playback stopped"), 3000)
+                # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+                # 回放停止信息已通过日志输出显示
             else:
                 # 标准设备断开连接逻辑
                 # 获取当前激活的设备会话
@@ -7316,10 +7419,8 @@ class RTTMainWindow(QMainWindow):
                 if session.rtt2uart:
                     session.rtt2uart.ui_refresh_paused = True
                     logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
-                    self.statusBar().showMessage(
-                        QCoreApplication.translate("main_window", "UI refresh paused - Device %s") % session.get_display_name(), 
-                        3000
-                    )
+                    # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+                    # UI刷新暂停信息已通过日志输出显示
                     
                     # 更新UI单选按钮状态
                     if hasattr(self.ui, 'radioButton_pause_refresh'):
@@ -7364,10 +7465,8 @@ class RTTMainWindow(QMainWindow):
                         session.rtt2uart.clear_paused_data()
                     
                     logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh resumed") % session.get_display_name())
-                    self.statusBar().showMessage(
-                        QCoreApplication.translate("main_window", "UI refresh resumed - Device %s") % session.get_display_name(), 
-                        3000
-                    )
+                    # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
+                    # UI刷新恢复信息已通过日志输出显示
                     
                     # 更新UI单选按钮状态
                     if hasattr(self.ui, 'radioButton_resume_refresh'):
@@ -8408,31 +8507,45 @@ class RTTMainWindow(QMainWindow):
             self.ui.pushButton.click()  # 触发 QPushButton 的点击事件
 
     def update_status_bar(self):
-        """更新状态栏信息 - MDI架构：显示活动设备的状态"""
+        """更新状态栏信息 - MDI架构：显示活动设备的状态
+        格式：时间|session|编码|已读取|已写入
+        """
         if not hasattr(self, 'status_bar'):
             return
         
         # MDI架构：获取活动设备会话
         session = self._get_active_device_session()
         
-        # 更新连接状态
+        # 1. 更新Session信息
         if session and session.rtt2uart and session.is_connected:
             # 显示设备连接信息：USB_X_SN格式
             device_info = getattr(session.rtt2uart, 'device_info', 'Unknown')
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Connected: %s") % device_info)
+            self.session_label.setText(device_info)
         else:
-            self.connection_status_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
+            self.session_label.setText(QCoreApplication.translate("main_window", "Disconnected"))
         
-        # 更新数据统计
+        # 2. 更新编码信息
+        try:
+            if session and session.connection_dialog:
+                encoding = session.connection_dialog.config.get_text_encoding().upper()
+            elif self.connection_dialog:
+                encoding = self.connection_dialog.config.get_text_encoding().upper()
+            else:
+                encoding = config_manager.get_text_encoding().upper()
+            self.encoding_label.setText(encoding)
+        except Exception as e:
+            logger.debug(f"Failed to get encoding: {e}")
+            self.encoding_label.setText("GBK")
+        
+        # 3. 更新数据统计
         readed = 0
         writed = 0
         if session and session.rtt2uart:
             readed = session.rtt2uart.read_bytes0 + session.rtt2uart.read_bytes1
             writed = session.rtt2uart.write_bytes0
         
-        self.data_stats_label.setText(
-            QCoreApplication.translate("main_window", "Read: {} | Write: {}").format(readed, writed)
-        )
+        self.read_label.setText(QCoreApplication.translate("main_window", "Read: %10d") % readed)
+        self.write_label.setText(QCoreApplication.translate("main_window", "Write: %4d") % writed)
         
         # 更新窗口标题
         self.update_window_title()
