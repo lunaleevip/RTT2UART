@@ -3214,14 +3214,66 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             else:
                 self.worker.parent = self
     
+    def _detect_file_format(self, file_path):
+        """检测文件格式
+        
+        Returns:
+            'text' 如果是 SEGGER RTT Viewer 文本格式
+            'binary' 如果是二进制 RAW 格式
+        """
+        try:
+            import os
+            # 读取文件前几行来检测格式
+            with open(file_path, 'rb') as f:
+                # 读取前1KB来检测
+                sample = f.read(1024)
+                if not sample:
+                    return 'binary'
+                
+                # 尝试解码为文本
+                try:
+                    text = sample.decode('utf-8', errors='strict')
+                    # 检查是否是 SEGGER RTT Viewer 格式
+                    # 格式特征：以 # 开头或 通道号> 开头
+                    lines = text.split('\n')[:10]  # 检查前10行
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        # 检查是否是 SEGGER RTT Viewer 格式
+                        # 格式：通道号> [时间戳]... 或 # 开头
+                        if line.startswith('#'):
+                            return 'text'  # SEGGER RTT Viewer 格式
+                        # 检查是否是 通道号> 格式（例如：00>, 02>, 15>）
+                        import re
+                        if re.match(r'^\d{2}>', line):
+                            return 'text'  # SEGGER RTT Viewer 格式
+                    
+                    # 如果都是可打印字符，可能是纯文本
+                    if all(32 <= b <= 126 or b in (9, 10, 13) for b in sample[:100]):
+                        return 'text'
+                except UnicodeDecodeError:
+                    pass
+                
+                # 默认按二进制处理
+                return 'binary'
+        except Exception as e:
+            logger.warning(f"Error detecting file format: {e}, defaulting to binary")
+            return 'binary'
+    
     def start_playback(self, file_path):
         """开始文件回放
         
         设计目标：完全模拟RTT实时数据流，使用与实时模式相同的处理机制
+        支持二进制 RAW 格式和 SEGGER RTT Viewer 文本格式
         """
         # 更新文件路径
         self.playback_file_path = file_path
         logger.info(f"Starting playback for file: {self.playback_file_path}")
+        
+        # 检测文件格式
+        file_format = self._detect_file_format(file_path)
+        logger.info(f"Detected file format: {file_format}")
         
         # 执行worker对象的预检查和修复
         self._prepare_worker_for_playback()
@@ -3264,9 +3316,10 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             # 添加信号用于跨线程数据传递
             data_ready = Signal(bytearray)  # 数据准备好信号
             
-            def __init__(self, file_path, parent=None):
+            def __init__(self, file_path, parent=None, file_format='binary'):
                 super().__init__(parent)
                 self.file_path = file_path
+                self.file_format = file_format  # 'binary' 或 'text'
                 self.running = True
                 self.paused = False  # 新增：控制暂停状态
                 self.parent_window = parent
@@ -3281,40 +3334,145 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 
                 设计目标：读取文件数据并通过信号发送到主线程处理
                 同时需要支持F3断开时就停止播放，F5暂停和F6继续的功能
+                支持二进制 RAW 格式和 SEGGER RTT Viewer 文本格式
                 """
                 try:
-                    logger.info(f"Starting playback from file: {self.file_path}")
+                    logger.info(f"Starting playback from file: {self.file_path} (format: {self.file_format})")
                     
-                    # 打开文件进行读取
-                    with open(self.file_path, 'rb') as f:
-                        while self.running:
-                            # 检查是否暂停
-                            while self.paused and self.running:
-                                logger.debug("Playback paused, waiting for resume...")
-                                self.msleep(100)
-                                
-                            # 当被设置为停止时，退出循环
-                            if not self.running:
-                                return
-                                
-                            # 读取数据块
-                            data_chunk = f.read(self.chunk_size)
-                            if not data_chunk:
-                                # 文件读取完毕
-                                break
-                                
-                            # 通过信号将数据发送到主线程处理，避免线程亲和性问题
-                            self.data_ready.emit(bytearray(data_chunk))
-                                
-                            # 智能延迟控制，模拟实时数据流
-                            # 根据数据块大小调整延迟，避免过快回放
-                            delay = max(1, len(data_chunk) // 10)  # 简单的延迟计算
-                            self.msleep(delay)
+                    if self.file_format == 'text':
+                        # 文本格式：解析 SEGGER RTT Viewer 格式
+                        self._run_text_playback()
+                    else:
+                        # 二进制格式：按原始方式处理
+                        self._run_binary_playback()
                             
                 except Exception as e:
                     logger.error(f"Error in playback thread: {e}", exc_info=True)
                 finally:
                     logger.info("Playback thread finished")
+            
+            def _run_binary_playback(self):
+                """二进制格式回放"""
+                with open(self.file_path, 'rb') as f:
+                    while self.running:
+                        # 检查是否暂停
+                        while self.paused and self.running:
+                            logger.debug("Playback paused, waiting for resume...")
+                            self.msleep(100)
+                            
+                        # 当被设置为停止时，退出循环
+                        if not self.running:
+                            return
+                            
+                        # 读取数据块
+                        data_chunk = f.read(self.chunk_size)
+                        if not data_chunk:
+                            # 文件读取完毕
+                            break
+                            
+                        # 通过信号将数据发送到主线程处理，避免线程亲和性问题
+                        self.data_ready.emit(bytearray(data_chunk))
+                            
+                        # 智能延迟控制，模拟实时数据流
+                        # 根据数据块大小调整延迟，避免过快回放
+                        delay = max(1, len(data_chunk) // 10)  # 简单的延迟计算
+                        self.msleep(delay)
+            
+            def _run_text_playback(self):
+                """文本格式回放：解析 SEGGER RTT Viewer 格式"""
+                import re
+                
+                with open(self.file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    line_buffer = []  # 缓冲多行，批量发送
+                    buffer_size = 0
+                    
+                    for line in f:
+                        # 检查是否暂停
+                        while self.paused and self.running:
+                            logger.debug("Playback paused, waiting for resume...")
+                            self.msleep(100)
+                        
+                        # 当被设置为停止时，退出循环
+                        if not self.running:
+                            break
+                        
+                        line = line.rstrip('\n\r')  # 移除换行符
+                        
+                        # 跳过注释行（以 # 开头）
+                        if line.startswith('#'):
+                            continue
+                        
+                        # 跳过空行
+                        if not line.strip():
+                            continue
+                        
+                        # 解析 SEGGER RTT Viewer 格式
+                        # 格式：通道号> [时间戳]... 实际内容
+                        # 例如：00> [11-10 11:44:24.000][  (null)|2][              vcHr11_proc| 296] heartrate = -2, 0
+                        match = re.match(r'^(\d{1,2})>\s*(.*)$', line)
+                        if match:
+                            channel_str = match.group(1)
+                            content = match.group(2)
+                            
+                            try:
+                                # 解析通道号（0-15）
+                                channel_num = int(channel_str)
+                                if channel_num < 0 or channel_num > 15:
+                                    channel_num = 0  # 默认通道0
+                                
+                                # 将通道号转换为十六进制字符的ASCII码（'0'-'F'）
+                                # 例如：0 -> '0' (0x30), 10 -> 'A' (0x41), 15 -> 'F' (0x46)
+                                hex_char = hex(channel_num)[2:].upper()
+                                channel_byte = bytes([ord(hex_char)])
+                                
+                                # 将内容转换为字节（保留换行符）
+                                content_bytes = (content + '\n').encode('utf-8', errors='ignore')
+                                
+                                # 按照 Worker.process_bytes 期望的格式组装数据
+                                # 格式：通道号字节（ASCII字符'0'-'F'） + 内容字节 + 0xFF分隔符
+                                data_chunk = channel_byte + content_bytes + b'\xFF'
+                                
+                                # 添加到缓冲区
+                                line_buffer.append(data_chunk)
+                                buffer_size += len(data_chunk)
+                                
+                                # 当缓冲区达到一定大小时批量发送
+                                if buffer_size >= self.chunk_size:
+                                    combined_data = b''.join(line_buffer)
+                                    self.data_ready.emit(bytearray(combined_data))
+                                    line_buffer = []
+                                    buffer_size = 0
+                                    
+                                    # 延迟控制
+                                    delay = max(10, len(combined_data) // 50)
+                                    self.msleep(delay)
+                                    
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Failed to parse line: {line[:50]}... Error: {e}")
+                                continue
+                        else:
+                            # 无法解析的行，发送到通道0
+                            try:
+                                content_bytes = (line + '\n').encode('utf-8', errors='ignore')
+                                data_chunk = b'0' + content_bytes + b'\xFF'
+                                line_buffer.append(data_chunk)
+                                buffer_size += len(data_chunk)
+                                
+                                if buffer_size >= self.chunk_size:
+                                    combined_data = b''.join(line_buffer)
+                                    self.data_ready.emit(bytearray(combined_data))
+                                    line_buffer = []
+                                    buffer_size = 0
+                                    delay = max(10, len(combined_data) // 50)
+                                    self.msleep(delay)
+                            except Exception as e:
+                                logger.warning(f"Failed to process unparsed line: {e}")
+                                continue
+                    
+                    # 发送剩余数据
+                    if line_buffer and self.running:
+                        combined_data = b''.join(line_buffer)
+                        self.data_ready.emit(bytearray(combined_data))
 
             def stop(self):
                 """停止回放线程，确保资源正确清理
@@ -3348,7 +3506,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 
         
         # 创建并启动播放线程
-        self.playback_thread = PlaybackThread(file_path, self)
+        self.playback_thread = PlaybackThread(file_path, self, file_format)
         # 只连接完成信号，不再需要数据信号因为直接使用process_bytes
         self.playback_thread.finished.connect(self._on_playback_finished)
         self.playback_thread.start()
@@ -3560,6 +3718,10 @@ class RTTMainWindow(QMainWindow):
         
         # 连接 MDI 子窗口激活信号，用于同步暂停/恢复状态等
         self.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+        
+        # 启用拖放功能
+        self.setAcceptDrops(True)
+        self.mdi_area.setAcceptDrops(True)
         
         # 设置 MDI 区域样式
         # 只设置背景色,不覆盖子窗口的原生样式
@@ -4201,21 +4363,36 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle MDI window close: {e}", exc_info=True)
     
-    def load_log_file(self):
-        """加载日志文件进行回放"""
+    def load_log_file(self, file_path=None):
+        """加载日志文件进行回放
+        
+        Args:
+            file_path: 文件路径（可选），如果为None则显示文件选择对话框
+        """
         try:
             import os
             import uuid
-            # 打开文件选择对话框
-            file_path, _ = QFileDialog.getOpenFileName(
-                self,
-                QCoreApplication.translate("main_window", "Open RAW File"),
-                "",
-                QCoreApplication.translate("main_window", "RAW Files (*.raw)")
-            )
+            
+            # 如果没有提供文件路径，显示文件选择对话框
+            if not file_path:
+                file_path, _ = QFileDialog.getOpenFileName(
+                    self,
+                    QCoreApplication.translate("main_window", "Open File (RAW Format)"),
+                    "",
+                    QCoreApplication.translate("main_window", "All Files (*);;RAW Files (*.raw);;Log Files (*.log);;Text Files (*.txt);;Binary Files (*.bin)")
+                )
             
             if file_path:
-                logger.info(f"Selected log file for playback: {file_path}")
+                # 验证文件是否存在
+                if not os.path.exists(file_path):
+                    QMessageBox.warning(
+                        self,
+                        QCoreApplication.translate("main_window", "Error"),
+                        QCoreApplication.translate("main_window", "File not found: {}").format(file_path)
+                    )
+                    return
+                
+                logger.info(f"Selected file for playback: {file_path}")
                 
                 # 创建回放会话
                 playback_session = DeviceSession(
@@ -4277,16 +4454,16 @@ class RTTMainWindow(QMainWindow):
                     mdi_sub_window.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
                     mdi_sub_window.show()
                 
-                # 启动回放
+                # 启动回放（强制按RAW格式处理）
                 playback_window.start_playback(file_path)
                 
-                logger.info(f"Started log file playback: {file_path}")
+                logger.info(f"Started file playback: {file_path}")
         except Exception as e:
-            logger.error(f"Failed to load log file: {e}", exc_info=True)
+            logger.error(f"Failed to load file: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 QCoreApplication.translate("main_window", "Error"),
-                QCoreApplication.translate("main_window", "Failed to load log file: {}").format(str(e))
+                QCoreApplication.translate("main_window", "Failed to load file: {}").format(str(e))
             )
     
     def _connect_new_device(self):
@@ -6253,6 +6430,52 @@ class RTTMainWindow(QMainWindow):
             except Exception:
                 pass  # 静默处理恢复错误
         
+    def dragEnterEvent(self, event):
+        """拖放进入事件处理"""
+        try:
+            if event.mimeData().hasUrls():
+                # 检查是否有文件被拖入
+                urls = event.mimeData().urls()
+                if urls:
+                    # 接受拖放操作
+                    event.acceptProposedAction()
+                    logger.debug(f"Drag enter event: {len(urls)} file(s)")
+        except Exception as e:
+            logger.error(f"Error in dragEnterEvent: {e}", exc_info=True)
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        """拖放移动事件处理"""
+        try:
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+        except Exception as e:
+            logger.error(f"Error in dragMoveEvent: {e}", exc_info=True)
+            event.ignore()
+    
+    def dropEvent(self, event):
+        """拖放释放事件处理"""
+        try:
+            if event.mimeData().hasUrls():
+                urls = event.mimeData().urls()
+                if urls:
+                    # 获取第一个文件路径
+                    file_path = urls[0].toLocalFile()
+                    if file_path:
+                        logger.info(f"File dropped: {file_path}")
+                        # 延迟加载文件，确保UI已更新
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(100, lambda: self.load_log_file(file_path))
+                event.acceptProposedAction()
+        except Exception as e:
+            logger.error(f"Error in dropEvent: {e}", exc_info=True)
+            QMessageBox.warning(
+                self,
+                QCoreApplication.translate("main_window", "Error"),
+                QCoreApplication.translate("main_window", "Failed to open dropped file: {}").format(str(e))
+            )
+            event.ignore()
+
     def resizeEvent(self, event):
         # 当窗口大小变化时更新布局大小
         # 由于现在使用了分割器布局，让Qt自动处理大小调整
@@ -13923,6 +14146,17 @@ if __name__ == "__main__":
     except Exception as e:
         # Not running as PyInstaller bundle or splash not available
         logger.debug(f"Splash screen not available or already closed: {e}")
+    
+    # Handle command line arguments (file path from double-click)
+    if len(sys.argv) > 1:
+        file_path = sys.argv[1]
+        if file_path and os.path.exists(file_path):
+            logger.info(f"Opening file from command line: {file_path}")
+            # 延迟加载文件，确保窗口已完全显示
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(500, lambda: main_window.load_log_file(file_path))
+        else:
+            logger.warning(f"File not found or invalid: {file_path}")
     
     # Then show connection configuration dialog
     main_window.show_connection_dialog()
