@@ -507,6 +507,22 @@ class rtt_to_serial():
             self.jlink_log_callback(QCoreApplication.translate("rtt2uart", "Connecting device: %s") % self.device_info)
         try:
             if self._connect_inf != 'EXISTING':
+                # 🔑 启动时清理：先检查并关闭任何可能残留的连接
+                try:
+                    if self.jlink.opened():
+                        logger.warning("Found existing JLink connection at startup, closing it first...")
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found existing JLink connection, closing it first..."))
+                        try:
+                            self.jlink.close()
+                            import time
+                            time.sleep(0.5)  # 等待关闭完成
+                            logger.info("Closed existing JLink connection at startup")
+                        except Exception as cleanup_e:
+                            logger.warning(f"Failed to close existing JLink connection: {cleanup_e}")
+                except Exception as check_e:
+                    # 如果检查失败，可能是未打开，继续正常流程
+                    logger.debug(f"Cannot check JLink status at startup: {check_e}")
+                
                 # 🔑 关键修复：检查 JLink 对象是否已经打开，以及是否连接到同一设备
                 # 如果连接到不同设备，需要先 close() 再重新 open()
                 is_opened = False
@@ -608,28 +624,81 @@ class rtt_to_serial():
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is already open, closing and retrying..."))
                             try:
                                 import time
-                                # 尝试关闭
-                                try:
-                                    self.jlink.close()
-                                    time.sleep(0.3)  # 等待关闭完成
-                                except Exception as close_e:
-                                    logger.warning(f"Failed to close JLink: {close_e}")
                                 
-                                # 检查是否真的关闭了
+                                # 第一步：检查当前状态
+                                is_opened = False
                                 try:
-                                    if self.jlink.opened():
-                                        # 如果仍然打开，强制重新创建 JLink 对象
-                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink still open, recreating JLink object..."))
-                                        del self.jlink
+                                    is_opened = self.jlink.opened()
+                                    logger.debug(f"JLink opened status before close: {is_opened}")
+                                except Exception as check_before_e:
+                                    logger.debug(f"Cannot check JLink status before close: {check_before_e}")
+                                    # 如果无法检查状态，假设是打开的
+                                    is_opened = True
+                                
+                                # 第二步：如果已打开，尝试关闭
+                                if is_opened:
+                                    try:
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Closing existing JLink connection..."))
+                                        self.jlink.close()
+                                        time.sleep(0.5)  # 增加等待时间，确保DLL层面完全关闭
+                                        logger.debug("JLink close() called, waiting for DLL to release")
+                                    except Exception as close_e:
+                                        logger.warning(f"Failed to close JLink: {close_e}")
+                                        # 即使关闭失败，也继续尝试清理
+                                
+                                # 第三步：验证是否真的关闭了
+                                max_verify_attempts = 5
+                                verify_attempt = 0
+                                still_opened = True
+                                
+                                while verify_attempt < max_verify_attempts and still_opened:
+                                    try:
+                                        still_opened = self.jlink.opened()
+                                        if not still_opened:
+                                            logger.debug(f"JLink confirmed closed after {verify_attempt + 1} verification attempt(s)")
+                                            break
+                                        else:
+                                            logger.debug(f"JLink still opened after close, attempt {verify_attempt + 1}/{max_verify_attempts}")
+                                            verify_attempt += 1
+                                            if verify_attempt < max_verify_attempts:
+                                                time.sleep(0.3)  # 等待更长时间
+                                    except Exception as verify_e:
+                                        # 如果检查状态失败，可能是已经关闭了（某些情况下opened()会抛出异常）
+                                        logger.debug(f"Cannot verify JLink status (may be closed): {verify_e}")
+                                        still_opened = False
+                                        break
+                                
+                                # 第四步：如果仍然打开，强制重新创建 JLink 对象
+                                if still_opened:
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink still open, recreating JLink object..."))
+                                    try:
+                                        # 尝试最后一次强制关闭
+                                        try:
+                                            self.jlink.close()
+                                        except:
+                                            pass
+                                        
+                                        # 删除旧对象并强制垃圾回收
+                                        old_jlink = self.jlink
+                                        self.jlink = None
+                                        del old_jlink
                                         import gc
                                         gc.collect()
-                                        time.sleep(0.2)
+                                        time.sleep(0.5)  # 等待DLL层面释放
+                                        
+                                        # 创建新的 JLink 对象
                                         self.jlink = pylink.JLink()
                                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink object recreated"))
-                                except Exception as check_e:
-                                    logger.debug(f"Cannot check JLink status: {check_e}")
+                                        logger.info("JLink object recreated after failed close")
+                                        
+                                        # 再次等待，确保新对象可以安全打开
+                                        time.sleep(0.3)
+                                    except Exception as recreate_e:
+                                        logger.error(f"Failed to recreate JLink object: {recreate_e}")
+                                        raise Exception(f"Failed to recreate JLink object: {recreate_e}")
                                 
-                                # 重试打开
+                                # 第五步：重试打开
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Retrying JLink connection..."))
                                 if self._connect_inf == 'USB':
                                     if self._connect_para:
                                         self.jlink.open(serial_no=self._connect_para)

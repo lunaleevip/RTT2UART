@@ -6160,8 +6160,8 @@ class RTTMainWindow(QMainWindow):
         document = self.jlink_log_text.document()
         if document.blockCount() > 1000:
             cursor = self.jlink_log_text.textCursor()
-            cursor.movePosition(cursor.Start)
-            cursor.movePosition(cursor.Down, cursor.KeepAnchor, 100)
+            cursor.movePosition(QTextCursor.Start)
+            cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor, 100)
             cursor.removeSelectedText()
     
     def get_tab1_content(self, full_content=False):
@@ -6662,6 +6662,18 @@ class RTTMainWindow(QMainWindow):
         except Exception as ex:
             logger.error(f"Error closing program: {ex}")
         finally:
+            # 释放单实例锁
+            try:
+                # 从main模块的全局命名空间获取release_instance_lock函数
+                import sys
+                main_module = sys.modules.get('__main__')
+                if main_module and hasattr(main_module, 'release_instance_lock'):
+                    release_func = getattr(main_module, 'release_instance_lock')
+                    release_func()
+                    logger.info("Instance lock released in closeEvent")
+            except Exception as ex:
+                logger.debug(f"Error releasing instance lock in closeEvent: {ex}")
+            
             # 确保窗口关闭
             e.accept()
             logger.info("Program shutdown process completed")
@@ -6842,8 +6854,67 @@ class RTTMainWindow(QMainWindow):
         # 这里不需要刷新，因为字体已经在 _update_all_tabs_font 中更新了
         pass
         
+    def _convert_chinese_punctuation_to_english(self, text):
+        """Convert Chinese punctuation to English punctuation and full-width characters to half-width
+        
+        Args:
+            text (str): Input text with Chinese punctuation and/or full-width characters
+            
+        Returns:
+            str: Text with English punctuation and half-width characters
+        """
+        # Chinese to English punctuation mapping
+        punctuation_map = {
+            '，': ',',  # Chinese comma
+            '。': '.',  # Chinese period
+            '；': ';',  # Chinese semicolon
+            '：': ':',  # Chinese colon
+            '？': '?',  # Chinese question mark
+            '！': '!',  # Chinese exclamation mark
+            '（': '(',  # Chinese left parenthesis
+            '）': ')',  # Chinese right parenthesis
+            '【': '[',  # Chinese left square bracket
+            '】': ']',  # Chinese right square bracket
+            '「': '"',  # Chinese left double quotation mark
+            '」': '"',  # Chinese right double quotation mark
+            ''': "'",  # Chinese left single quotation mark
+            ''': "'",  # Chinese right single quotation mark
+            '《': '<',  # Chinese left angle bracket
+            '》': '>',  # Chinese right angle bracket
+        }
+        
+        result = text
+        # Convert Chinese punctuation to English punctuation
+        for chinese_punct, english_punct in punctuation_map.items():
+            result = result.replace(chinese_punct, english_punct)
+        
+        # Convert full-width numbers (０-９) to half-width (0-9)
+        for i in range(10):
+            full_width_num = chr(0xFF10 + i)  # ０-９ (U+FF10-U+FF19)
+            half_width_num = str(i)
+            result = result.replace(full_width_num, half_width_num)
+        
+        # Convert full-width uppercase letters (Ａ-Ｚ) to half-width (A-Z)
+        for i in range(26):
+            full_width_upper = chr(0xFF21 + i)  # Ａ-Ｚ (U+FF21-U+FF3A)
+            half_width_upper = chr(ord('A') + i)
+            result = result.replace(full_width_upper, half_width_upper)
+        
+        # Convert full-width lowercase letters (ａ-ｚ) to half-width (a-z)
+        for i in range(26):
+            full_width_lower = chr(0xFF41 + i)  # ａ-ｚ (U+FF41-U+FF5A)
+            half_width_lower = chr(ord('a') + i)
+            result = result.replace(full_width_lower, half_width_lower)
+        
+        # Convert full-width space to half-width space
+        result = result.replace('　', ' ')  # Full-width space (U+3000) to half-width space
+        
+        return result
+    
     def on_pushButton_clicked(self):
         current_text = self.ui.cmd_buffer.currentText()
+        # Convert Chinese punctuation to English punctuation
+        current_text = self._convert_chinese_punctuation_to_english(current_text)
         # 发送指令：界面读取的命令文本 + 换行
         cmd_text = current_text + '\n'
         # 发送前按所选编码转换
@@ -13874,12 +13945,34 @@ if __name__ == "__main__":
         """获取单实例锁"""
         global LOCK_SOCKET
         try:
+            # 先尝试关闭可能存在的旧socket
+            if LOCK_SOCKET:
+                try:
+                    LOCK_SOCKET.close()
+                except:
+                    pass
+                LOCK_SOCKET = None
+            
             LOCK_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # 允许重用TIME_WAIT状态的端口（避免WinError 10013）
-            LOCK_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            # Windows上使用SO_EXCLUSIVEADDRUSE确保独占绑定
+            # Linux上使用SO_REUSEADDR允许重用TIME_WAIT状态的端口
+            if sys.platform == 'win32':
+                try:
+                    # Windows: SO_EXCLUSIVEADDRUSE 确保独占绑定
+                    LOCK_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                except AttributeError:
+                    # 如果SO_EXCLUSIVEADDRUSE不存在，使用SO_REUSEADDR
+                    LOCK_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            else:
+                # Linux/macOS: SO_REUSEADDR允许重用TIME_WAIT状态的端口
+                LOCK_SOCKET.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
             LOCK_SOCKET.bind(('127.0.0.1', LOCK_PORT))
             # 必须调用listen()才能真正占用端口
             LOCK_SOCKET.listen(1)
+            # 设置socket为非阻塞模式，避免accept阻塞
+            LOCK_SOCKET.setblocking(False)
             logger.info(f"✅ Single instance lock acquired on port {LOCK_PORT}")
             return True
         except OSError as e:
@@ -13913,11 +14006,13 @@ if __name__ == "__main__":
         global LOCK_SOCKET
         if LOCK_SOCKET:
             try:
+                # 先关闭socket，然后设置为None
                 LOCK_SOCKET.close()
                 logger.info("Single instance lock released")
-            except:
-                pass
-            LOCK_SOCKET = None
+            except Exception as e:
+                logger.debug(f"Error releasing lock: {e}")
+            finally:
+                LOCK_SOCKET = None
     
     def cleanup_zombie_processes():
         """检查僵尸进程 - 仅记录，不自动清理（避免误杀）"""
@@ -13987,7 +14082,9 @@ if __name__ == "__main__":
     # 3. 如果第一次失败，等待一小段时间后重试（处理TIME_WAIT情况）
     if not lock_acquired:
         logger.info("⏳ First lock attempt failed, waiting for port to be released...")
-        time.sleep(0.5)  # 等待500ms
+        # Windows上TIME_WAIT状态可能需要更长时间，增加等待时间
+        wait_time = 2.0 if sys.platform == 'win32' else 0.5
+        time.sleep(wait_time)
         lock_acquired = acquire_instance_lock()
     
     if not lock_acquired:
