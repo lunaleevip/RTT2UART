@@ -5468,29 +5468,124 @@ class RTTMainWindow(QMainWindow):
         msg.exec()
     
     def _show_about(self):
-        """显示关于对话框"""
+        """显示关于对话框 - 包含检查更新按钮"""
         try:
             from version import VERSION, VERSION_NAME, BUILD_TIME
-            
-            about_text = QCoreApplication.translate(
-                "main_window",
-                "%s v%s\n\nRTT Debug Tool\n\nBased on PySide6\n\nBuilt: %s"
-            ) % (VERSION_NAME, VERSION, BUILD_TIME)
-            
-            QMessageBox.about(
-                self,
-                QCoreApplication.translate("main_window", "About %s") % VERSION_NAME,
-                about_text
-            )
+            version_str = VERSION
+            version_name = VERSION_NAME
+            build_time = BUILD_TIME
         except ImportError:
-            # 如果version.py不存在，使用默认信息
-            QMessageBox.about(
-                self,
-                         QCoreApplication.translate("main_window", "About XexunRTT"),
-                QCoreApplication.translate(
-                    "main_window",
-                    "XexunRTT v2.2\n\nRTT Debug Tool\n\nBased on PySide6"
+            version_str = "2.2"
+            version_name = "XexunRTT"
+            build_time = "Unknown"
+        
+        # 创建自定义关于对话框
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle(QCoreApplication.translate("main_window", "About %s") % version_name)
+        about_dialog.setWindowIcon(QIcon(":/xexunrtt.ico"))
+        about_dialog.setFixedSize(400, 280)
+        
+        layout = QVBoxLayout(about_dialog)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 应用图标和标题
+        title_layout = QHBoxLayout()
+        
+        icon_label = QLabel()
+        icon_label.setPixmap(QIcon(":/xexunrtt.ico").pixmap(64, 64))
+        title_layout.addWidget(icon_label)
+        
+        title_text = QLabel(f"<h2>{version_name}</h2><p>v{version_str}</p>")
+        title_text.setStyleSheet("margin-left: 10px;")
+        title_layout.addWidget(title_text)
+        title_layout.addStretch()
+        
+        layout.addLayout(title_layout)
+        
+        # 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line)
+        
+        # 关于信息
+        info_label = QLabel(QCoreApplication.translate(
+            "main_window",
+            "RTT Debug Tool\n\nBased on PySide6\n\nBuilt: %s"
+        ) % build_time)
+        info_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        layout.addStretch()
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        
+        # 检查更新按钮
+        check_update_btn = QPushButton(QCoreApplication.translate("main_window", "Check for Updates"))
+        check_update_btn.setMinimumWidth(120)
+        check_update_btn.clicked.connect(lambda: self._manual_check_update(about_dialog))
+        button_layout.addWidget(check_update_btn)
+        
+        button_layout.addStretch()
+        
+        # 关闭按钮
+        close_btn = QPushButton(QCoreApplication.translate("main_window", "Close"))
+        close_btn.setMinimumWidth(80)
+        close_btn.clicked.connect(about_dialog.accept)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        about_dialog.exec()
+    
+    def _manual_check_update(self, parent_dialog=None):
+        """手动检查更新"""
+        try:
+            from auto_updater import AutoUpdater
+            from update_dialog import UpdateDialog
+            
+            # 显示检查中提示
+            self.statusBar().showMessage(
+                QCoreApplication.translate("main_window", "Checking for updates..."),
+                TimerInterval.STATUSBAR_MESSAGE_LONG
+            )
+            QApplication.processEvents()
+            
+            updater = AutoUpdater()
+            update_info = updater.check_for_updates()
+            
+            if update_info:
+                logger.info(f"Found update: {update_info['version']}")
+                
+                # 关闭关于对话框（如果存在）
+                if parent_dialog:
+                    parent_dialog.accept()
+                
+                # 显示更新对话框
+                dialog = UpdateDialog(update_info, self)
+                if dialog.exec() == QDialog.Accepted:
+                    # 用户确认更新并且更新成功
+                    import sys
+                    sys.exit(0)
+            else:
+                logger.info("No update available")
+                QMessageBox.information(
+                    parent_dialog or self,
+                    QCoreApplication.translate("main_window", "Check for Updates"),
+                    QCoreApplication.translate("main_window", "You are using the latest version.")
                 )
+                self.statusBar().showMessage(
+                    QCoreApplication.translate("main_window", "No updates available"),
+                    TimerInterval.STATUSBAR_MESSAGE_SHORT
+                )
+        except Exception as e:
+            logger.error(f"Failed to check for updates: {e}")
+            QMessageBox.warning(
+                parent_dialog or self,
+                QCoreApplication.translate("main_window", "Check for Updates"),
+                QCoreApplication.translate("main_window", "Failed to check for updates: %s") % str(e)
             )
 
     def _build_encoding_submenu(self):
@@ -6587,6 +6682,19 @@ class RTTMainWindow(QMainWindow):
         """程序关闭事件处理 - 断开所有设备并确保所有资源被正确清理"""
         logger.info("Starting program shutdown process...")
         
+        # 启动看门狗线程 - 确保关闭流程不会无限卡住
+        def shutdown_watchdog():
+            """关闭看门狗 - 如果2秒内没有正常退出则强制终止"""
+            import time as _time
+            _time.sleep(2.0)  # 2秒超时
+            logger.warning("⚠️ Shutdown timeout! Force terminating process...")
+            os._exit(0)
+        
+        import threading
+        watchdog_thread = threading.Thread(target=shutdown_watchdog, daemon=True)
+        watchdog_thread.start()
+        logger.info("Shutdown watchdog started (2s timeout)")
+        
         # 设置关闭标志，防止在关闭时显示连接对话框
         self._is_closing = True
         
@@ -6812,7 +6920,21 @@ class RTTMainWindow(QMainWindow):
             except:
                 pass
             
-            # 2. 获取应用程序实例并退出
+            # 2. 启动独立线程执行强制退出（不依赖Qt事件循环）
+            def force_exit_thread():
+                """独立线程强制退出 - 确保即使Qt事件循环卡住也能退出"""
+                import time as _time
+                _time.sleep(0.5)  # 0.5秒后强制退出
+                logger.warning("Force exit triggered by watchdog thread")
+                os._exit(0)
+            
+            # 启动看门狗线程
+            import threading
+            watchdog = threading.Thread(target=force_exit_thread, daemon=True)
+            watchdog.start()
+            logger.info("Watchdog thread started for force exit")
+            
+            # 3. 尝试正常退出
             app = QApplication.instance()
             if app:
                 # 处理所有待处理事件
@@ -6820,9 +6942,6 @@ class RTTMainWindow(QMainWindow):
                 
                 # 设置退出代码并立即退出
                 app.quit()
-                
-                # 如果quit()不起作用，延迟强制退出
-                QTimer.singleShot(TimerInterval.FORCE_QUIT, lambda: os._exit(0))
             else:
                 # 没有应用实例，直接退出
                 os._exit(0)
@@ -14015,13 +14134,13 @@ if __name__ == "__main__":
                 LOCK_SOCKET = None
     
     def cleanup_zombie_processes():
-        """检查僵尸进程 - 仅记录，不自动清理（避免误杀）"""
+        """检查并清理僵尸进程 - 自动终止旧的XexunRTT进程"""
         try:
             current_pid = os.getpid()
             logger.info(f"🔍 Checking for zombie processes (current PID: {current_pid})")
             
-            # 查找所有XexunRTT相关进程（仅记录）
-            found_count = 0
+            # 查找所有XexunRTT相关进程
+            zombie_processes = []
             for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
                 try:
                     # 直接使用proc.pid属性（更可靠）
@@ -14042,15 +14161,54 @@ if __name__ == "__main__":
                         is_xexunrtt = True
                     
                     if is_xexunrtt:
-                        found_count += 1
+                        zombie_processes.append({
+                            'pid': proc.pid,
+                            'name': proc_name,
+                            'exe': proc_exe or 'N/A',
+                            'proc': proc
+                        })
                         logger.warning(f"⚠️ Found other XexunRTT instance: PID={proc.pid}, Name={proc_name}")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
             
-            if found_count > 0:
-                logger.warning(f"⚠️ Found {found_count} other XexunRTT instance(s) - will prompt user for action")
+            if zombie_processes:
+                logger.warning(f"⚠️ Found {len(zombie_processes)} zombie XexunRTT process(es), attempting to terminate...")
+                
+                terminated_count = 0
+                for zp in zombie_processes:
+                    try:
+                        proc = zp['proc']
+                        logger.info(f"  🔪 Terminating PID={zp['pid']} ({zp['name']})")
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                            terminated_count += 1
+                            logger.info(f"  ✅ Successfully terminated PID={zp['pid']}")
+                        except psutil.TimeoutExpired:
+                            logger.warning(f"  ⚠️ Terminate timeout, force killing PID={zp['pid']}")
+                            proc.kill()
+                            proc.wait(timeout=2)
+                            terminated_count += 1
+                            logger.info(f"  ✅ Force killed PID={zp['pid']}")
+                    except psutil.NoSuchProcess:
+                        logger.info(f"  ✓ Process PID={zp['pid']} already exited")
+                        terminated_count += 1
+                    except Exception as e:
+                        logger.error(f"  ❌ Failed to terminate PID={zp['pid']}: {e}")
+                
+                logger.info(f"🧹 Zombie cleanup completed: {terminated_count}/{len(zombie_processes)} terminated")
+                
+                # 等待一小段时间让端口释放
+                if terminated_count > 0:
+                    time.sleep(1.0)
+                    
+                return terminated_count
+            else:
+                logger.info("✅ No zombie processes found")
+                return 0
         except Exception as e:
             logger.error(f"❌ Failed to check zombie processes: {e}")
+            return 0
     
     def emergency_cleanup():
         """紧急清理函数 - 在程序异常退出时强制关闭JLink"""
@@ -14073,8 +14231,8 @@ if __name__ == "__main__":
     # 注册退出处理器
     atexit.register(emergency_cleanup)
     
-    # 1. 跳过僵尸进程检查（避免误判当前进程）
-    # cleanup_zombie_processes()  # 已禁用，让用户在对话框中手动选择
+    # 1. 启动时检测并自动清理僵尸进程
+    cleanup_zombie_processes()
     
     # 2. 尝试获取单实例锁（如果失败，可能是端口TIME_WAIT状态）
     lock_acquired = acquire_instance_lock()

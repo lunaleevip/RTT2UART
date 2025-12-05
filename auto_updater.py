@@ -601,22 +601,44 @@ class AutoUpdater:
             # 创建更新脚本
             script_path = self.current_exe.parent / "_update.bat"
             
+            # Get the exe filename for process detection
+            exe_name = self.current_exe.name
+            
             script_content = f"""@echo off
-echo Waiting for application to close...
+chcp 65001 >nul 2>&1
+echo [Update] Waiting for application to close...
+
+REM Wait up to 15 seconds for the old process to exit
+set /a WAIT_COUNT=0
+:WAIT_LOOP
+tasklist /FI "IMAGENAME eq {exe_name}" 2>nul | find /I "{exe_name}" >nul
+if errorlevel 1 goto PROCESS_EXITED
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% GEQ 15 goto FORCE_KILL
+echo [Update] Waiting for old process to exit... (%WAIT_COUNT%/15)
+timeout /t 1 /nobreak > nul
+goto WAIT_LOOP
+
+:FORCE_KILL
+echo [Update] Old process still running, force terminating...
+taskkill /F /IM "{exe_name}" >nul 2>&1
 timeout /t 2 /nobreak > nul
 
-echo Backing up old version...
+:PROCESS_EXITED
+echo [Update] Old process exited.
+
+echo [Update] Backing up old version...
 if exist "{self.current_exe}.old" del /f "{self.current_exe}.old"
 move /y "{self.current_exe}" "{self.current_exe}.old"
 
-echo Installing new version...
+echo [Update] Installing new version...
 move /y "{permanent_new_exe}" "{self.current_exe}"
 
-echo Update completed!
-echo Please restart the application manually.
+echo [Update] Update completed!
+echo [Update] Please restart the application manually.
 timeout /t 3 /nobreak > nul
 
-echo Cleaning up...
+echo [Update] Cleaning up...
 del /f "%~f0"
 """
             

@@ -74,7 +74,7 @@ def generate_patch(old_file: Path, new_file: Path, patch_file: Path) -> tuple:
     生成补丁文件
     
     Returns:
-        (patch_size, old_hash)
+        (patch_size, old_hash, should_use_full_update)
     """
     if not BSDIFF_AVAILABLE:
         raise ImportError("bsdiff4 not available")
@@ -89,14 +89,24 @@ def generate_patch(old_file: Path, new_file: Path, patch_file: Path) -> tuple:
     # 计算旧文件哈希
     old_hash = hashlib.sha256(old_data).hexdigest()
     
+    # 计算文件大小
+    old_size = len(old_data)
+    new_size = len(new_data)
+    
     # 生成补丁
     patch_data = bsdiff4.diff(old_data, new_data)
+    patch_size = len(patch_data)
+    
+    # 检查补丁效率：如果补丁大小超过新文件的60%，建议使用完整更新
+    # 对于PyInstaller打包的EXE，bsdiff4效率可能较低
+    patch_ratio = patch_size / new_size if new_size > 0 else 1.0
+    should_use_full_update = patch_ratio > 0.6
     
     # 保存补丁
     with open(patch_file, 'wb') as f:
         f.write(patch_data)
     
-    return len(patch_data), old_hash
+    return len(patch_data), old_hash, should_use_full_update
 
 
 def load_version_json(version_file: Path) -> dict:
@@ -124,7 +134,9 @@ def save_version_json(version_file: Path, data: dict):
 def deploy_update(new_file: Path, 
                  release_notes: str = None,
                  output_dir: Path = None,
-                 max_patches: int = 10) -> bool:
+                 max_patches: int = 10,
+                 skip_inefficient_patches: bool = False,
+                 patch_efficiency_threshold: float = 0.6) -> bool:
     """
     智能部署更新
     
@@ -285,23 +297,43 @@ def deploy_update(new_file: Path,
                     patch_file = output_dir / patch_name
                     
                     # 生成补丁
-                    patch_size, old_file_hash = generate_patch(ver_file, new_file, patch_file)
+                    patch_size, old_file_hash, should_use_full_update = generate_patch(ver_file, new_file, patch_file)
                     
                     # 计算节省比例
                     save_ratio = (1 - patch_size / new_size) * 100
+                    patch_ratio = (patch_size / new_size) * 100 if new_size > 0 else 0
                     
                     print(f"   ✅ 补丁大小: {format_size(patch_size)}")
                     print(f"   💰 节省流量: {save_ratio:.1f}%")
                     print(f"   📄 补丁文件: {patch_name}")
                     
-                    # 记录补丁信息
+                    # 检查补丁效率阈值（使用传入的阈值，而不是固定的0.6）
+                    is_inefficient = patch_ratio > patch_efficiency_threshold
+                    
+                    # 如果补丁效率低，给出警告
+                    if is_inefficient:
+                        print(f"   ⚠️  警告: 补丁大小占新文件的 {patch_ratio:.1f}%，效率较低")
+                        if skip_inefficient_patches:
+                            print(f"   🚫 跳过此补丁（已启用跳过低效率补丁选项）")
+                            # 删除已生成的补丁文件
+                            if patch_file.exists():
+                                patch_file.unlink()
+                            continue
+                        else:
+                            print(f"   💡 建议: 对于此版本更新，使用完整文件更新可能更合适")
+                            print(f"   💡 提示: 使用 --skip-inefficient 参数可自动跳过低效率补丁")
+                    elif patch_ratio > 0.4:
+                        print(f"   ⚠️  注意: 补丁大小占新文件的 {patch_ratio:.1f}%，可能由于PyInstaller打包结构导致")
+                    
+                    # 记录补丁信息（即使效率低也记录，让用户选择）
                     patch_key = f"{ver}_{new_version}"
                     patches[patch_key] = {
                         'file': patch_name,
                         'size': patch_size,
                         'from_version': ver,
                         'to_version': new_version,
-                        'from_hash': old_file_hash
+                        'from_hash': old_file_hash,
+                        'efficiency_warning': is_inefficient  # 标记效率警告
                     }
                     
                     patch_count += 1
@@ -456,6 +488,13 @@ def main():
                        type=int, 
                        default=3,
                        help='最多保留的补丁数量 (默认: 3)')
+    parser.add_argument('--skip-inefficient', '-s',
+                       action='store_true',
+                       help='跳过低效率补丁（补丁大小超过新文件60%%时）')
+    parser.add_argument('--patch-threshold', '-t',
+                       type=float,
+                       default=0.6,
+                       help='补丁效率阈值，超过此比例视为低效率 (默认: 0.6，即60%%)')
     
     args = parser.parse_args()
     
@@ -464,7 +503,9 @@ def main():
         new_file=Path(args.new_file),
         release_notes=args.notes,
         output_dir=Path(args.output),
-        max_patches=args.max_patches
+        max_patches=args.max_patches,
+        skip_inefficient_patches=args.skip_inefficient,
+        patch_efficiency_threshold=args.patch_threshold
     )
     
     return 0 if success else 1

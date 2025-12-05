@@ -236,27 +236,27 @@ Search Range example: 0x10000000 0x1000, 0x20000000 0x1000</source>
 <context>
     <name>FindAllResultsWindow</name>
     <message>
-        <location filename="../main_window.py" line="10031"/>
+        <location filename="../main_window.py" line="10221"/>
         <source>Find All Results</source>
         <translation>尋找全部结果</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10067"/>
+        <location filename="../main_window.py" line="10257"/>
         <source>Copy Selected</source>
         <translation>複製选中</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10068"/>
+        <location filename="../main_window.py" line="10258"/>
         <source>Copy All</source>
         <translation>複製全部</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10069"/>
+        <location filename="../main_window.py" line="10259"/>
         <source>Close</source>
         <translation>關閉</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10088"/>
+        <location filename="../main_window.py" line="10278"/>
         <source>Found {0} match(es) for &apos;{1}&apos;</source>
         <translation>找到 {0} 个匹配项：&apos;{1}&apos;</translation>
     </message>
@@ -280,93 +280,93 @@ Do you still want to create a new window?</source>
 <context>
     <name>FindDialog</name>
     <message>
-        <location filename="../main_window.py" line="9598"/>
+        <location filename="../main_window.py" line="9788"/>
         <source>Find</source>
         <translation>尋找</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9626"/>
+        <location filename="../main_window.py" line="9816"/>
         <source>Find:</source>
         <translation>尋找内容:</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9630"/>
+        <location filename="../main_window.py" line="9820"/>
         <source>Enter text to find...</source>
         <translation>输入要尋找的文本...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9636"/>
+        <location filename="../main_window.py" line="9826"/>
         <source>Case Sensitive</source>
         <translation>区分大小写</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9637"/>
+        <location filename="../main_window.py" line="9827"/>
         <source>Whole Words</source>
         <translation>全字匹配</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9638"/>
+        <location filename="../main_window.py" line="9828"/>
         <source>Regular Expression</source>
         <translation>正则表达式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9647"/>
+        <location filename="../main_window.py" line="9837"/>
         <source>Find Next</source>
         <translation>尋找下一个</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9648"/>
+        <location filename="../main_window.py" line="9838"/>
         <source>Find Previous</source>
         <translation>尋找上一个</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9649"/>
-        <location filename="../main_window.py" line="9889"/>
+        <location filename="../main_window.py" line="9839"/>
+        <location filename="../main_window.py" line="10079"/>
         <source>Find All</source>
         <translation>尋找全部</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9651"/>
+        <location filename="../main_window.py" line="9841"/>
         <source>Highlight All</source>
         <translation>高亮全部</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9652"/>
+        <location filename="../main_window.py" line="9842"/>
         <source>Clear Highlight</source>
         <translation>清除高亮</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9650"/>
+        <location filename="../main_window.py" line="9840"/>
         <source>Count</source>
         <translation>计数</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9653"/>
+        <location filename="../main_window.py" line="9843"/>
         <source>Close</source>
         <translation>關閉</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9890"/>
+        <location filename="../main_window.py" line="10080"/>
         <source>No matches found.</source>
         <translation>未找到匹配项。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9966"/>
+        <location filename="../main_window.py" line="10156"/>
         <source>Please enter search text</source>
         <translation>请输入搜尋文本</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10001"/>
+        <location filename="../main_window.py" line="10191"/>
         <source>No matches found</source>
         <translation>未找到匹配项</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10003"/>
+        <location filename="../main_window.py" line="10193"/>
         <source>Found 1 match</source>
         <translation>找到 1 个匹配项</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10005"/>
+        <location filename="../main_window.py" line="10195"/>
         <source>Found %n matches</source>
         <translation>找到 %n 個匹配項</translation>
     </message>
@@ -519,58 +519,58 @@ Please switch to specific RTT channel (0-15) to clear.</source>
         <translation>啟用詳細日誌</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8129"/>
+        <location filename="../main_window.py" line="8319"/>
         <source>Font Update Options</source>
         <translation>字體更新選項</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8130"/>
+        <location filename="../main_window.py" line="8320"/>
         <source>Font has been changed, select update method:</source>
         <translation>字體已更改，選擇更新方法：</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8131"/>
+        <location filename="../main_window.py" line="8321"/>
         <source>Update All: Update all displayed text
 New Content Only: Apply new font only to new content</source>
         <translation>更新所有：更新所有顯示的文本
 僅更新新內容：僅將新字體應用於新內容</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8134"/>
-        <location filename="../main_window.py" line="8426"/>
+        <location filename="../main_window.py" line="8324"/>
+        <location filename="../main_window.py" line="8616"/>
         <source>Update All</source>
         <translation>更新所有</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8135"/>
-        <location filename="../main_window.py" line="8427"/>
+        <location filename="../main_window.py" line="8325"/>
+        <location filename="../main_window.py" line="8617"/>
         <source>New Content Only</source>
         <translation>僅更新新內容</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8136"/>
-        <location filename="../main_window.py" line="8233"/>
-        <location filename="../main_window.py" line="8428"/>
+        <location filename="../main_window.py" line="8326"/>
+        <location filename="../main_window.py" line="8423"/>
+        <location filename="../main_window.py" line="8618"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8233"/>
+        <location filename="../main_window.py" line="8423"/>
         <source>Updating font...</source>
         <translation>正在更新字體...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8234"/>
+        <location filename="../main_window.py" line="8424"/>
         <source>Font Update Progress</source>
         <translation>字體更新進度</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8421"/>
+        <location filename="../main_window.py" line="8611"/>
         <source>Font Size Update Options</source>
         <translation>字體大小更新選項</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8422"/>
+        <location filename="../main_window.py" line="8612"/>
         <source>Font size has been changed to {0}pt, select update method:</source>
         <translation>字體大小已更改為 {0}pt，選擇更新方法：</translation>
     </message>
@@ -583,7 +583,7 @@ New Content Only: Apply new font only to new content</source>
         <translation type="vanished">字體大小已更改為 {font_size}pt，選擇更新方法：</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8423"/>
+        <location filename="../main_window.py" line="8613"/>
         <source>Update All: Update all displayed text
 New Content Only: Apply new font size only to new content</source>
         <translation>更新所有：更新所有顯示的文本
@@ -632,67 +632,67 @@ New Content Only: Apply new font size only to new content</source>
 <context>
     <name>dialog</name>
     <message>
-        <location filename="../main_window.py" line="10783"/>
+        <location filename="../main_window.py" line="10973"/>
         <source>Disable Forward</source>
         <translation>停用轉送</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10788"/>
+        <location filename="../main_window.py" line="10978"/>
         <source>Current Tab</source>
         <translation>当前标签页</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10799"/>
+        <location filename="../main_window.py" line="10989"/>
         <source>%s (%s)</source>
         <translation>%s (%s)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10799"/>
+        <location filename="../main_window.py" line="10989"/>
         <source>All Data</source>
         <translation>全部数据</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10803"/>
+        <location filename="../main_window.py" line="10993"/>
         <source>Channel %s</source>
         <translation>通道 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10808"/>
+        <location filename="../main_window.py" line="10998"/>
         <source>Filter %s: (%s)</source>
         <translation>篩選器 %s: (%s)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10808"/>
+        <location filename="../main_window.py" line="10998"/>
         <source>Not Set</source>
         <translation>未設定</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10810"/>
+        <location filename="../main_window.py" line="11000"/>
         <source>Filter %s: %s</source>
         <translation>篩選器 %s: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10816"/>
+        <location filename="../main_window.py" line="11006"/>
         <source>RTT Channel 1 (Raw Data)</source>
         <translation>RTT通道 1 (原始数据)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10890"/>
+        <location filename="../main_window.py" line="11080"/>
         <source>Forward Disabled</source>
         <translation>轉送已停用</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10893"/>
+        <location filename="../main_window.py" line="11083"/>
         <source>LOG Mode</source>
         <translation>LOG模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10894"/>
+        <location filename="../main_window.py" line="11084"/>
         <source>DATA Mode</source>
         <translation>DATA模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10894"/>
+        <location filename="../main_window.py" line="11084"/>
         <source>{} - {}</source>
         <translation>{} - {}</translation>
     </message>
@@ -835,7 +835,7 @@ New Content Only: Apply new font size only to new content</source>
     </message>
     <message>
         <location filename="../main_window.py" line="1388"/>
-        <location filename="../main_window.py" line="14067"/>
+        <location filename="../main_window.py" line="14322"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
@@ -862,7 +862,7 @@ New Content Only: Apply new font size only to new content</source>
         <translation>篩選</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10807"/>
+        <location filename="../main_window.py" line="10997"/>
         <source>filter</source>
         <translation>篩選</translation>
     </message>
@@ -937,25 +937,25 @@ New Content Only: Apply new font size only to new content</source>
         <translation>RTT通道資訊(&amp;I)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5561"/>
+        <location filename="../main_window.py" line="5656"/>
         <source>Encoding switched to: %s
 
 Please reconnect for the new encoding to take effect.</source>
         <translation>請重新連接以使新編碼生效。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6283"/>
+        <location filename="../main_window.py" line="6378"/>
         <source>   Showing recent %1 lines / Total %2 lines</source>
         <translation>   顯示最近 %1 行 / 總共 %2 行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6288"/>
+        <location filename="../main_window.py" line="6383"/>
         <source>   Total %1 lines</source>
         <translation>   總共 %1 行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6255"/>
-        <location filename="../main_window.py" line="6295"/>
+        <location filename="../main_window.py" line="6350"/>
+        <location filename="../main_window.py" line="6390"/>
         <source>Command sent: %1</source>
         <translation>已發送命令: %1</translation>
     </message>
@@ -978,53 +978,53 @@ Please reconnect for the new encoding to take effect.</source>
         <translation type="vanished">加載日誌檔案失敗: {}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5795"/>
-        <location filename="../main_window.py" line="11655"/>
+        <location filename="../main_window.py" line="5890"/>
+        <location filename="../main_window.py" line="11845"/>
         <source>No RTT blocks</source>
         <translation>沒有RTT塊</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5850"/>
+        <location filename="../main_window.py" line="5945"/>
         <source>Switched to RTT block: 0x%08X</source>
         <translation>切換到RTT塊: 0x%08X</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5856"/>
+        <location filename="../main_window.py" line="5951"/>
         <source>Failed to switch RTT block: %s</source>
         <translation>切換RTT塊失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6258"/>
+        <location filename="../main_window.py" line="6353"/>
         <source>RTT Channel 1 Response:</source>
         <translation>RTT通道1響應:</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6299"/>
+        <location filename="../main_window.py" line="6394"/>
         <source>RTT Channel 1: No response data</source>
         <translation>RTT通道1: 無回應數據</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6565"/>
+        <location filename="../main_window.py" line="6660"/>
         <source>Failed to open dropped file: {}</source>
         <translation>無法打開拖放文件: {}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8547"/>
+        <location filename="../main_window.py" line="8737"/>
         <source>Read: %10d</source>
         <translation>已讀取: %10d</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8548"/>
+        <location filename="../main_window.py" line="8738"/>
         <source>Write: %4d</source>
         <translation>已寫入: %4d</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8686"/>
+        <location filename="../main_window.py" line="8876"/>
         <source>Playback stopped</source>
         <translation>播放停止</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7169"/>
+        <location filename="../main_window.py" line="7359"/>
         <source>Auto-reconnect monitoring started</source>
         <translation>自動重新連接監控已啟動</translation>
     </message>
@@ -1039,152 +1039,197 @@ Please reconnect for the new encoding to take effect.</source>
         <translation>已寫入: 0</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7176"/>
+        <location filename="../main_window.py" line="5516"/>
+        <source>RTT Debug Tool
+
+Based on PySide6
+
+Built: %s</source>
+        <translation>XexunRTT - RTT除錯主窗口
+
+基於PySide6
+
+構建時間: %s</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5526"/>
+        <location filename="../main_window.py" line="5576"/>
+        <location filename="../main_window.py" line="5587"/>
+        <source>Check for Updates</source>
+        <translation>檢查更新</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5534"/>
+        <source>Close</source>
+        <translation>關閉</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5551"/>
+        <source>Checking for updates...</source>
+        <translation>檢查更新...</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5578"/>
+        <source>You are using the latest version.</source>
+        <translation>您正在使用最新版本。</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5580"/>
+        <source>No updates available</source>
+        <translation>沒有更新可用</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="5588"/>
+        <source>Failed to check for updates: %s</source>
+        <translation>檢查更新失敗: %s</translation>
+    </message>
+    <message>
+        <location filename="../main_window.py" line="7366"/>
         <source>Auto-reconnect monitoring stopped</source>
         <translation>自動重新連接監控已停止</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7275"/>
+        <location filename="../main_window.py" line="7465"/>
         <source>Stopping RTT connection for reconnection...</source>
         <translation>正在停止RTT連接以重新連接...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7283"/>
+        <location filename="../main_window.py" line="7473"/>
         <source>Failed to stop RTT connection: %s</source>
         <translation>停止RTT連接失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7294"/>
+        <location filename="../main_window.py" line="7484"/>
         <source>Auto reconnect process failed: %s</source>
         <translation>自動重新連接過程失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7335"/>
+        <location filename="../main_window.py" line="7525"/>
         <source>Auto reconnect completed successfully</source>
         <translation>自動重新連接過程成功完成</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7340"/>
+        <location filename="../main_window.py" line="7530"/>
         <source>Failed to restart RTT connection: %s</source>
         <translation>重新啟動RTT連接失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7349"/>
+        <location filename="../main_window.py" line="7539"/>
         <source>Auto reconnect startup process failed: %s</source>
         <translation>自動重新連接啟動過程失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7733"/>
+        <location filename="../main_window.py" line="7923"/>
         <source>No Connection</source>
         <translation>未連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7735"/>
+        <location filename="../main_window.py" line="7925"/>
         <source>Please connect to a device first.</source>
         <translation>請先連接設備。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7744"/>
+        <location filename="../main_window.py" line="7934"/>
         <source>No JLink Connection</source>
         <translation>無JLink連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7746"/>
+        <location filename="../main_window.py" line="7936"/>
         <source>JLink is not connected.</source>
         <translation>JLink未連接。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7754"/>
+        <location filename="../main_window.py" line="7944"/>
         <source>JLink Not Open</source>
         <translation>JLink未打開</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7756"/>
+        <location filename="../main_window.py" line="7946"/>
         <source>JLink DLL is not open. Please connect to device first.</source>
         <translation>JLink DLL未打開。請先連接設備。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7762"/>
+        <location filename="../main_window.py" line="7952"/>
         <source>JLink Not Ready</source>
         <translation>JLink未就緒</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7764"/>
+        <location filename="../main_window.py" line="7954"/>
         <source>JLink is not ready. Please connect to device first.</source>
         <translation>JLink未就緒。請先連接設備。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7777"/>
+        <location filename="../main_window.py" line="7967"/>
         <source>RTT Channel Description</source>
         <translation>RTT通道描述</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7783"/>
+        <location filename="../main_window.py" line="7973"/>
         <source>Up channels:</source>
         <translation>上行通道:</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7789"/>
-        <location filename="../main_window.py" line="7844"/>
+        <location filename="../main_window.py" line="7979"/>
+        <location filename="../main_window.py" line="8034"/>
         <source>Id</source>
         <translation>Id</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7790"/>
-        <location filename="../main_window.py" line="7845"/>
+        <location filename="../main_window.py" line="7980"/>
+        <location filename="../main_window.py" line="8035"/>
         <source>Name</source>
         <translation>名稱</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7791"/>
-        <location filename="../main_window.py" line="7846"/>
+        <location filename="../main_window.py" line="7981"/>
+        <location filename="../main_window.py" line="8036"/>
         <source>Size</source>
         <translation>大小</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7793"/>
-        <location filename="../main_window.py" line="7848"/>
+        <location filename="../main_window.py" line="7983"/>
+        <location filename="../main_window.py" line="8038"/>
         <source>Mode</source>
         <translation>模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7809"/>
-        <location filename="../main_window.py" line="7864"/>
+        <location filename="../main_window.py" line="7999"/>
+        <location filename="../main_window.py" line="8054"/>
         <source>Non-blocking, skip</source>
         <translation>非阻塞，跳過</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7811"/>
-        <location filename="../main_window.py" line="7866"/>
+        <location filename="../main_window.py" line="8001"/>
+        <location filename="../main_window.py" line="8056"/>
         <source>Non-blocking, trim</source>
         <translation>非阻塞，截斷</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7813"/>
-        <location filename="../main_window.py" line="7868"/>
+        <location filename="../main_window.py" line="8003"/>
+        <location filename="../main_window.py" line="8058"/>
         <source>Blocking</source>
         <translation>阻塞</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7814"/>
-        <location filename="../main_window.py" line="7869"/>
+        <location filename="../main_window.py" line="8004"/>
+        <location filename="../main_window.py" line="8059"/>
         <source>Mode %s</source>
         <translation>模式 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7838"/>
+        <location filename="../main_window.py" line="8028"/>
         <source>Down channels:</source>
         <translation>下行通道:</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7908"/>
+        <location filename="../main_window.py" line="8098"/>
         <source>Failed to get RTT channel information:
 %s</source>
         <translation>獲取RTT通道資訊失敗:
 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7916"/>
+        <location filename="../main_window.py" line="8106"/>
         <source>Failed to show RTT channel information:
 %s</source>
         <translation>顯示RTT通道資訊失敗:
@@ -1241,8 +1286,8 @@ Please reconnect for the new encoding to take effect.</source>
     <message>
         <location filename="../main_window.py" line="4676"/>
         <location filename="../main_window.py" line="4858"/>
-        <location filename="../main_window.py" line="8525"/>
-        <location filename="../main_window.py" line="8570"/>
+        <location filename="../main_window.py" line="8715"/>
+        <location filename="../main_window.py" line="8760"/>
         <source>Disconnected</source>
         <translation>未連接</translation>
     </message>
@@ -1259,7 +1304,6 @@ Please reconnect for the new encoding to take effect.</source>
         <translation> - 緊湊模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5478"/>
         <source>%s v%s
 
 RTT Debug Tool
@@ -1267,7 +1311,7 @@ RTT Debug Tool
 Based on PySide6
 
 Built: %s</source>
-        <translation>%s v%s
+        <translation type="vanished">%s v%s
 
 RTT調試工具
 
@@ -1276,22 +1320,21 @@ RTT調試工具
 編譯時間: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5482"/>
+        <location filename="../main_window.py" line="5484"/>
         <source>About %s</source>
         <translation>關於 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5489"/>
         <source>About XexunRTT</source>
-        <translation>關於 XexunRTT</translation>
+        <translation type="vanished">關於 XexunRTT</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5560"/>
-        <location filename="../main_window.py" line="9142"/>
-        <location filename="../main_window.py" line="9165"/>
-        <location filename="../main_window.py" line="9185"/>
-        <location filename="../main_window.py" line="9198"/>
-        <location filename="../main_window.py" line="9436"/>
+        <location filename="../main_window.py" line="5655"/>
+        <location filename="../main_window.py" line="9332"/>
+        <location filename="../main_window.py" line="9355"/>
+        <location filename="../main_window.py" line="9375"/>
+        <location filename="../main_window.py" line="9388"/>
+        <location filename="../main_window.py" line="9626"/>
         <source>Info</source>
         <translation>資訊</translation>
     </message>
@@ -1304,7 +1347,7 @@ RTT調試工具
         <translation type="vanished">編碼已切換為: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8568"/>
+        <location filename="../main_window.py" line="8758"/>
         <source>Connected: %s</source>
         <translation>已連接: %s</translation>
     </message>
@@ -1423,7 +1466,7 @@ Please connect another device first.</source>
         <translation type="vanished">RTT連接已斷開</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11078"/>
+        <location filename="../main_window.py" line="11268"/>
         <source>Reusing existing JLink connection for same device</source>
         <translation>重用同一設備的 JLink 連接</translation>
     </message>
@@ -1432,24 +1475,24 @@ Please connect another device first.</source>
         <translation type="vanished">關閉前一個設備連接以連接新設備...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14050"/>
+        <location filename="../main_window.py" line="14305"/>
         <source>Unable to detect specific process information
 The port may be occupied or process permission is insufficient</source>
         <translation>無法檢測到具體進程資訊
 端口可能被佔用或進程權限不足</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14052"/>
+        <location filename="../main_window.py" line="14307"/>
         <source>XexunRTT - Already Running</source>
         <translation>XexunRTT - 已在運行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14053"/>
+        <location filename="../main_window.py" line="14308"/>
         <source>XexunRTT is already running!</source>
         <translation>XexunRTT已經在運行!</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14059"/>
+        <location filename="../main_window.py" line="14314"/>
         <source>Another instance of XexunRTT is currently running.
 
 If you don&apos;t see the window, there might be a zombie process.
@@ -1464,13 +1507,13 @@ Please check Task Manager and terminate any XexunRTT processes manually.</source
         <translation type="vanished">顯示詳情...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14066"/>
+        <location filename="../main_window.py" line="14321"/>
         <source>Terminate Old Processes and Start</source>
         <translation>終止舊進程並啟動</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="14183"/>
-        <location filename="../main_window.py" line="14206"/>
+        <location filename="../main_window.py" line="14438"/>
+        <location filename="../main_window.py" line="14461"/>
         <source>JLink Debug Log</source>
         <translation>JLink除錯日誌</translation>
     </message>
@@ -1479,12 +1522,12 @@ Please check Task Manager and terminate any XexunRTT processes manually.</source
         <translation type="vanished">清除日志</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6082"/>
+        <location filename="../main_window.py" line="6177"/>
         <source>Enable Verbose Log</source>
         <translation>啟用详细日誌</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6074"/>
+        <location filename="../main_window.py" line="6169"/>
         <source>Disable Verbose Log</source>
         <translation>停用详细日誌</translation>
     </message>
@@ -1494,43 +1537,43 @@ Please check Task Manager and terminate any XexunRTT processes manually.</source
         <translation>設備 %s 連接成功</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6077"/>
+        <location filename="../main_window.py" line="6172"/>
         <source>JLink verbose logging enabled - will show all debug information</source>
         <translation>JLink详细日誌已啟用 - 将顯示所有除錯資訊</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6085"/>
+        <location filename="../main_window.py" line="6180"/>
         <source>JLink verbose logging disabled - only showing warnings and errors</source>
         <translation>JLink详细日誌已停用 - 仅顯示警告和錯誤</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6108"/>
-        <location filename="../main_window.py" line="11137"/>
+        <location filename="../main_window.py" line="6203"/>
+        <location filename="../main_window.py" line="11327"/>
         <source>JLink file logging enabled: %s</source>
         <translation>JLink檔案日誌已啟用: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11083"/>
+        <location filename="../main_window.py" line="11273"/>
         <source>Connecting new device with independent JLink connection...</source>
         <translation>使用獨立的 JLink 連接新設備...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11143"/>
+        <location filename="../main_window.py" line="11333"/>
         <source>Failed to enable file logging: %s</source>
         <translation>啟用檔案日誌失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6113"/>
+        <location filename="../main_window.py" line="6208"/>
         <source>JLink file logging will be enabled on next connection: %s</source>
         <translation>JLink檔案日誌将在下次連接时啟用: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6116"/>
+        <location filename="../main_window.py" line="6211"/>
         <source>Failed to setup file logging: %s</source>
         <translation>設定檔案日誌失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6137"/>
+        <location filename="../main_window.py" line="6232"/>
         <source>JLink file logging disabled</source>
         <translation>JLink檔案日誌已停用</translation>
     </message>
@@ -1539,60 +1582,60 @@ Please check Task Manager and terminate any XexunRTT processes manually.</source
         <translation type="vanished">禁用文件日志失败: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6141"/>
+        <location filename="../main_window.py" line="6236"/>
         <source>Error disabling file logging: %s</source>
         <translation>停用檔案日誌錯誤: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6434"/>
+        <location filename="../main_window.py" line="6529"/>
         <source>Failed to start log tailer: %s</source>
         <translation>启动日誌跟踪器失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6468"/>
+        <location filename="../main_window.py" line="6563"/>
         <source>WARNING: JLink connection lost</source>
         <translation>警告: JLink連接丢失</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6480"/>
-        <location filename="../main_window.py" line="11189"/>
-        <location filename="../main_window.py" line="11236"/>
-        <location filename="../main_window.py" line="11920"/>
+        <location filename="../main_window.py" line="6575"/>
+        <location filename="../main_window.py" line="11379"/>
+        <location filename="../main_window.py" line="11426"/>
+        <location filename="../main_window.py" line="12110"/>
         <source>Start</source>
         <translation>開始</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6488"/>
+        <location filename="../main_window.py" line="6583"/>
         <source>Connection state reset, you can:</source>
         <translation>連接状态已重設，您可以：</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6489"/>
+        <location filename="../main_window.py" line="6584"/>
         <source>   1. Check hardware connection</source>
         <translation>   1. 檢查硬件連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6490"/>
+        <location filename="../main_window.py" line="6585"/>
         <source>   2. Click Start button to reconnect</source>
         <translation>   2. 点击Start按钮重新連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6491"/>
+        <location filename="../main_window.py" line="6586"/>
         <source>   3. Check logs for details</source>
         <translation>   3. 查看日誌了解详情</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6498"/>
+        <location filename="../main_window.py" line="6593"/>
         <source>JLink Connection Lost</source>
         <translation>JLink連接丢失</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6499"/>
+        <location filename="../main_window.py" line="6594"/>
         <source>JLink connection has been lost</source>
         <translation>JLink連接已丢失</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6500"/>
+        <location filename="../main_window.py" line="6595"/>
         <source>Program will continue running, you can reconnect anytime.
 
 Suggested actions:
@@ -1605,47 +1648,47 @@ Suggested actions:
 2. 点击开始按钮重新連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6516"/>
+        <location filename="../main_window.py" line="6611"/>
         <source>Attempting to recover normal state...</source>
         <translation>尝试恢復正常状态...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6879"/>
+        <location filename="../main_window.py" line="7069"/>
         <source>Sent:	%s</source>
         <translation>已发送:	%s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6900"/>
+        <location filename="../main_window.py" line="7090"/>
         <source>Send Failed</source>
         <translation>发送失敗</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6937"/>
+        <location filename="../main_window.py" line="7127"/>
         <source>RTT stopped for device: %s</source>
         <translation>設備 %s 的RTT已停止</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6940"/>
+        <location filename="../main_window.py" line="7130"/>
         <source>Failed to stop RTT: %s</source>
         <translation>停止RTT失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6924"/>
+        <location filename="../main_window.py" line="7114"/>
         <source>Disconnecting device: %s</source>
         <translation>正在斷開設備: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6944"/>
+        <location filename="../main_window.py" line="7134"/>
         <source>Device disconnected: %s</source>
         <translation>設備 %s 已斷開</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6990"/>
+        <location filename="../main_window.py" line="7180"/>
         <source>Device %s exists, reconnecting...</source>
         <translation>設備 %s 已存在，正在重新連接...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="6965"/>
+        <location filename="../main_window.py" line="7155"/>
         <source>Select Device to Connect</source>
         <translation>選擇要連接的裝置</translation>
     </message>
@@ -1654,32 +1697,32 @@ Suggested actions:
         <translation type="vanished">重用現有的 JLink 連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7028"/>
+        <location filename="../main_window.py" line="7218"/>
         <source>Restored byte count: %s bytes</source>
         <translation>已恢復字節計數: %s 字節</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7032"/>
+        <location filename="../main_window.py" line="7222"/>
         <source>Reconnecting without clearing data</source>
         <translation>重連時保留數據</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7043"/>
+        <location filename="../main_window.py" line="7233"/>
         <source>Reset UI display offsets</source>
         <translation>已重設UI顯示偏移量</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7049"/>
+        <location filename="../main_window.py" line="7239"/>
         <source>RTT data reading started for device %s</source>
         <translation>設備 %s 的RTT數據讀取已啟動</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7052"/>
+        <location filename="../main_window.py" line="7242"/>
         <source>Failed to start RTT: %s</source>
         <translation>啟動RTT失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7242"/>
+        <location filename="../main_window.py" line="7432"/>
         <source>No data timeout, automatically reconnecting...</source>
         <translation>无数据逾時，自動重新連接中...</translation>
     </message>
@@ -1688,7 +1731,7 @@ Suggested actions:
         <translation type="vanished">自动重连失败: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7316"/>
+        <location filename="../main_window.py" line="7506"/>
         <source>Restarting RTT connection...</source>
         <translation>正在重启RTT連接...</translation>
     </message>
@@ -1701,7 +1744,7 @@ Suggested actions:
         <translation type="vanished">自动重连启动失败: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7421"/>
+        <location filename="../main_window.py" line="7611"/>
         <source>Device %s UI refresh paused</source>
         <translation>裝置 %s UI重新整理已暂停</translation>
     </message>
@@ -1710,7 +1753,7 @@ Suggested actions:
         <translation type="vanished">UI重新整理已暂停 - 裝置 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7467"/>
+        <location filename="../main_window.py" line="7657"/>
         <source>Device %s UI refresh resumed</source>
         <translation>裝置 %s UI重新整理已恢復</translation>
     </message>
@@ -1719,7 +1762,7 @@ Suggested actions:
         <translation type="vanished">UI重新整理已恢復 - 裝置 %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7723"/>
+        <location filename="../main_window.py" line="7913"/>
         <source>Cannot open config folder:
 {}</source>
         <translation>無法開啟設定資料夾:
@@ -1730,196 +1773,196 @@ Suggested actions:
         <translation type="vanished">读取: {} | 写入: {}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8660"/>
+        <location filename="../main_window.py" line="8850"/>
         <source>Playback paused</source>
         <translation>播放暂停</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8667"/>
+        <location filename="../main_window.py" line="8857"/>
         <source>Playback resumed</source>
         <translation>播放恢復</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8700"/>
-        <location filename="../main_window.py" line="8706"/>
+        <location filename="../main_window.py" line="8890"/>
+        <location filename="../main_window.py" line="8896"/>
         <source>Playback Controls</source>
         <translation>播放控制</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8709"/>
+        <location filename="../main_window.py" line="8899"/>
         <source>Pause</source>
         <translation>暂停</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8714"/>
+        <location filename="../main_window.py" line="8904"/>
         <source>Resume</source>
         <translation>恢復</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8750"/>
+        <location filename="../main_window.py" line="8940"/>
         <source>Starting to process log file, size: {file_size} bytes</source>
         <translation>开始处理日誌檔案，大小: {file_size} 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8753"/>
+        <location filename="../main_window.py" line="8943"/>
         <source>Resuming playback from position: {self._playback_position} bytes</source>
         <translation>从位置: {self._playback_position} 字节繼續播放</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8766"/>
+        <location filename="../main_window.py" line="8956"/>
         <source>Playback stopped by user</source>
         <translation>用户停止播放</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8794"/>
+        <location filename="../main_window.py" line="8984"/>
         <source>Processing progress: {progress:.1f}% ({self._playback_position}/{file_size} bytes)</source>
         <translation>处理进度: {progress:.1f}% ({self._playback_position}/{file_size} 字节)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8811"/>
+        <location filename="../main_window.py" line="9001"/>
         <source>Log file processed successfully, {self._playback_position} bytes read</source>
         <translation>日誌檔案处理成功，已读取 {self._playback_position} 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8817"/>
+        <location filename="../main_window.py" line="9007"/>
         <source>Log file not found</source>
         <translation>日誌檔案未找到</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8823"/>
+        <location filename="../main_window.py" line="9013"/>
         <source>Permission denied when accessing the log file</source>
         <translation>访问日誌檔案时权限被拒绝</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8827"/>
+        <location filename="../main_window.py" line="9017"/>
         <source>Failed to process log file: {str(e)}</source>
         <translation>处理日誌檔案失敗: {str(e)}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9000"/>
+        <location filename="../main_window.py" line="9190"/>
         <source>⚠ Cannot get RAM info for device &apos;%s&apos;, skipping RAM format</source>
         <translation>⚠ 无法获取裝置 &apos;%s&apos; 的RAM資訊，略過RAM格式化</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9052"/>
+        <location filename="../main_window.py" line="9242"/>
         <source>🔧 Getting RAM info for device: %s</source>
         <translation>🔧 获取裝置 %s 的RAM資訊</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9062"/>
+        <location filename="../main_window.py" line="9252"/>
         <source>Device core: %s (ID: 0x%08X)</source>
         <translation>裝置核心: %s (ID: 0x%08X)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9071"/>
+        <location filename="../main_window.py" line="9261"/>
         <source>✅ Using nRF52840 specification: RAM 0x%08X - 0x%08X (256KB)</source>
         <translation>✅ 使用nRF52840规范: RAM 0x%08X - 0x%08X (256KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9076"/>
+        <location filename="../main_window.py" line="9266"/>
         <source>✅ Using nRF52833 specification: RAM 0x%08X - 0x%08X (128KB)</source>
         <translation>✅ 使用nRF52833规范: RAM 0x%08X - 0x%08X (128KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9081"/>
+        <location filename="../main_window.py" line="9271"/>
         <source>✅ Using nRF52832 specification: RAM 0x%08X - 0x%08X (64KB)</source>
         <translation>✅ 使用nRF52832规范: RAM 0x%08X - 0x%08X (64KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9086"/>
+        <location filename="../main_window.py" line="9276"/>
         <source>✅ Using nRF52811 specification: RAM 0x%08X - 0x%08X (24KB)</source>
         <translation>✅ 使用nRF52811规范: RAM 0x%08X - 0x%08X (24KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9091"/>
+        <location filename="../main_window.py" line="9281"/>
         <source>✅ Using nRF52810 specification: RAM 0x%08X - 0x%08X (24KB)</source>
         <translation>✅ 使用nRF52810规范: RAM 0x%08X - 0x%08X (24KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9097"/>
+        <location filename="../main_window.py" line="9287"/>
         <source>✅ Using generic nRF52: RAM 0x%08X - 0x%08X (64KB)</source>
         <translation>✅ 使用通用nRF52: RAM 0x%08X - 0x%08X (64KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9102"/>
+        <location filename="../main_window.py" line="9292"/>
         <source>✅ Using STM32 default: RAM 0x%08X - 0x%08X (128KB)</source>
         <translation>✅ 使用STM32默认: RAM 0x%08X - 0x%08X (128KB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9111"/>
+        <location filename="../main_window.py" line="9301"/>
         <source>✅ RAM from database: 0x%08X, size=%d bytes (%dKB)</source>
         <translation>✅ RAM来自数据库: 0x%08X, 大小=%d 字节 (%dKB)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9115"/>
+        <location filename="../main_window.py" line="9305"/>
         <source>⚠ Cannot determine RAM range for device &apos;%s&apos;</source>
         <translation>⚠ 无法確定裝置 &apos;%s&apos; 的RAM范围</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9187"/>
+        <location filename="../main_window.py" line="9377"/>
         <source>No active device session. Please connect a device first (Ctrl+S).</source>
         <translation>没有活动的裝置会话。请先連接裝置 (Ctrl+S)。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9192"/>
+        <location filename="../main_window.py" line="9382"/>
         <source>Device disconnected, attempting direct JLink connection for restart...</source>
         <translation>裝置斷開，尝试直接JLink連接以重启...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9200"/>
+        <location filename="../main_window.py" line="9390"/>
         <source>No connection dialog available. Please reconnect device first (Ctrl+S).</source>
         <translation>没有可用的連接对话框。请先重新連接裝置 (Ctrl+S)。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9220"/>
+        <location filename="../main_window.py" line="9410"/>
         <source>Connecting JLink: %s</source>
         <translation>連接JLink: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9240"/>
+        <location filename="../main_window.py" line="9430"/>
         <source>✅ JLink connected successfully</source>
         <translation>✅ JLink連接成功</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9286"/>
-        <location filename="../main_window.py" line="9385"/>
+        <location filename="../main_window.py" line="9476"/>
+        <location filename="../main_window.py" line="9575"/>
         <source>Executing restart via %s...</source>
         <translation>通过 %s 执行重启...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9294"/>
-        <location filename="../main_window.py" line="9393"/>
+        <location filename="../main_window.py" line="9484"/>
+        <location filename="../main_window.py" line="9583"/>
         <source>✅ SFR restart command sent</source>
         <translation>✅ SFR重启命令已发送</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9298"/>
-        <location filename="../main_window.py" line="9397"/>
+        <location filename="../main_window.py" line="9488"/>
+        <location filename="../main_window.py" line="9587"/>
         <source>✅ Reset pin restart executed</source>
         <translation>✅ 复位引脚重启已执行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9303"/>
+        <location filename="../main_window.py" line="9493"/>
         <source>JLink disconnected after restart</source>
         <translation>JLink在重启后斷開</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9309"/>
+        <location filename="../main_window.py" line="9499"/>
         <source>Success</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9311"/>
+        <location filename="../main_window.py" line="9501"/>
         <source>Device restarted successfully. Please reconnect if needed (Ctrl+S).</source>
         <translation>裝置重启成功。如果需要，请重新連接 (Ctrl+S)。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9316"/>
+        <location filename="../main_window.py" line="9506"/>
         <source>❌ Direct restart failed: %s</source>
         <translation>❌ 直接重启失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9320"/>
+        <location filename="../main_window.py" line="9510"/>
         <source>Failed to restart device: %s
 
 Please reconnect device first (Ctrl+S).</source>
@@ -1928,102 +1971,102 @@ Please reconnect device first (Ctrl+S).</source>
 请先重新連接裝置 (Ctrl+S)。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9345"/>
+        <location filename="../main_window.py" line="9535"/>
         <source>No JLink connection available</source>
         <translation>没有可用的JLink連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9404"/>
+        <location filename="../main_window.py" line="9594"/>
         <source>❌ Restart failed: %s</source>
         <translation>❌ 重启失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9408"/>
+        <location filename="../main_window.py" line="9598"/>
         <source>Restart failed: %s</source>
         <translation>重启失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9413"/>
+        <location filename="../main_window.py" line="9603"/>
         <source>Restart app error: %s</source>
         <translation>重啟應用錯誤: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9428"/>
+        <location filename="../main_window.py" line="9618"/>
         <source>Restart execution error: %s</source>
         <translation>重啟執行錯誤: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9442"/>
+        <location filename="../main_window.py" line="9632"/>
         <source>Reset pin triggered, device should restart</source>
         <translation>重設引腳已觸發，設備應重啟</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9538"/>
+        <location filename="../main_window.py" line="9728"/>
         <source>Starting RAM format: 0x%08X, size: %d bytes</source>
         <translation>开始格式化RAM: 0x%08X, 大小: %d 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9565"/>
+        <location filename="../main_window.py" line="9755"/>
         <source>RAM format progress: %d%%</source>
         <translation>RAM格式化进度: %d%%</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9569"/>
+        <location filename="../main_window.py" line="9759"/>
         <source>⚠ RAM format failed at 0x%08X: %s
 Cleared %d/%d bytes</source>
         <translation>⚠ RAM格式化在 0x%08X 处失敗: %s
 已清除 %d/%d 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9576"/>
+        <location filename="../main_window.py" line="9766"/>
         <source>✓ RAM format completed: %d bytes cleared</source>
         <translation>✓ RAM格式化完成: 已清除 %d 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9027"/>
-        <location filename="../main_window.py" line="9582"/>
+        <location filename="../main_window.py" line="9217"/>
+        <location filename="../main_window.py" line="9772"/>
         <source>RAM format error: %s</source>
         <translation>RAM格式化錯誤: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9142"/>
-        <location filename="../main_window.py" line="9165"/>
-        <location filename="../main_window.py" line="9436"/>
+        <location filename="../main_window.py" line="9332"/>
+        <location filename="../main_window.py" line="9355"/>
+        <location filename="../main_window.py" line="9626"/>
         <source>Please connect first, then restart app</source>
         <translation>请先連接后再重启套用</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9153"/>
+        <location filename="../main_window.py" line="9343"/>
         <source>Restart via SFR (AIRCR.SYSRESETREQ) sent by memory_write32</source>
         <translation>通过SFR重启 (AIRCR.SYSRESETREQ) 由memory_write32发送</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9155"/>
-        <location filename="../main_window.py" line="9157"/>
-        <location filename="../main_window.py" line="9172"/>
-        <location filename="../main_window.py" line="9174"/>
-        <location filename="../main_window.py" line="9319"/>
-        <location filename="../main_window.py" line="9407"/>
-        <location filename="../main_window.py" line="9413"/>
-        <location filename="../main_window.py" line="9428"/>
-        <location filename="../main_window.py" line="9445"/>
-        <location filename="../main_window.py" line="9448"/>
+        <location filename="../main_window.py" line="9345"/>
+        <location filename="../main_window.py" line="9347"/>
+        <location filename="../main_window.py" line="9362"/>
+        <location filename="../main_window.py" line="9364"/>
+        <location filename="../main_window.py" line="9509"/>
+        <location filename="../main_window.py" line="9597"/>
+        <location filename="../main_window.py" line="9603"/>
+        <location filename="../main_window.py" line="9618"/>
+        <location filename="../main_window.py" line="9635"/>
+        <location filename="../main_window.py" line="9638"/>
         <source>Failed</source>
         <translation>失敗</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9155"/>
+        <location filename="../main_window.py" line="9345"/>
         <source>SFR restart failed: %s</source>
         <translation>SFR重启失敗: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9170"/>
+        <location filename="../main_window.py" line="9360"/>
         <source>Restart via reset pin executed</source>
         <translation>通过复位引脚重启已执行</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9172"/>
-        <location filename="../main_window.py" line="9445"/>
+        <location filename="../main_window.py" line="9362"/>
+        <location filename="../main_window.py" line="9635"/>
         <source>Reset pin restart failed: %s</source>
         <translation>复位引脚重启失敗: %s</translation>
     </message>
@@ -2032,52 +2075,52 @@ Cleared %d/%d bytes</source>
         <translation type="vanished">无法创建连接对话框</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="9248"/>
-        <location filename="../main_window.py" line="9353"/>
+        <location filename="../main_window.py" line="9438"/>
+        <location filename="../main_window.py" line="9543"/>
         <source>--- Format RAM before restart ---</source>
         <translation>--- 重启前格式化RAM ---</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10342"/>
+        <location filename="../main_window.py" line="10532"/>
         <source>Find jlink dll failed !</source>
         <translation>尋找jlink dll失敗！</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10615"/>
-        <location filename="../main_window.py" line="11512"/>
+        <location filename="../main_window.py" line="10805"/>
+        <location filename="../main_window.py" line="11702"/>
         <source>Example: 0x20000000</source>
         <translation>示例: 0x20000000</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10622"/>
-        <location filename="../main_window.py" line="11523"/>
+        <location filename="../main_window.py" line="10812"/>
+        <location filename="../main_window.py" line="11713"/>
         <source>Syntax: &lt;RangeStart [hex]&gt; &lt;RangeSize&gt;, ...</source>
         <translation>语法: &lt;起始地址 [十六进制]&gt; &lt;范围大小&gt;, ...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10626"/>
-        <location filename="../main_window.py" line="11501"/>
+        <location filename="../main_window.py" line="10816"/>
+        <location filename="../main_window.py" line="11691"/>
         <source>JLink automatically detects the RTT control block</source>
         <translation>JLink自動偵測RTT控制块</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10959"/>
+        <location filename="../main_window.py" line="11149"/>
         <source>Please selete the target device !</source>
         <translation>请選擇目标裝置！</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10987"/>
+        <location filename="../main_window.py" line="11177"/>
         <source>No device serial number specified, using JLINK built-in device selector</source>
         <translation>未指定裝置序列号，使用JLINK内置裝置選擇器</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11019"/>
+        <location filename="../main_window.py" line="11209"/>
         <source>Reset connection option detected, starting connection reset...</source>
         <translation>偵測到重設連接选项，开始連接重設...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8719"/>
-        <location filename="../main_window.py" line="11027"/>
+        <location filename="../main_window.py" line="8909"/>
+        <location filename="../main_window.py" line="11217"/>
         <source>Stop</source>
         <translation>停止</translation>
     </message>
@@ -2086,67 +2129,67 @@ Cleared %d/%d bytes</source>
         <translation type="vanished">清理Worker缓存以确保新连接使用干净数据...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11117"/>
+        <location filename="../main_window.py" line="11307"/>
         <source>开始连接设备: %s</source>
         <translation>开始連接裝置: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11118"/>
+        <location filename="../main_window.py" line="11308"/>
         <source>连接类型: %s</source>
         <translation>連接类型: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11119"/>
+        <location filename="../main_window.py" line="11309"/>
         <source>串口: %s, 波特率: %s</source>
         <translation>串口: %s, 波特率: %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11120"/>
+        <location filename="../main_window.py" line="11310"/>
         <source>RTT连接启动成功</source>
         <translation>RTT連接启动成功</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11158"/>
+        <location filename="../main_window.py" line="11348"/>
         <source>LOG Mode</source>
         <translation>LOG模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11159"/>
+        <location filename="../main_window.py" line="11349"/>
         <source>DATA Mode</source>
         <translation>DATA模式</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11159"/>
+        <location filename="../main_window.py" line="11349"/>
         <source>Serial forwarding enabled: %s - %s</source>
         <translation>串口轉送已啟用: %s - %s</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11207"/>
+        <location filename="../main_window.py" line="11397"/>
         <source>Stopping RTT connection...</source>
         <translation>正在停止RTT連接...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8579"/>
+        <location filename="../main_window.py" line="8769"/>
         <source>Read: %10d bytes</source>
         <translation>读取: %10d 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="8580"/>
+        <location filename="../main_window.py" line="8770"/>
         <source>Write: %4d bytes</source>
         <translation>写入: %4d 字节</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11213"/>
+        <location filename="../main_window.py" line="11403"/>
         <source>Saving all TAB data to files...</source>
         <translation>正在儲存所有TAB数据到檔案...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11216"/>
+        <location filename="../main_window.py" line="11406"/>
         <source>All TAB data saved</source>
         <translation>所有TAB数据已儲存</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11326"/>
+        <location filename="../main_window.py" line="11516"/>
         <source>XexunRTT Process Conflict</source>
         <translation>XexunRTT進程衝突</translation>
     </message>
@@ -2161,22 +2204,22 @@ If you encounter &quot;JLink already open&quot; error, you can choose to termina
         </translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11335"/>
+        <location filename="../main_window.py" line="11525"/>
         <source>Terminate Old XexunRTT Processes</source>
         <translation>終止XexunRTT舊進程</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11336"/>
+        <location filename="../main_window.py" line="11526"/>
         <source>Ignore and Continue</source>
         <translation>忽略並繼續</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11364"/>
+        <location filename="../main_window.py" line="11554"/>
         <source>Process Termination Completed</source>
         <translation>進程終止完成</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11369"/>
+        <location filename="../main_window.py" line="11559"/>
         <source>Successfully terminated %n process(es).
 
 You can now try to connect to the JLink device.</source>
@@ -2185,148 +2228,148 @@ You can now try to connect to the JLink device.</source>
 現在可以嘗試連接JLink設備了。</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11626"/>
+        <location filename="../main_window.py" line="11816"/>
         <source>Found RTT block: 0x%08X (Total: %d)</source>
         <translation>找到RTT塊: 0x%08X (總共: %d)</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11709"/>
-        <location filename="../main_window.py" line="11822"/>
+        <location filename="../main_window.py" line="11899"/>
+        <location filename="../main_window.py" line="12012"/>
         <source>Force releasing JLink driver...</source>
         <translation>强制释放JLink驱动...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11718"/>
+        <location filename="../main_window.py" line="11908"/>
         <source>These programs may be occupying JLink driver</source>
         <translation>这些程序可能正在占用JLink驱动</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11772"/>
+        <location filename="../main_window.py" line="11962"/>
         <source>Re-enumerating USB devices...</source>
         <translation>重新枚举USB裝置...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11803"/>
+        <location filename="../main_window.py" line="11993"/>
         <source>Starting enhanced connection reset...</source>
         <translation>开始增强型連接重設...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11809"/>
+        <location filename="../main_window.py" line="11999"/>
         <source>Stopping current RTT connection...</source>
         <translation>正在停止当前RTT連接...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11813"/>
+        <location filename="../main_window.py" line="12003"/>
         <source>RTT connection stopped</source>
         <translation>RTT連接已停止</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11829"/>
+        <location filename="../main_window.py" line="12019"/>
         <source>JLink connection disconnected</source>
         <translation>JLink連接已斷開</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11837"/>
+        <location filename="../main_window.py" line="12027"/>
         <source>JLink object deleted</source>
         <translation>JLink对象已刪除</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11847"/>
+        <location filename="../main_window.py" line="12037"/>
         <source>Waiting for driver release...</source>
         <translation>等待驱动释放...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11853"/>
+        <location filename="../main_window.py" line="12043"/>
         <source>Performing garbage collection</source>
         <translation>执行垃圾回收</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11861"/>
+        <location filename="../main_window.py" line="12051"/>
         <source>Recreating JLink object...</source>
         <translation>重新创建JLink对象...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11865"/>
+        <location filename="../main_window.py" line="12055"/>
         <source>JLink object recreated successfully</source>
         <translation>JLink对象重新创建成功</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11871"/>
+        <location filename="../main_window.py" line="12061"/>
         <source>JLink driver reset successful, connection OK</source>
         <translation>JLink驱动重設成功，連接正常</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11877"/>
+        <location filename="../main_window.py" line="12067"/>
         <source>Hint: Other programs may still be occupying JLink</source>
         <translation>提示：其他程序可能仍在占用JLink</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11882"/>
+        <location filename="../main_window.py" line="12072"/>
         <source>Found following JLink-related programs running:</source>
         <translation>发现以下JLink相关程序正在运行：</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11885"/>
+        <location filename="../main_window.py" line="12075"/>
         <source>Please close these programs and retry</source>
         <translation>请關閉这些程序后重试</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11887"/>
+        <location filename="../main_window.py" line="12077"/>
         <source>Suggest re-plugging JLink device and retry</source>
         <translation>建议重新插拔JLink裝置后重试</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11901"/>
+        <location filename="../main_window.py" line="12091"/>
         <source>Resetting serial port status...</source>
         <translation>重設串口状态...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11907"/>
+        <location filename="../main_window.py" line="12097"/>
         <source>Serial port status reset</source>
         <translation>串口状态已重設</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11916"/>
+        <location filename="../main_window.py" line="12106"/>
         <source>Cleaning cache and status...</source>
         <translation>清理缓存和状态...</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11942"/>
+        <location filename="../main_window.py" line="12132"/>
         <source>Cache and status cleaned</source>
         <translation>缓存和状态已清理</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11950"/>
+        <location filename="../main_window.py" line="12140"/>
         <source>Enhanced connection reset complete!</source>
         <translation>增强型連接重設完成！</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11951"/>
+        <location filename="../main_window.py" line="12141"/>
         <source>If still unable to connect, please:</source>
         <translation>如果仍无法連接，请：</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11952"/>
+        <location filename="../main_window.py" line="12142"/>
         <source>   1. Close all JLink-related programs (J-Link Commander, J-Flash, etc.)</source>
         <translation>   1. 關閉所有JLink相关程序（J-Link Commander、J-Flash等）</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11953"/>
+        <location filename="../main_window.py" line="12143"/>
         <source>   2. Re-plug JLink device</source>
         <translation>   2. 重新插拔JLink裝置</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="11954"/>
+        <location filename="../main_window.py" line="12144"/>
         <source>   3. Then retry connection</source>
         <translation>   3. 然后重试連接</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="12032"/>
+        <location filename="../main_window.py" line="12222"/>
         <source>File write cache cleared, channel TABs keep old data, filter TABs cleared</source>
         <translation>檔案写入缓存已清理，通道TAB保留旧数据，篩選TAB已清除</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="12158"/>
+        <location filename="../main_window.py" line="12348"/>
         <source>Select J-Link Device</source>
         <translation>選擇J-Link裝置</translation>
     </message>
@@ -2338,14 +2381,14 @@ You can now try to connect to the JLink device.</source>
         <location filename="../main_window.py" line="4390"/>
         <location filename="../main_window.py" line="4465"/>
         <location filename="../main_window.py" line="4596"/>
-        <location filename="../main_window.py" line="6564"/>
-        <location filename="../main_window.py" line="7693"/>
-        <location filename="../main_window.py" line="7723"/>
-        <location filename="../main_window.py" line="7907"/>
-        <location filename="../main_window.py" line="7915"/>
-        <location filename="../main_window.py" line="8816"/>
-        <location filename="../main_window.py" line="8822"/>
-        <location filename="../main_window.py" line="9343"/>
+        <location filename="../main_window.py" line="6659"/>
+        <location filename="../main_window.py" line="7883"/>
+        <location filename="../main_window.py" line="7913"/>
+        <location filename="../main_window.py" line="8097"/>
+        <location filename="../main_window.py" line="8105"/>
+        <location filename="../main_window.py" line="9006"/>
+        <location filename="../main_window.py" line="9012"/>
+        <location filename="../main_window.py" line="9533"/>
         <source>Error</source>
         <translation>錯誤</translation>
     </message>
@@ -2356,27 +2399,26 @@ You can now try to connect to the JLink device.</source>
 {}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="5494"/>
         <source>XexunRTT v2.2
 
 RTT Debug Tool
 
 Based on PySide6</source>
-        <translation>XexunRTT v2.2
+        <translation type="vanished">XexunRTT v2.2
 
 RTT除錯工具
 
 基于PySide6</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="7693"/>
+        <location filename="../main_window.py" line="7883"/>
         <source>Cannot open folder:
 {}</source>
         <translation>無法開啟資料夾:
 {}</translation>
     </message>
     <message>
-        <location filename="../main_window.py" line="10184"/>
+        <location filename="../main_window.py" line="10374"/>
         <source>Connection Configuration</source>
         <translation>連接設定</translation>
     </message>
@@ -2442,20 +2484,20 @@ RTT除錯工具
     </message>
     <message>
         <location filename="../rtt2uart.py" line="190"/>
-        <location filename="../rtt2uart.py" line="1166"/>
+        <location filename="../rtt2uart.py" line="1235"/>
         <source>RTT stopped</source>
         <translation>RTT已停止</translation>
     </message>
     <message>
         <location filename="../rtt2uart.py" line="198"/>
-        <location filename="../rtt2uart.py" line="1176"/>
+        <location filename="../rtt2uart.py" line="1245"/>
         <source>JLink connection closed</source>
         <translation>JLink連線已關閉</translation>
     </message>
     <message>
         <location filename="../rtt2uart.py" line="209"/>
         <location filename="../rtt2uart.py" line="246"/>
-        <location filename="../rtt2uart.py" line="628"/>
+        <location filename="../rtt2uart.py" line="691"/>
         <source>JLink object recreated</source>
         <translation>JLink物件已重新建立</translation>
     </message>
@@ -2471,7 +2513,7 @@ RTT除錯工具
     </message>
     <message>
         <location filename="../rtt2uart.py" line="240"/>
-        <location filename="../rtt2uart.py" line="622"/>
+        <location filename="../rtt2uart.py" line="673"/>
         <source>JLink still open, recreating JLink object...</source>
         <translation>JLink仍處於開啟狀態，正在重新建立JLink物件...</translation>
     </message>
@@ -2627,103 +2669,118 @@ RTT除錯工具
         <translation>連線裝置: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="534"/>
+        <location filename="../rtt2uart.py" line="514"/>
+        <source>Found existing JLink connection, closing it first...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../rtt2uart.py" line="550"/>
         <source>Switching to different device, reopening JLink...</source>
         <translation>切換到不同設備，重新打開 JLink...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="539"/>
+        <location filename="../rtt2uart.py" line="555"/>
         <source>JLink is already open, reusing connection</source>
         <translation>JLink 已打開，重用連接</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="559"/>
+        <location filename="../rtt2uart.py" line="575"/>
         <source>Opening JLink connection...</source>
         <translation>正在開啟JLink連線...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="563"/>
+        <location filename="../rtt2uart.py" line="579"/>
         <source>Connecting JLink via USB (Serial: %s)</source>
         <translation>透過USB連線JLink (序列號: %s)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="566"/>
+        <location filename="../rtt2uart.py" line="582"/>
         <source>Connecting JLink via USB (Auto-detect)</source>
         <translation>透過USB連線JLink (自動檢測)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="569"/>
+        <location filename="../rtt2uart.py" line="585"/>
         <source>Connecting JLink via TCP/IP (%s)</source>
         <translation>透過TCP/IP連線JLink (%s)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="575"/>
+        <location filename="../rtt2uart.py" line="591"/>
         <source>JLink connection established</source>
         <translation>JLink連線已建立</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="583"/>
-        <location filename="../rtt2uart.py" line="649"/>
+        <location filename="../rtt2uart.py" line="599"/>
+        <location filename="../rtt2uart.py" line="718"/>
         <source>Core: %s</source>
         <translation>核心: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="588"/>
-        <location filename="../rtt2uart.py" line="654"/>
+        <location filename="../rtt2uart.py" line="604"/>
+        <location filename="../rtt2uart.py" line="723"/>
         <source>Product: %s</source>
         <translation>產品: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="593"/>
-        <location filename="../rtt2uart.py" line="659"/>
+        <location filename="../rtt2uart.py" line="609"/>
+        <location filename="../rtt2uart.py" line="728"/>
         <source>Firmware: %s</source>
         <translation>固件版本: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="598"/>
-        <location filename="../rtt2uart.py" line="664"/>
+        <location filename="../rtt2uart.py" line="614"/>
+        <location filename="../rtt2uart.py" line="733"/>
         <source>Hardware: %s</source>
         <translation>硬件版本: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="922"/>
+        <location filename="../rtt2uart.py" line="641"/>
+        <source>Closing existing JLink connection...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../rtt2uart.py" line="701"/>
+        <source>Retrying JLink connection...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../rtt2uart.py" line="991"/>
         <source>RTT Control Block not found in memory (0x%08X - 0x%08X), trying JLink auto-detection...</source>
         <translation>記憶體中未找到RTT控制塊 (0x%08X - 0x%08X)，嘗試JLink自動檢測...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="927"/>
+        <location filename="../rtt2uart.py" line="996"/>
         <source>RTT started using JLink auto-detection</source>
         <translation>RTT啟動使用JLink自動檢測</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="930"/>
+        <location filename="../rtt2uart.py" line="999"/>
         <source>RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed: %s</source>
         <translation>記憶體中未找到RTT控制塊 (0x%08X - 0x%08X) 和 JLink自動檢測失敗: %s</translation>
     </message>
     <message>
         <location filename="../rtt2uart.py" line="227"/>
-        <location filename="../rtt2uart.py" line="608"/>
+        <location filename="../rtt2uart.py" line="624"/>
         <source>JLink is already open, closing and retrying...</source>
         <translation>JLink 已經開啟，正在關閉並重試...</translation>
     </message>
     <message>
         <location filename="../rtt2uart.py" line="255"/>
-        <location filename="../rtt2uart.py" line="642"/>
+        <location filename="../rtt2uart.py" line="711"/>
         <source>JLink connection re-established</source>
         <translation>JLink 連線已重新建立</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="669"/>
+        <location filename="../rtt2uart.py" line="738"/>
         <source>Failed to reopen JLink: %s</source>
         <translation>重新開啟JLink失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="674"/>
+        <location filename="../rtt2uart.py" line="743"/>
         <source>Failed to open JLink: %s</source>
         <translation>開啟JLink失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="688"/>
+        <location filename="../rtt2uart.py" line="757"/>
         <source>JLink is already connected to target device</source>
         <translation>JLink 已連接到目標設備</translation>
     </message>
@@ -2740,102 +2797,102 @@ RTT除錯工具
         <translation type="vanished">JLink驗證失敗，嘗試自動重置...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="698"/>
+        <location filename="../rtt2uart.py" line="767"/>
         <source>Setting JLink speed: %s kHz</source>
         <translation>設定JLink速率: %s kHz</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="701"/>
+        <location filename="../rtt2uart.py" line="770"/>
         <source>Set JLink speed failed</source>
         <translation>設定JLink速率失敗</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="704"/>
+        <location filename="../rtt2uart.py" line="773"/>
         <source>JLink speed set successfully: %s kHz</source>
         <translation>JLink速率設定成功: %s kHz</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="707"/>
+        <location filename="../rtt2uart.py" line="776"/>
         <source>Set JLink speed failed: %s</source>
         <translation>設定JLink速率失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="714"/>
+        <location filename="../rtt2uart.py" line="783"/>
         <source>Setting JLink interface: %s</source>
         <translation>設定JLink介面: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="717"/>
+        <location filename="../rtt2uart.py" line="786"/>
         <source>Set JLink interface failed</source>
         <translation>設定JLink介面失敗</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="720"/>
+        <location filename="../rtt2uart.py" line="789"/>
         <source>JLink interface set successfully: %s</source>
         <translation>JLink介面設定成功: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="723"/>
+        <location filename="../rtt2uart.py" line="792"/>
         <source>Set JLink interface failed: %s</source>
         <translation>設定JLink介面失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="730"/>
+        <location filename="../rtt2uart.py" line="799"/>
         <source>Resetting target chip...</source>
         <translation>正在復位目標晶片...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="732"/>
+        <location filename="../rtt2uart.py" line="801"/>
         <source>Target chip reset completed</source>
         <translation>目標晶片復位完成</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="737"/>
+        <location filename="../rtt2uart.py" line="806"/>
         <source>Waiting for target stabilization...</source>
         <translation>等待目標穩定...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="742"/>
+        <location filename="../rtt2uart.py" line="811"/>
         <source>Connecting to target device: %s</source>
         <translation>正在連線目標裝置: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="744"/>
+        <location filename="../rtt2uart.py" line="813"/>
         <source>Target device connected successfully: %s</source>
         <translation>目標裝置連線成功: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="746"/>
+        <location filename="../rtt2uart.py" line="815"/>
         <source>Skipping connect, already connected to target device: %s</source>
         <translation>跳過連接，已連接到目標設備: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="749"/>
+        <location filename="../rtt2uart.py" line="818"/>
         <source>Starting RTT...</source>
         <translation>正在啟動RTT...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="756"/>
+        <location filename="../rtt2uart.py" line="825"/>
         <source>Using RTT Control Block address: %s</source>
         <translation>使用RTT控制塊地址: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="767"/>
+        <location filename="../rtt2uart.py" line="836"/>
         <source>Verified RTT Control Block at address: 0x%08X</source>
         <translation>已驗證RTT控制塊，地址: 0x%08X</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="770"/>
+        <location filename="../rtt2uart.py" line="839"/>
         <source>No RTT Control Block found at specified address: 0x%08X</source>
         <translation>指定地址未找到RTT控制塊: 0x%08X</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="778"/>
+        <location filename="../rtt2uart.py" line="847"/>
         <source>Failed to verify address 0x%08X: %s</source>
         <translation>驗證地址 0x%08X 失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="784"/>
+        <location filename="../rtt2uart.py" line="853"/>
         <source>Invalid address format: %s</source>
         <translation>無效的地址格式: %s</translation>
     </message>
@@ -2844,35 +2901,35 @@ RTT除錯工具
         <translation type="vanished">地址格式無效，使用自動檢測</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="790"/>
+        <location filename="../rtt2uart.py" line="859"/>
         <source>Using RTT Control Block search range: %s</source>
         <translation>使用RTT控制塊搜尋範圍: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="791"/>
-        <location filename="../rtt2uart.py" line="850"/>
+        <location filename="../rtt2uart.py" line="860"/>
+        <location filename="../rtt2uart.py" line="919"/>
         <source>Searching for RTT Control Block in memory...</source>
         <translation>正在記憶體中搜尋RTT控制塊...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="819"/>
-        <location filename="../rtt2uart.py" line="900"/>
+        <location filename="../rtt2uart.py" line="888"/>
+        <location filename="../rtt2uart.py" line="969"/>
         <source>Found RTT Control Block at address: 0x%08X</source>
         <translation>找到RTT控制塊，地址: 0x%08X</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="834"/>
+        <location filename="../rtt2uart.py" line="903"/>
         <source>RTT Control Block not found in specified range</source>
         <translation>指定範圍內未找到RTT控制塊</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="841"/>
-        <location filename="../rtt2uart.py" line="945"/>
+        <location filename="../rtt2uart.py" line="910"/>
+        <location filename="../rtt2uart.py" line="1014"/>
         <source>Memory search failed: %s</source>
         <translation>記憶體搜尋失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="847"/>
+        <location filename="../rtt2uart.py" line="916"/>
         <source>Skipping RTT block detection, using JLink auto-detection...</source>
         <translation>跳過RTT塊檢測，使用JLink自動檢測...</translation>
     </message>
@@ -2885,8 +2942,8 @@ RTT除錯工具
         <translation type="vanished">未找到RTT控制塊，使用自動檢測</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="830"/>
-        <location filename="../rtt2uart.py" line="936"/>
+        <location filename="../rtt2uart.py" line="899"/>
+        <location filename="../rtt2uart.py" line="1005"/>
         <source>Starting RTT with Control Block at 0x%08X</source>
         <translation>使用控制塊地址 0x%08X 啟動RTT</translation>
     </message>
@@ -2899,7 +2956,7 @@ RTT除錯工具
         <translation type="vanished">使用RTT控制塊自動檢測</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="948"/>
+        <location filename="../rtt2uart.py" line="1017"/>
         <source>RTT started successfully</source>
         <translation>RTT啟動成功</translation>
     </message>
@@ -2908,28 +2965,28 @@ RTT除錯工具
         <translation type="vanished">RTT控制塊地址: 0x%08X</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="975"/>
+        <location filename="../rtt2uart.py" line="1044"/>
         <source>RTT Channel Info:</source>
         <translation>RTT通道資訊:</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="976"/>
+        <location filename="../rtt2uart.py" line="1045"/>
         <source>  Up channels: %d</source>
         <translation>  上行通道: %d</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="986"/>
-        <location filename="../rtt2uart.py" line="1000"/>
+        <location filename="../rtt2uart.py" line="1055"/>
+        <location filename="../rtt2uart.py" line="1069"/>
         <source>    #%d %s: %d bytes, %s</source>
         <translation>    #%d %s: %d 字節, %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="990"/>
+        <location filename="../rtt2uart.py" line="1059"/>
         <source>  Down channels: %d</source>
         <translation>  下行通道: %d</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="951"/>
+        <location filename="../rtt2uart.py" line="1020"/>
         <source>Initializing RTT buffers...</source>
         <translation>正在初始化RTT緩衝區...</translation>
     </message>
@@ -2938,120 +2995,120 @@ RTT除錯工具
         <translation type="vanished">獲取RTT通道信息失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="953"/>
+        <location filename="../rtt2uart.py" line="1022"/>
         <source>RTT buffers initialized</source>
         <translation>RTT緩衝區已初始化</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1028"/>
+        <location filename="../rtt2uart.py" line="1097"/>
         <source>Connect target failed: %s</source>
         <translation>連線目標失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1053"/>
+        <location filename="../rtt2uart.py" line="1122"/>
         <source>Serial forwarding disabled, skipping port open</source>
         <translation>串列埠轉發已停用，跳過埠開啟</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1073"/>
+        <location filename="../rtt2uart.py" line="1142"/>
         <source>stop rtt2uart - Starting to stop RTT service</source>
         <translation>停止rtt2uart - 開始停止RTT服務</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1080"/>
+        <location filename="../rtt2uart.py" line="1149"/>
         <source>Thread stop flag set</source>
         <translation>執行緒停止標誌已設定</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1096"/>
+        <location filename="../rtt2uart.py" line="1165"/>
         <source>RTT service stop completed</source>
         <translation>RTT服務停止完成</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1146"/>
+        <location filename="../rtt2uart.py" line="1215"/>
         <source>Closing JLink connection...</source>
         <translation>正在關閉JLink連線...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1157"/>
+        <location filename="../rtt2uart.py" line="1226"/>
         <source>Cannot check JLink connection status (retry %s)</source>
         <translation>無法檢查JLink連線狀態 (重試 %s)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1164"/>
+        <location filename="../rtt2uart.py" line="1233"/>
         <source>Stopping RTT...</source>
         <translation>正在停止RTT...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1169"/>
+        <location filename="../rtt2uart.py" line="1238"/>
         <source>Failed to stop RTT: %s</source>
         <translation>停止RTT失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1174"/>
+        <location filename="../rtt2uart.py" line="1243"/>
         <source>Closing JLink...</source>
         <translation>正在關閉JLink...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1180"/>
+        <location filename="../rtt2uart.py" line="1249"/>
         <source>Failed to close JLink (attempt %s): %s</source>
         <translation>關閉JLink失敗 (嘗試 %s): %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1188"/>
+        <location filename="../rtt2uart.py" line="1257"/>
         <source>JLink already disconnected</source>
         <translation>JLink已斷開</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1201"/>
+        <location filename="../rtt2uart.py" line="1270"/>
         <source>Unexpected error while closing JLink (attempt %s): %s</source>
         <translation>關閉JLink時發生意外錯誤 (嘗試 %s): %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1214"/>
+        <location filename="../rtt2uart.py" line="1283"/>
         <source>Maximum retry attempts reached, JLink close failed</source>
         <translation>達到最大重試次數，JLink關閉失敗</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1249"/>
+        <location filename="../rtt2uart.py" line="1318"/>
         <source>Deleted empty log folder: %s</source>
         <translation>已刪除空日誌資料夾: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1297"/>
+        <location filename="../rtt2uart.py" line="1366"/>
         <source>JLink connection lost in RTT thread</source>
         <translation>RTT執行緒中JLink連線丟失</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1298"/>
-        <location filename="../rtt2uart.py" line="1519"/>
+        <location filename="../rtt2uart.py" line="1367"/>
+        <location filename="../rtt2uart.py" line="1588"/>
         <source>JLink connection lost detected, auto stopping RTT</source>
         <translation>檢測到JLink連線丟失，自動停止RTT功能</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1308"/>
+        <location filename="../rtt2uart.py" line="1377"/>
         <source>Cannot check JLink status in RTT thread</source>
         <translation>無法在RTT執行緒中檢查JLink狀態</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1313"/>
-        <location filename="../rtt2uart.py" line="1534"/>
+        <location filename="../rtt2uart.py" line="1382"/>
+        <location filename="../rtt2uart.py" line="1603"/>
         <source>JLink connection lost, auto stopping RTT</source>
         <translation>JLink連線已丟失，自動停止RTT功能</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1346"/>
+        <location filename="../rtt2uart.py" line="1415"/>
         <source>RTT读取失败: %s</source>
         <oldsource>RTT讀取失敗: %s</oldsource>
         <translation>RTT讀取失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1347"/>
+        <location filename="../rtt2uart.py" line="1416"/>
         <source>RTT read failed: %s</source>
         <translation>RTT讀取失敗: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1352"/>
+        <location filename="../rtt2uart.py" line="1421"/>
         <source>RTT read detected JLink connection lost, auto stopping RTT</source>
         <translation>RTT讀取檢測到JLink連線丟失，自動停止RTT功能</translation>
     </message>
@@ -3061,80 +3118,80 @@ RTT除錯工具
         <translation type="vanished">清理RTT Channel %d垃圾資料: %d位元組 (%.1f%%空位元組)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1440"/>
+        <location filename="../rtt2uart.py" line="1509"/>
         <source>RTT Channel %d初始化完成，清理了%d字节垃圾数据</source>
         <oldsource>RTT Channel %d初始化完成，清理了%d位元組垃圾資料</oldsource>
         <translation>RTT Channel %d初始化完成，清理了%d位元組垃圾資料</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1443"/>
+        <location filename="../rtt2uart.py" line="1512"/>
         <source>RTT缓冲区初始化警告: %s</source>
         <oldsource>RTT緩衝區初始化警告: %s</oldsource>
         <translation>RTT緩衝區初始化警告: %s</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1473"/>
+        <location filename="../rtt2uart.py" line="1542"/>
         <source>丢弃全空字节数据: %d字节</source>
         <oldsource>丟棄全空位元組資料: %d位元組</oldsource>
         <translation>丟棄全空位元組資料: %d位元組</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1477"/>
+        <location filename="../rtt2uart.py" line="1546"/>
         <source>丢弃异常数据块: %d字节 (%.1f%%空字节)</source>
         <oldsource>丟棄異常資料塊: %d位元組 (%.1f%%空位元組)</oldsource>
         <translation>丟棄異常資料塊: %d位元組 (%.1f%%空位元組)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1492"/>
+        <location filename="../rtt2uart.py" line="1561"/>
         <source>RTT2UART线程等待RTT就绪...</source>
         <oldsource>RTT2UART執行緒等待RTT就緒...</oldsource>
         <translation>RTT2UART執行緒等待RTT就緒...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1494"/>
+        <location filename="../rtt2uart.py" line="1563"/>
         <source>RTT2UART线程开始数据读取</source>
         <oldsource>RTT2UART執行緒開始資料讀取</oldsource>
         <translation>RTT2UART執行緒開始資料讀取</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1518"/>
+        <location filename="../rtt2uart.py" line="1587"/>
         <source>JLink connection lost in RTT2UART thread</source>
         <translation>RTT2UART執行緒中JLink連線丟失</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1529"/>
+        <location filename="../rtt2uart.py" line="1598"/>
         <source>Cannot check JLink status in RTT2UART thread</source>
         <translation>無法在RTT2UART執行緒中檢查JLink狀態</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1563"/>
+        <location filename="../rtt2uart.py" line="1632"/>
         <source>RTT数据过滤: 原始%d字节 → 过滤后%d字节 (减少%.1f%%)</source>
         <oldsource>RTT資料過濾: 原始%d位元組 → 過濾後%d位元組 (減少%.1f%%)</oldsource>
         <translation>RTT資料過濾: 原始%d位元組 → 過濾後%d位元組 (減少%.1f%%)</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1596"/>
+        <location filename="../rtt2uart.py" line="1665"/>
         <source>JLink connection error detected, trying auto reset...</source>
         <translation>檢測到JLink連線錯誤，嘗試自動重設...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1600"/>
+        <location filename="../rtt2uart.py" line="1669"/>
         <source>JLink connection reset succeeded, continuing RTT data read</source>
         <translation>JLink連線重設成功，繼續RTT資料讀取</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1603"/>
-        <location filename="../rtt2uart.py" line="1625"/>
+        <location filename="../rtt2uart.py" line="1672"/>
+        <location filename="../rtt2uart.py" line="1694"/>
         <source>JLink connection reset failed, stopping RTT</source>
         <translation>JLink連線重設失敗，停止RTT</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1619"/>
+        <location filename="../rtt2uart.py" line="1688"/>
         <source>Severe JLink connection error detected, trying auto reset...</source>
         <translation>檢測到嚴重JLink連線錯誤，嘗試自動重設...</translation>
     </message>
     <message>
-        <location filename="../rtt2uart.py" line="1622"/>
+        <location filename="../rtt2uart.py" line="1691"/>
         <source>JLink connection reset succeeded</source>
         <translation>JLink連線重設成功</translation>
     </message>
