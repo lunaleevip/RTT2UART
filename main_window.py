@@ -2086,6 +2086,19 @@ class DeviceMdiWindow(QWidget):
         
         # 记录上次显示的长度，用于增量更新
         self.last_display_lengths = [0] * MAX_TAB_SIZE
+
+        # 🚀 UI 分片追赶：避免每次 UI 更新都对超大缓冲区做 ''.join() 全量拼接
+        # 不影响缓冲区/文件记录完整性，只降低 UI 更新负载（显示追赶会有延迟）
+        self._ui_stream_state = [
+            {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
+            for _ in range(MAX_TAB_SIZE)
+        ]
+        # 每次 UI tick 允许追加的最大字符数（按字符计数，通常与字节近似）
+        self._ui_append_max_active = 64 * 1024
+        self._ui_append_max_inactive = 16 * 1024
+        # 严重性能状态下进一步降载（只更新当前激活TAB，减少解析/插入压力）
+        self._ui_append_max_active_crit = 16 * 1024
+        self._ui_append_max_inactive_crit = 0
         
         # 🔧 修复：监听TAB切换事件，切换时强制刷新当前TAB内容
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
@@ -2095,6 +2108,121 @@ class DeviceMdiWindow(QWidget):
         self.inactive_tab_update_interval = 3.0  # 非激活TAB更新间隔：3秒
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
+
+    def _reset_ui_stream_state(self, channel: int):
+        """重置 UI 流式读取游标（当缓冲区裁剪/重置时调用）"""
+        if 0 <= channel < len(self._ui_stream_state):
+            self._ui_stream_state[channel] = {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
+
+    def _stream_take_incremental(self, raw_data, channel: int, max_chars: int) -> str:
+        """从分块缓冲中按游标提取增量字符串，避免全量 join。
+
+        - 不改变 raw_data 内容
+        - 依赖 self.last_display_lengths[channel] 作为当前位置
+        """
+        if max_chars <= 0:
+            return ""
+
+        # 防御：无数据
+        if raw_data is None:
+            return ""
+
+        # 同步游标
+        start_abs = self.last_display_lengths[channel] if 0 <= channel < len(self.last_display_lengths) else 0
+        st = self._ui_stream_state[channel]
+        if st.get("abs", 0) != start_abs:
+            # UI位置与游标不一致（可能发生过裁剪/重置/强制刷新），直接重置游标
+            self._reset_ui_stream_state(channel)
+            st = self._ui_stream_state[channel]
+
+        parts = []
+        remaining = max_chars
+
+        # 1) 常见格式：list[str]
+        # 2) 兼容异常格式：list[list[str]]（嵌套分块）
+        if isinstance(raw_data, list):
+            is_nested = bool(raw_data) and isinstance(raw_data[0], list)
+
+            if is_nested:
+                outer = st["outer"]
+                inner = st["inner"]
+                offset = st["offset"]
+
+                while remaining > 0 and outer < len(raw_data):
+                    sub = raw_data[outer]
+                    if not isinstance(sub, list):
+                        sub = [sub]
+
+                    while remaining > 0 and inner < len(sub):
+                        chunk = sub[inner]
+                        if not isinstance(chunk, str):
+                            chunk = str(chunk)
+
+                        # 跳过空/已读完
+                        if offset >= len(chunk):
+                            inner += 1
+                            offset = 0
+                            continue
+
+                        take = min(len(chunk) - offset, remaining)
+                        if take > 0:
+                            parts.append(chunk[offset:offset + take])
+                            offset += take
+                            remaining -= take
+                            st["abs"] += take
+
+                        if offset >= len(chunk):
+                            inner += 1
+                            offset = 0
+
+                    if inner >= len(sub):
+                        outer += 1
+                        inner = 0
+                        offset = 0
+
+                st["outer"] = outer
+                st["inner"] = inner
+                st["offset"] = offset
+
+            else:
+                idx = st["outer"]
+                offset = st["offset"]
+
+                while remaining > 0 and idx < len(raw_data):
+                    chunk = raw_data[idx]
+                    if not isinstance(chunk, str):
+                        chunk = str(chunk)
+
+                    if offset >= len(chunk):
+                        idx += 1
+                        offset = 0
+                        continue
+
+                    take = min(len(chunk) - offset, remaining)
+                    if take > 0:
+                        parts.append(chunk[offset:offset + take])
+                        offset += take
+                        remaining -= take
+                        st["abs"] += take
+
+                    if offset >= len(chunk):
+                        idx += 1
+                        offset = 0
+
+                st["outer"] = idx
+                st["inner"] = 0
+                st["offset"] = offset
+
+        else:
+            # 退化：raw_data 是单个字符串/对象
+            text = raw_data if isinstance(raw_data, str) else str(raw_data)
+            start = st["abs"]
+            end = min(len(text), start + max_chars)
+            if end > start:
+                parts.append(text[start:end])
+                st["abs"] = end
+
+        return "".join(parts)
         
         # 为每个text_edit添加滚动条锁定属性和位置保存
         # 安装滚动条监听器
@@ -2278,7 +2406,7 @@ class DeviceMdiWindow(QWidget):
             logger.error(f"Error in horizontal scroll handler: {e}", exc_info=True)
     
     def _on_tab_changed(self, index):
-        """TAB切换事件处理 - 检查并强制刷新当前TAB内容"""
+        """TAB切换事件处理 - 触发当前TAB尽快刷新（不做全量强制刷新，避免大数据时卡死UI）"""
         try:
             if index < 0 or index >= MAX_TAB_SIZE:
                 return
@@ -2290,23 +2418,18 @@ class DeviceMdiWindow(QWidget):
             if not worker:
                 return
             
-            # 检查当前TAB的显示长度是否远小于Worker缓冲区长度
-            current_length = worker.colored_buffer_lengths[index]
-            last_length = self.last_display_lengths[index]
-            
-            # 如果缓冲区有数据但显示长度远小于缓冲区长度，说明有大量数据丢失
-            # 阈值：如果差距超过1KB，强制刷新
-            gap_threshold = 1024
-            if current_length > last_length + gap_threshold:
-                logger.warning(f"🔧 TAB[{index}]切换检测到数据丢失: last_display={last_length}, buffer={current_length}, gap={current_length - last_length}, 强制刷新")
-                
-                # 强制刷新当前TAB的内容
-                self._force_refresh_tab(index)
+            # TAB 切换时不做强制刷新（会触发大规模 join/解析），只标记该TAB需要尽快更新
+            if hasattr(self, 'last_tab_update_times') and 0 <= index < len(self.last_tab_update_times):
+                self.last_tab_update_times[index] = 0.0
         except Exception as e:
             logger.error(f"Error in tab changed handler: {e}", exc_info=True)
     
     def _force_refresh_tab(self, channel):
-        """强制刷新指定TAB的内容 - 从Worker缓冲区重新加载所有数据"""
+        """强制刷新指定TAB的内容（降级版）
+
+        目标：避免全量 join/重载导致卡死。
+        行为：清空当前TAB显示，并从当前位置继续分片追赶（不影响缓冲区和日志文件完整性）。
+        """
         try:
             # 检测是否是回放模式
             is_playback = hasattr(self, 'playback_file_path') and self.playback_file_path
@@ -2340,93 +2463,17 @@ class DeviceMdiWindow(QWidget):
                 # 没有新数据，不需要刷新
                 return
             
-            # 提取所有未显示的数据
-            colored_data = ''.join(worker.colored_buffers[channel])
-            missing_data = colored_data[last_length:]
-            
-            if not missing_data:
-                return
-            
+            # 清空显示并重置游标（不做全量重载）
             text_edit = self.text_edits[channel]
+            text_edit.clear()
+            self.last_display_lengths[channel] = 0
+            self._reset_ui_stream_state(channel)
+            last_length = 0
             
-            # 获取滚动条
-            v_scrollbar = text_edit.verticalScrollBar()
-            h_scrollbar = text_edit.horizontalScrollBar()
-            
-            # 保存当前滚动条位置
-            vscroll = v_scrollbar.value()
-            hscroll = h_scrollbar.value()
-            was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
-            
-            # 🔧 修复重影问题：如果缺失数据量很大（超过1MB），说明可能已经丢失了大量数据
-            # 此时应该清空显示并重新加载所有数据，避免文本重叠
-            if len(missing_data) > 1024 * 1024:  # 1MB阈值
-                logger.warning(f"🔧 TAB[{channel}] Missing data too large ({len(missing_data)//1024}KB), clearing and reloading all data")
-                # 清空显示
-                text_edit.clear()
-                # 重新加载所有数据
-                all_data = colored_data
-                last_length = 0
-            else:
-                all_data = missing_data
-            
-            # 插入数据（使用正确的光标位置，避免重叠）
-            if hasattr(text_edit, '_parse_ansi_fast'):
-                # 检查数据中是否包含清屏序列，如果有则先清屏
-                if '\x1B[2J' in all_data:
-                    # 只有RTT通道（索引1-16）才允许清屏，ALL窗口（索引0）不允许
-                    tab_index = text_edit.tab_index if hasattr(text_edit, 'tab_index') else None
-                    if tab_index is not None and tab_index >= 1 and tab_index <= 16:
-                        text_edit.clear_content()
-                        # 重置已显示长度
-                        self.last_display_lengths[channel] = 0
-                    # 无论是否清屏，都更新数据为清屏序列之后的部分
-                    all_data = all_data.split('\x1B[2J')[-1]
-                
-                # 使用FastAnsiTextEdit的解析方法
-                segments = text_edit._parse_ansi_fast(all_data)
-                cursor = text_edit.textCursor()
-                cursor.movePosition(QTextCursor.End)
-                for segment in segments:
-                    if segment['text']:
-                        if segment['format'] is None:
-                            cursor.insertText(segment['text'])
-                        else:
-                            cursor.insertText(segment['text'], segment['format'])
-                text_edit.setTextCursor(cursor)
-            else:
-                # 降级处理：使用普通追加
-                cursor = text_edit.textCursor()
-                cursor.movePosition(QTextCursor.End)
-                text_edit.setTextCursor(cursor)
-                text_edit.insertPlainText(all_data)
-            
-            # 恢复滚动条位置
-            v_scrollbar.blockSignals(True)
-            h_scrollbar.blockSignals(True)
-            
-            try:
-                # 如果之前滚动条在底部，或者用户没有锁定滚动条，则滚动到底部
-                if was_at_bottom or not text_edit._v_scroll_locked:
-                    v_scrollbar.setValue(v_scrollbar.maximum())
-                    text_edit._v_scroll_locked = False
-                else:
-                    # 保持原位置
-                    v_scrollbar.setValue(vscroll)
-                
-                # 水平滚动条：永远锁定，使用保存的位置
-                h_scrollbar.setValue(hscroll)
-            finally:
-                v_scrollbar.blockSignals(False)
-                h_scrollbar.blockSignals(False)
-            
-            # 更新已显示长度
-            self.last_display_lengths[channel] = current_length
-            
-            # 更新时间戳
-            self.last_tab_update_times[channel] = time.time()
-            
-            logger.info(f"✅ TAB[{channel}]强制刷新完成: 补充了 {len(missing_data)} 字节数据")
+            # 让下一次定时器 tick 立即开始分片追赶
+            if hasattr(self, 'last_tab_update_times') and 0 <= channel < len(self.last_tab_update_times):
+                self.last_tab_update_times[channel] = 0.0
+            logger.info(f"✅ TAB[{channel}] refreshed (light mode): cleared display and reset stream cursor")
             
         except Exception as e:
             logger.error(f"Failed to force refresh tab {channel}: {e}", exc_info=True)
@@ -2527,6 +2574,15 @@ class DeviceMdiWindow(QWidget):
         # 获取当前激活的TAB索引
         current_tab = self.tab_widget.currentIndex()
         current_time = time.time()
+
+        # 性能降级标志（不丢缓存/不丢文件，仅降低UI追赶压力）
+        worker = None
+        try:
+            if hasattr(self, 'device_session') and self.device_session and hasattr(self.device_session, 'connection_dialog'):
+                worker = getattr(self.device_session.connection_dialog, 'worker', None)
+        except Exception:
+            worker = None
+        perf_crit = bool(getattr(worker, 'perf_crit', False)) if worker else False
         
         # 遍历所有通道，检查是否有新数据
         for channel in range(min(len(colored_buffer_lengths), MAX_TAB_SIZE)):
@@ -2572,50 +2628,24 @@ class DeviceMdiWindow(QWidget):
                 trimmed_length = last_length - current_length
                 logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
                 self.last_display_lengths[channel] = 0
+                self._reset_ui_stream_state(channel)
                 last_length = 0
-            
-            # 🔧 修复：如果数据丢失超过阈值，强制刷新（激活和非激活TAB都需要）
-            if current_length > last_length + 1024:
-                tab_type = "Current" if is_active_tab else "Inactive"
-                #logger.warning(f"🔧 [CH{channel}] {tab_type} TAB data gap detected: gap={current_length - last_length}, forcing refresh")
-                force_refresh_success = False
-                
-                # 尝试强制刷新，但捕获可能的失败
-                if hasattr(self, '_force_refresh_tab'):
-                    try:
-                        self._force_refresh_tab(channel)
-                        # 检查是否成功更新了last_display_lengths
-                        if self.last_display_lengths[channel] >= last_length:
-                            force_refresh_success = True
-                    except Exception as e:
-                        logger.warning(f"🔧 [CH{channel}] Force refresh failed: {e}")
-                
-                # 如果强制刷新失败（例如在回放模式下缺少device_session），
-                # 不要跳过更新，而是进行正常的增量更新
-                if force_refresh_success:
-                    continue
+
+            # ✅ 重要改动：不再把“显示落后（backlog）”当作“丢数据”，禁止自动强制刷新
+            # UI 将按分片追赶（不丢缓冲区/不丢日志文件），避免大数据时反复 join/重载导致 0Hz。
             
             if current_length > last_length:
-                # 有新数据，提取增量部分
-                # 修复：确保正确处理嵌套列表格式的colored_buffers
                 raw_data = colored_buffers[channel]
-                if isinstance(raw_data, list):
-                    # 处理嵌套列表的情况（Worker类和回放模式的colored_buffers格式）
-                    if raw_data and isinstance(raw_data[0], list):
-                        # 嵌套列表：[[]] 格式
-                        flattened = []
-                        for sublist in raw_data:
-                            if isinstance(sublist, list):
-                                flattened.extend(sublist)
-                            else:
-                                flattened.append(sublist)
-                        colored_data = ''.join(flattened)
-                    else:
-                        # 普通列表：[] 格式
-                        colored_data = ''.join(raw_data)
+
+                # 分片追赶：每次 tick 最多写入指定大小，避免大字符串 join/解析阻塞
+                if perf_crit:
+                    if not is_active_tab and self._ui_append_max_inactive_crit <= 0:
+                        continue
+                    max_append = self._ui_append_max_active_crit if is_active_tab else self._ui_append_max_inactive_crit
                 else:
-                    colored_data = str(raw_data)
-                new_data = colored_data[last_length:]
+                    max_append = self._ui_append_max_active if is_active_tab else self._ui_append_max_inactive
+
+                new_data = self._stream_take_incremental(raw_data, channel, max_append)
                 
                 if new_data and hasattr(self, 'text_edits') and channel < len(self.text_edits):
                     text_edit = self.text_edits[channel]
@@ -2674,8 +2704,8 @@ class DeviceMdiWindow(QWidget):
                     v_scrollbar.blockSignals(False)
                     h_scrollbar.blockSignals(False)
                 
-                # 更新已显示长度
-                self.last_display_lengths[channel] = current_length
+                # 更新已显示长度（分片追赶，不再直接跳到 current_length）
+                self.last_display_lengths[channel] = min(current_length, last_length + len(new_data))
                 
                 # 更新TAB的时间戳（激活和非激活TAB都更新）
                 if hasattr(self, 'last_tab_update_times'):
@@ -12934,6 +12964,12 @@ class Worker(QObject):
         self.fast_forward_tail = 128 * 1024                # 只显示末尾128KB（增加显示内容）
         # 是否启用彩色缓冲（保持原行为=启用）
         self.enable_color_buffers = True
+
+        # 性能降级状态（不丢缓存/不丢文件，仅降低额外逻辑负载）
+        self.perf_warn = False
+        self.perf_crit = False
+        self.skip_filter_processing = False
+        self._perf_state_last_change = 0.0
     
     def set_turbo_mode(self, enabled, batch_delay=20):
         """设置Turbo模式"""
@@ -13224,8 +13260,11 @@ class Worker(QObject):
                     else:
                         log_filepath = f"{self.parent.rtt2uart.rtt_log_prefix}_{buffer_index}.log"
                 
+                # 去除ANSI格式码后再写入日志文件
+                clean_data = self._ansi_pattern.sub('', data)
+                
                 # 直接调用write_to_log_buffer方法，由该方法内部处理缓存和批量写入逻辑
-                self.write_to_log_buffer(log_filepath, data)
+                self.write_to_log_buffer(log_filepath, clean_data)
                     
         except Exception as e:
             logger.error(f"Failed to write data to buffer {buffer_index} log: {e}")
@@ -13503,7 +13542,8 @@ class Worker(QObject):
         self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
         # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
-        if clean_data.strip():  # 只处理非空数据
+        # 性能严重时跳过筛选处理（不影响日志文件与缓冲区完整性）
+        if clean_data.strip() and not getattr(self, 'skip_filter_processing', False):
             clean_lines = [line for line in clean_data.split('\n') if line.strip()]
             self.process_filter_lines(clean_lines)
 
@@ -13762,6 +13802,31 @@ class Worker(QObject):
             if memory_info['total_memory_mb'] > 2.0:  # 2MB以上
                 if refresh_rate < 5:  # 刷新率低于5Hz
                     logger.error(f"[CRIT] 性能严重 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 刷新率严重下降至: {refresh_rate:.1f}Hz")
+
+            # 性能降级状态机（不丢数据，仅减少附加逻辑负担）
+            # - 进入 CRIT：跳过筛选处理等高CPU逻辑，UI 侧按分片追赶
+            # - 恢复：当内存与刷新率恢复到安全区间，自动恢复逻辑
+            try:
+                now = current_time
+                # 防止频繁抖动：最少 5 秒才允许切换一次状态
+                can_switch = (now - getattr(self, "_perf_state_last_change", 0.0)) >= 5.0
+
+                if (not self.perf_crit and can_switch and
+                        memory_info['total_memory_mb'] > 2.0 and refresh_rate < 5):
+                    self.perf_crit = True
+                    self.skip_filter_processing = True
+                    self._perf_state_last_change = now
+                    logger.error("[PERF] Enter CRIT mode: skip filter processing, UI will catch up in chunks")
+
+                if (self.perf_crit and can_switch and
+                        memory_info['total_memory_mb'] < 1.0 and refresh_rate > 8):
+                    self.perf_crit = False
+                    self.skip_filter_processing = False
+                    self._perf_state_last_change = now
+                    logger.info("[PERF] Exit CRIT mode: restore normal processing")
+            except Exception as _e:
+                # 性能状态机失败不影响主流程
+                pass
             
             # 重置计数器
             self.refresh_count = 0
@@ -14134,18 +14199,47 @@ if __name__ == "__main__":
                 LOCK_SOCKET = None
     
     def cleanup_zombie_processes():
-        """检查并清理僵尸进程 - 自动终止旧的XexunRTT进程"""
+        """检查僵尸进程（仅检测/记录，不自动终止）
+        
+        说明：
+        - venv/调试器启动时，可能存在 python 启动链/辅助进程，宽松匹配会误杀自身链路
+        - 自动终止仅应发生在“单实例锁失败 + 用户确认”场景
+        """
         try:
             current_pid = os.getpid()
-            logger.info(f"🔍 Checking for zombie processes (current PID: {current_pid})")
+            logger.info(f"🔍 Checking for zombie processes (detect-only, current PID: {current_pid})")
+
+            # 计算需要排除的 PID：当前进程 + 父进程链（venv 启动器/调试器等）
+            exclude_pids = {current_pid}
+            try:
+                import psutil
+                p = psutil.Process(current_pid)
+                for _ in range(5):  # 最多追溯 5 级父进程，足够覆盖 venv/IDE 链
+                    ppid = p.ppid()
+                    if not ppid or ppid in exclude_pids:
+                        break
+                    exclude_pids.add(ppid)
+                    p = psutil.Process(ppid)
+            except Exception:
+                pass
+
+            # 当前脚本绝对路径（开发/venv 环境使用）；打包 exe 环境可能不可用，后续会降级
+            current_script = None
+            try:
+                current_script = os.path.abspath(__file__)
+            except Exception:
+                current_script = None
             
             # 查找所有XexunRTT相关进程
             zombie_processes = []
-            for proc in psutil.process_iter(['name', 'exe', 'cmdline']):
+            import psutil
+            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
                 try:
-                    # 直接使用proc.pid属性（更可靠）
-                    if proc.pid == current_pid:
-                        logger.debug(f"  ✓ Skipping current process PID={proc.pid}")
+                    proc_pid = proc.pid
+
+                    # 跳过当前进程与父进程链
+                    if proc_pid in exclude_pids:
+                        logger.debug(f"  ✓ Skipping excluded PID={proc_pid}")
                         continue
                     
                     # 检查进程名称和命令行
@@ -14157,52 +14251,36 @@ if __name__ == "__main__":
                     is_xexunrtt = False
                     if 'XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or (proc_exe and 'XexunRTT' in proc_exe):
                         is_xexunrtt = True
-                    elif 'python' in proc_name.lower() and cmdline and any('main_window.py' in arg for arg in cmdline):
-                        is_xexunrtt = True
+                    elif 'python' in proc_name.lower() and cmdline:
+                        # 精确匹配当前脚本路径（避免误判其它 python / venv 辅助进程）
+                        if current_script:
+                            for arg in cmdline:
+                                try:
+                                    if os.path.abspath(arg) == current_script:
+                                        is_xexunrtt = True
+                                        break
+                                except Exception:
+                                    continue
+                        else:
+                            # 降级：仅当命令行中明确出现 main_window.py 才认为是本项目
+                            # （打包环境一般不会进入 python 分支）
+                            if any(isinstance(arg, str) and arg.lower().endswith('main_window.py') for arg in cmdline):
+                                is_xexunrtt = True
                     
                     if is_xexunrtt:
                         zombie_processes.append({
-                            'pid': proc.pid,
+                            'pid': proc_pid,
                             'name': proc_name,
                             'exe': proc_exe or 'N/A',
                             'proc': proc
                         })
-                        logger.warning(f"⚠️ Found other XexunRTT instance: PID={proc.pid}, Name={proc_name}")
+                        logger.warning(f"⚠️ Found other XexunRTT instance: PID={proc_pid}, Name={proc_name}")
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
             
             if zombie_processes:
-                logger.warning(f"⚠️ Found {len(zombie_processes)} zombie XexunRTT process(es), attempting to terminate...")
-                
-                terminated_count = 0
-                for zp in zombie_processes:
-                    try:
-                        proc = zp['proc']
-                        logger.info(f"  🔪 Terminating PID={zp['pid']} ({zp['name']})")
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=3)
-                            terminated_count += 1
-                            logger.info(f"  ✅ Successfully terminated PID={zp['pid']}")
-                        except psutil.TimeoutExpired:
-                            logger.warning(f"  ⚠️ Terminate timeout, force killing PID={zp['pid']}")
-                            proc.kill()
-                            proc.wait(timeout=2)
-                            terminated_count += 1
-                            logger.info(f"  ✅ Force killed PID={zp['pid']}")
-                    except psutil.NoSuchProcess:
-                        logger.info(f"  ✓ Process PID={zp['pid']} already exited")
-                        terminated_count += 1
-                    except Exception as e:
-                        logger.error(f"  ❌ Failed to terminate PID={zp['pid']}: {e}")
-                
-                logger.info(f"🧹 Zombie cleanup completed: {terminated_count}/{len(zombie_processes)} terminated")
-                
-                # 等待一小段时间让端口释放
-                if terminated_count > 0:
-                    time.sleep(1.0)
-                    
-                return terminated_count
+                logger.warning(f"⚠️ Found {len(zombie_processes)} other XexunRTT instance(s) (detect-only).")
+                return len(zombie_processes)
             else:
                 logger.info("✅ No zombie processes found")
                 return 0
@@ -14231,8 +14309,8 @@ if __name__ == "__main__":
     # 注册退出处理器
     atexit.register(emergency_cleanup)
     
-    # 1. 启动时检测并自动清理僵尸进程
-    cleanup_zombie_processes()
+    # 1. 启动时僵尸进程检查（仅检测/记录，不自动清理，避免 venv/调试器链误判）
+    # cleanup_zombie_processes()
     
     # 2. 尝试获取单实例锁（如果失败，可能是端口TIME_WAIT状态）
     lock_acquired = acquire_instance_lock()
@@ -14253,23 +14331,48 @@ if __name__ == "__main__":
             if app is None:
                 app = QApplication(sys.argv)
             
-            # 查找XexunRTT进程
+            # 查找XexunRTT进程（更严格，避免 venv 启动链误判）
             current_pid = os.getpid()
             xexunrtt_processes = []
+
+            # 排除 PID：当前进程 + 父进程链（venv/IDE 启动器）
+            exclude_pids = {current_pid}
+            try:
+                import psutil
+                p = psutil.Process(current_pid)
+                for _ in range(5):
+                    ppid = p.ppid()
+                    if not ppid or ppid in exclude_pids:
+                        break
+                    exclude_pids.add(ppid)
+                    p = psutil.Process(ppid)
+            except Exception:
+                pass
+
+            # 当前脚本路径用于精确匹配（开发/venv）
+            current_script = None
+            try:
+                current_script = os.path.abspath(__file__)
+            except Exception:
+                current_script = None
             
             try:
                 import psutil
                 for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
                     try:
-                        if proc.pid == current_pid:
+                        if proc.pid in exclude_pids:
                             continue
                         
                         proc_name = proc.info.get('name', '')
                         proc_exe = proc.info.get('exe', '')
                         
                         # 匹配XexunRTT进程或python进程运行main_window.py
+                        is_xexunrtt = False
                         if ('XexunRTT' in proc_name or 'xexunrtt' in proc_name.lower() or
                             (proc_exe and 'XexunRTT' in proc_exe)):
+                            is_xexunrtt = True
+                        
+                        if is_xexunrtt:
                             xexunrtt_processes.append({
                                 'pid': proc.pid,
                                 'name': proc_name,
@@ -14278,9 +14381,20 @@ if __name__ == "__main__":
                         elif 'python' in proc_name.lower():
                             # 检查命令行是否包含main_window.py
                             cmdline = proc.info.get('cmdline', [])
-                            if cmdline and any('main_window.py' in arg for arg in cmdline):
-                                # 再次确认不是当前进程（双重保险）
-                                if proc.pid != current_pid:
+                            if cmdline:
+                                matched = False
+                                if current_script:
+                                    for arg in cmdline:
+                                        try:
+                                            if os.path.abspath(arg) == current_script:
+                                                matched = True
+                                                break
+                                        except Exception:
+                                            continue
+                                else:
+                                    matched = any(isinstance(arg, str) and arg.lower().endswith('main_window.py') for arg in cmdline)
+                                
+                                if matched and proc.pid not in exclude_pids:
                                     xexunrtt_processes.append({
                                         'pid': proc.pid,
                                         'name': proc_name,
@@ -14330,6 +14444,13 @@ if __name__ == "__main__":
                         import psutil
                         for proc_info in xexunrtt_processes:
                             try:
+                                # 最后防线：禁止终止当前进程与父进程链（venv/IDE 启动器）
+                                try:
+                                    if 'exclude_pids' in locals() and proc_info.get('pid') in exclude_pids:
+                                        logger.warning(f"⚠️ Skip terminating excluded PID={proc_info.get('pid')}")
+                                        continue
+                                except Exception:
+                                    pass
                                 proc = psutil.Process(proc_info['pid'])
                                 proc.terminate()  # 先尝试优雅终止
                                 proc.wait(timeout=3)  # 等待3秒
