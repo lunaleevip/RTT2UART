@@ -2109,6 +2109,58 @@ class DeviceMdiWindow(QWidget):
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
+        # 为每个text_edit添加滚动条锁定属性和位置保存
+        # 安装滚动条监听器
+        for i, text_edit in enumerate(self.text_edits):
+            # 在text_edit对象上添加自定义属性
+            text_edit._channel_idx = i  # 通道索引
+            text_edit._v_scroll_locked = False  # 垂直滚动条锁定状态
+            text_edit._programmatic_scroll = False  # 程序内部滚动标志（用于避免误判锁定）
+            text_edit._saved_h_pos = 0  # 保存的水平滚动条位置
+            text_edit._saved_v_pos = 0  # 保存的垂直滚动条位置
+            text_edit._user_scrolling = False  # 标记用户是否正在拖动滑块
+            text_edit._wheel_scrolling = False  # 标记用户是否正在使用滚轮
+            text_edit._wheel_delta = 0  # 记录滚轮滚动方向（正数=向下，负数=向上）
+            
+            v_scrollbar = text_edit.verticalScrollBar()
+            h_scrollbar = text_edit.horizontalScrollBar()
+            
+            # 监听用户手动操作滚动条（按下和释放滑块、滑块移动）
+            v_scrollbar.sliderPressed.connect(lambda te=text_edit: self._on_slider_pressed(te))
+            v_scrollbar.sliderReleased.connect(lambda te=text_edit: self._on_slider_released(te))
+            v_scrollbar.sliderMoved.connect(lambda value, te=text_edit: self._on_slider_moved(te, value))
+            
+            # 安装事件过滤器来检测鼠标滚轮事件
+            # 需要同时在text_edit和其viewport上安装，因为滚轮事件可能发生在viewport上
+            text_edit.installEventFilter(self)
+            text_edit.viewport().installEventFilter(self)
+            
+            # 垂直滚动条监听：检测用户操作并更新锁定状态
+            v_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_vertical_scroll_changed(te, value))
+            
+            # 水平滚动条监听：保存用户设置的位置
+            h_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_horizontal_scroll_changed(te, value))
+        
+        # 设置窗口大小
+        self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+        
+        # 从配置加载筛选文本并设置tooltip
+        if parent and hasattr(parent, 'connection_dialog') and parent.connection_dialog:
+            for i in range(17, MAX_TAB_SIZE):
+                filter_content = parent.connection_dialog.config.get_filter(i)
+                if filter_content:
+                    self.tab_widget.setTabText(i, filter_content)
+                    # 设置tooltip显示完整的筛选内容
+                    self.tab_widget.setTabToolTip(i, filter_content)
+                    logger.debug(f"  Filter[{i}] loaded: '{filter_content}'")
+                else:
+                    # 空内容时设置tooltip提示双击编辑
+                    from PySide6.QtCore import QCoreApplication
+                    self.tab_widget.setTabToolTip(i, QCoreApplication.translate("main_window", "Double-click to edit filter"))
+        self.tab_widget.setTabToolTip(0, QCoreApplication.translate("main_window", "Double-click to edit colorsetting"))
+        # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
+        self.update_filter_tab_display()
+
     def _reset_ui_stream_state(self, channel: int):
         """重置 UI 流式读取游标（当缓冲区裁剪/重置时调用）"""
         if 0 <= channel < len(self._ui_stream_state):
@@ -2223,61 +2275,6 @@ class DeviceMdiWindow(QWidget):
                 st["abs"] = end
 
         return "".join(parts)
-        
-        # 为每个text_edit添加滚动条锁定属性和位置保存
-        # 安装滚动条监听器
-        for i, text_edit in enumerate(self.text_edits):
-            # 在text_edit对象上添加自定义属性
-            text_edit._channel_idx = i  # 通道索引
-            text_edit._v_scroll_locked = False  # 垂直滚动条锁定状态
-            text_edit._saved_h_pos = 0  # 保存的水平滚动条位置
-            text_edit._saved_v_pos = 0  # 保存的垂直滚动条位置
-            text_edit._user_scrolling = False  # 标记用户是否正在拖动滑块
-            text_edit._wheel_scrolling = False  # 标记用户是否正在使用滚轮
-            text_edit._wheel_delta = 0  # 记录滚轮滚动方向（正数=向下，负数=向上）
-            
-            v_scrollbar = text_edit.verticalScrollBar()
-            h_scrollbar = text_edit.horizontalScrollBar()
-            
-            # 监听用户手动操作滚动条（按下和释放滑块、滑块移动）
-            v_scrollbar.sliderPressed.connect(lambda te=text_edit: self._on_slider_pressed(te))
-            v_scrollbar.sliderReleased.connect(lambda te=text_edit: self._on_slider_released(te))
-            v_scrollbar.sliderMoved.connect(lambda value, te=text_edit: self._on_slider_moved(te, value))
-            
-            # 安装事件过滤器来检测鼠标滚轮事件
-            # 需要同时在text_edit和其viewport上安装，因为滚轮事件可能发生在viewport上
-            text_edit.installEventFilter(self)
-            text_edit.viewport().installEventFilter(self)
-            
-            # 垂直滚动条监听：检测用户操作并更新锁定状态
-            v_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_vertical_scroll_changed(te, value))
-            
-            # 水平滚动条监听：保存用户设置的位置
-            h_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_horizontal_scroll_changed(te, value))
-            
-            pass
-        
-        # 设置窗口大小
-        self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
-        
-        # 从配置加载筛选文本并设置tooltip
-        if parent and hasattr(parent, 'connection_dialog') and parent.connection_dialog:
-            for i in range(17, MAX_TAB_SIZE):
-                filter_content = parent.connection_dialog.config.get_filter(i)
-                if filter_content:
-                    self.tab_widget.setTabText(i, filter_content)
-                    # 设置tooltip显示完整的筛选内容
-                    self.tab_widget.setTabToolTip(i, filter_content)
-                    logger.debug(f"  Filter[{i}] loaded: '{filter_content}'")
-                else:
-                    # 空内容时设置tooltip提示双击编辑
-                    from PySide6.QtCore import QCoreApplication
-                    self.tab_widget.setTabToolTip(i, QCoreApplication.translate("main_window", "Double-click to edit filter"))
-        self.tab_widget.setTabToolTip(0, QCoreApplication.translate("main_window", "Double-click to edit colorsetting"))
-        # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
-        self.update_filter_tab_display()
-        
-        pass
     
     def eventFilter(self, obj, event):
         """事件过滤器：检测鼠标滚轮事件并记录滚动方向"""
@@ -2340,57 +2337,21 @@ class DeviceMdiWindow(QWidget):
             text_edit._saved_v_pos = value
             
             scrollbar = text_edit.verticalScrollBar()
-            
-            # 判断是否是用户操作：
-            # 1. 拖动滑块：_user_scrolling=True AND isSliderDown()=True
-            # 2. 使用滚轮：_wheel_scrolling=True
-            is_dragging = text_edit._user_scrolling and scrollbar.isSliderDown()
-            is_wheeling = text_edit._wheel_scrolling
-            is_user_action = is_dragging or is_wheeling
-            
-            # 只有用户操作时才更新锁定状态
-            if not is_user_action:
+
+            # 如果是程序内部触发的滚动（插入数据/恢复滚动条），不要改变锁定状态
+            if bool(getattr(text_edit, '_programmatic_scroll', False)):
                 return
-            
-            # 更新锁定状态的逻辑：
+
+            # ✅ 简化且更可靠：只要离开底部就锁定；回到底部就解锁
+            at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
             old_state = text_edit._v_scroll_locked
-            
-            if is_wheeling:
-                # 滚轮操作：根据滚动方向判断
-                # wheel_delta > 0: 向上滚（内容向下移动，远离底部）→ 锁定
-                # wheel_delta < 0: 向下滚（内容向上移动，接近底部）→ 检查是否到底部
-                
-                # 检查是否在底部
-                at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
-                
-                if text_edit._wheel_delta > 0:
-                    # 向上滚动：锁定
-                    text_edit._v_scroll_locked = True
-                    if old_state != text_edit._v_scroll_locked:
-                        logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=True (向上滚动, delta={text_edit._wheel_delta})")
-                elif text_edit._wheel_delta < 0:
-                    # 向下滚动：只有到达底部时才解锁
-                    if at_bottom:
-                        text_edit._v_scroll_locked = False
-                        if old_state != text_edit._v_scroll_locked:
-                            logger.info(f"🔒 Channel {channel_idx} scroll lock changed by WHEEL: LOCKED=False (向下滚动到底部, delta={text_edit._wheel_delta}, value={value}, max={scrollbar.maximum()})")
-                    # 如果没到底部，保持当前锁定状态不变
-                
-                # 重置滚轮标志
-                text_edit._wheel_scrolling = False
-                text_edit._wheel_delta = 0
-            elif is_dragging:
-                # 拖动滑块：实时更新锁定状态（立即生效，不等松开鼠标）
-                # 检查是否在底部
-                at_bottom = (scrollbar.value() >= scrollbar.maximum() - 2)
-                new_lock_state = not at_bottom
-                
-                # 立即更新锁定状态（每次拖动都更新，确保即使新数据到来也能正确判断）
-                text_edit._v_scroll_locked = new_lock_state
-                
-                # 只在状态真正改变时记录日志
-                if old_state != new_lock_state:
-                    logger.info(f"🔒 Channel {channel_idx} scroll lock changed by DRAG: LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})")
+            text_edit._v_scroll_locked = (not at_bottom)
+            if old_state != text_edit._v_scroll_locked:
+                logger.info(
+                    f"🔒 Channel {channel_idx} scroll lock changed: "
+                    f"LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})"
+                )
+            return
             
         except Exception as e:
             logger.error(f"Error in scroll changed handler: {e}", exc_info=True)
@@ -2465,10 +2426,90 @@ class DeviceMdiWindow(QWidget):
             
             # 清空显示并重置游标（不做全量重载）
             text_edit = self.text_edits[channel]
+
+            # ===== 按用户提供的滚动条锁定逻辑实现 =====
+            # 获取滚动条
+            v_scrollbar = text_edit.verticalScrollBar()
+            h_scrollbar = text_edit.horizontalScrollBar()
+            
+            # 保存当前滚动条位置
+            vscroll = v_scrollbar.value()
+            hscroll = h_scrollbar.value()
+            was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
+
+            # 清空显示（强制刷新）
+            if hasattr(text_edit, '_programmatic_scroll'):
+                text_edit._programmatic_scroll = True
             text_edit.clear()
             self.last_display_lengths[channel] = 0
             self._reset_ui_stream_state(channel)
             last_length = 0
+
+            # 立即插入一小段数据触发显示（分片追赶策略，不做全量 join）
+            try:
+                raw_data = worker.colored_buffers[channel] if hasattr(worker, 'colored_buffers') else None
+                all_data = self._stream_take_incremental(raw_data, channel, self._ui_append_max_active)
+
+                if all_data:
+                    # 插入数据（使用正确的光标位置，避免重叠）
+                    if hasattr(text_edit, '_parse_ansi_fast'):
+                        # 检查数据中是否包含清屏序列，如果有则先清屏
+                        if '\x1B[2J' in all_data:
+                            # 只有RTT通道（索引1-16）才允许清屏，ALL窗口（索引0）不允许
+                            tab_index = text_edit.tab_index if hasattr(text_edit, 'tab_index') else None
+                            if tab_index is not None and tab_index >= 1 and tab_index <= 16:
+                                text_edit.clear_content()
+                                # 重置已显示长度
+                                self.last_display_lengths[channel] = 0
+                                self._reset_ui_stream_state(channel)
+                            # 无论是否清屏，都更新数据为清屏序列之后的部分
+                            all_data = all_data.split('\x1B[2J')[-1]
+                        
+                        # 使用FastAnsiTextEdit的解析方法
+                        segments = text_edit._parse_ansi_fast(all_data)
+                        cursor = text_edit.textCursor()
+                        cursor.movePosition(QTextCursor.End)
+                        for segment in segments:
+                            if segment['text']:
+                                if segment['format'] is None:
+                                    cursor.insertText(segment['text'])
+                                else:
+                                    cursor.insertText(segment['text'], segment['format'])
+                        text_edit.setTextCursor(cursor)
+                    else:
+                        # 降级处理：使用普通追加
+                        cursor = text_edit.textCursor()
+                        cursor.movePosition(QTextCursor.End)
+                        text_edit.setTextCursor(cursor)
+                        text_edit.insertPlainText(all_data)
+
+                    # 更新已显示长度（分片追赶：只前进本次插入的长度）
+                    self.last_display_lengths[channel] = min(current_length, len(all_data))
+            except Exception as _e:
+                # 强制刷新时插入失败不影响后续定时器追赶
+                pass
+            
+            # 恢复滚动条位置
+            v_scrollbar.blockSignals(True)
+            h_scrollbar.blockSignals(True)
+            
+            try:
+                # 如果之前滚动条在底部，或者用户没有锁定滚动条，则滚动到底部
+                if was_at_bottom or not text_edit._v_scroll_locked:
+                    v_scrollbar.setValue(v_scrollbar.maximum())
+                    text_edit._v_scroll_locked = False
+                else:
+                    # 保持原位置
+                    v_scrollbar.setValue(vscroll)
+                
+                # 水平滚动条：永远锁定，使用保存的位置
+                h_scrollbar.setValue(hscroll)
+            finally:
+                v_scrollbar.blockSignals(False)
+                h_scrollbar.blockSignals(False)
+                if hasattr(text_edit, '_programmatic_scroll'):
+                    text_edit._programmatic_scroll = False
+            # ===== 用户逻辑结束 =====
             
             # 让下一次定时器 tick 立即开始分片追赶
             if hasattr(self, 'last_tab_update_times') and 0 <= channel < len(self.last_tab_update_times):
@@ -2661,6 +2702,11 @@ class DeviceMdiWindow(QWidget):
                 hscroll = h_scrollbar.value()
                 
                 # 使用同步方式插入ANSI文本
+                # 标记程序内部滚动，避免 valueChanged 误触发锁定状态改变
+                text_edit._programmatic_scroll = True
+
+                # 保存是否在底部（按用户要求：只要用户离开底部，刷新时不要自动滚到底）
+                was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
                 if hasattr(text_edit, '_parse_ansi_fast'):
                     # 使用FastAnsiTextEdit的解析方法，但同步插入
                     segments = text_edit._parse_ansi_fast(new_data)
@@ -2685,17 +2731,13 @@ class DeviceMdiWindow(QWidget):
                 h_scrollbar.blockSignals(True)
                 
                 try:
-                    # 垂直滚动条：根据锁定状态决定是否恢复位置
-                    if hasattr(text_edit, '_v_scroll_locked') and text_edit._v_scroll_locked:
-                        # 锁定状态：恢复到保存的位置
-                        v_scrollbar.setValue(vscroll)
-                    else:
-                        # 未锁定状态：滚动到底部
+                    # 垂直滚动条：严格按用户逻辑
+                    # 如果之前在底部，或者用户没有锁定滚动条，则滚动到底部；否则保持原位置
+                    if was_at_bottom or not text_edit._v_scroll_locked:
                         v_scrollbar.setValue(v_scrollbar.maximum())
-                        
-                        # 关键：确保解锁状态不被意外改变
-                        if hasattr(text_edit, '_v_scroll_locked'):
-                            text_edit._v_scroll_locked = False
+                        text_edit._v_scroll_locked = False
+                    else:
+                        v_scrollbar.setValue(vscroll)
                     
                     # 水平滚动条：永远锁定，使用保存的位置
                     h_scrollbar.setValue(hscroll)
@@ -2703,6 +2745,7 @@ class DeviceMdiWindow(QWidget):
                     # 恢复信号
                     v_scrollbar.blockSignals(False)
                     h_scrollbar.blockSignals(False)
+                    text_edit._programmatic_scroll = False
                 
                 # 更新已显示长度（分片追赶，不再直接跳到 current_length）
                 self.last_display_lengths[channel] = min(current_length, last_length + len(new_data))
