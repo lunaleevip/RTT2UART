@@ -97,6 +97,10 @@ class rtt_to_serial():
         
         # UI刷新暂停标志（用于暂停/恢复刷新功能）
         self.ui_refresh_paused = False
+        # 暂停原因：None / 'manual' / 'auto'
+        # - manual: 用户手动F5或UI按钮触发，必须手动F6恢复
+        # - auto: 文本选择触发，鼠标松开后5秒自动恢复
+        self.ui_refresh_pause_reason = None
         self.paused_data_buffer = []  # 暂停期间的数据缓冲 [(tem_num, string), ...]
         self.paused_buffer_lock = threading.Lock()  # 暂停缓冲区锁
         

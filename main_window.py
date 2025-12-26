@@ -2109,6 +2109,13 @@ class DeviceMdiWindow(QWidget):
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
+        # 自动暂停/恢复（文本选择触发）：鼠标松开后5秒自动恢复
+        self._auto_pause_timer = QTimer(self)
+        self._auto_pause_timer.setSingleShot(True)
+        self._auto_pause_timer.timeout.connect(self._auto_pause_try_resume)
+        self._auto_pause_last_activity = 0.0
+        self._auto_pause_playback_active = False  # 回放窗口：是否由自动暂停触发
+
         # 为每个text_edit添加滚动条锁定属性和位置保存
         # 安装滚动条监听器
         for i, text_edit in enumerate(self.text_edits):
@@ -2140,6 +2147,12 @@ class DeviceMdiWindow(QWidget):
             
             # 水平滚动条监听：保存用户设置的位置
             h_scrollbar.valueChanged.connect(lambda value, te=text_edit: self._on_horizontal_scroll_changed(te, value))
+
+            # 文本选择变化：自动暂停刷新（不影响手动暂停）
+            try:
+                text_edit.selectionChanged.connect(lambda te=text_edit: self._on_text_selection_changed(te))
+            except Exception:
+                pass
         
         # 设置窗口大小
         self.resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
@@ -2160,6 +2173,68 @@ class DeviceMdiWindow(QWidget):
         self.tab_widget.setTabToolTip(0, QCoreApplication.translate("main_window", "Double-click to edit colorsetting"))
         # 初始化筛选TAB显示（隐藏多余的空筛选TAB）
         self.update_filter_tab_display()
+
+    def _on_text_selection_changed(self, text_edit):
+        """用户选择文本时自动暂停刷新；松开鼠标5秒后自动恢复。
+
+        规则：
+        - 自动触发的暂停会自动恢复
+        - 手动触发的暂停（F5/UI）必须手动恢复（F6/UI）
+        """
+        try:
+            # 只关心当前激活TAB，避免后台TAB选择影响
+            try:
+                if getattr(text_edit, '_channel_idx', -1) != self.tab_widget.currentIndex():
+                    return
+            except Exception:
+                pass
+
+            cursor = text_edit.textCursor()
+            if cursor is None:
+                return
+
+            if cursor.hasSelection():
+                self._auto_pause_last_activity = time.time()
+
+                # 回放窗口：仅在未暂停时由自动选择触发暂停
+                if hasattr(self, '_pause_playback') and hasattr(self, '_resume_playback'):
+                    if not getattr(self, '_playback_paused', False):
+                        try:
+                            self._pause_playback()
+                            self._auto_pause_playback_active = True
+                        except Exception:
+                            pass
+                else:
+                    # 实时窗口：调用主窗口的自动暂停（仅对auto原因生效）
+                    if self.main_window and hasattr(self.main_window, '_auto_pause_refresh_for_session'):
+                        self.main_window._auto_pause_refresh_for_session(self.device_session)
+
+                # 5秒后自动恢复（期间如果继续调整选区，会不断重置计时）
+                if self._auto_pause_timer.isActive():
+                    self._auto_pause_timer.stop()
+                self._auto_pause_timer.start(5000)
+
+        except Exception as e:
+            logger.debug(f"Auto-pause selection handler error: {e}")
+
+    def _auto_pause_try_resume(self):
+        """5秒无新的选择变化后自动恢复（仅恢复自动暂停，不影响手动暂停）"""
+        try:
+            # 回放窗口：仅当本次暂停为自动触发才恢复
+            if hasattr(self, '_resume_playback') and hasattr(self, '_pause_playback'):
+                if self._auto_pause_playback_active and getattr(self, '_playback_paused', False):
+                    try:
+                        self._resume_playback()
+                    except Exception:
+                        pass
+                self._auto_pause_playback_active = False
+                return
+
+            # 实时窗口：只恢复 auto 暂停
+            if self.main_window and hasattr(self.main_window, '_auto_resume_refresh_for_session'):
+                self.main_window._auto_resume_refresh_for_session(self.device_session)
+        except Exception as e:
+            logger.debug(f"Auto-resume handler error: {e}")
 
     def _reset_ui_stream_state(self, channel: int):
         """重置 UI 流式读取游标（当缓冲区裁剪/重置时调用）"""
@@ -7681,6 +7756,10 @@ class RTTMainWindow(QMainWindow):
                 # 设置rtt2uart的暂停标志
                 if session.rtt2uart:
                     session.rtt2uart.ui_refresh_paused = True
+                    try:
+                        session.rtt2uart.ui_refresh_pause_reason = 'manual'
+                    except Exception:
+                        pass
                     logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
                     # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
                     # UI刷新暂停信息已通过日志输出显示
@@ -7719,6 +7798,10 @@ class RTTMainWindow(QMainWindow):
                 if session.rtt2uart:
                     # 先清除暂停标志，这样flush_paused_data处理的数据会正常发送
                     session.rtt2uart.ui_refresh_paused = False
+                    try:
+                        session.rtt2uart.ui_refresh_pause_reason = None
+                    except Exception:
+                        pass
                     
                     # 一次性处理暂停期间积累的所有数据（仅在非关闭状态下）
                     if not self._is_closing:
@@ -7739,6 +7822,56 @@ class RTTMainWindow(QMainWindow):
                     
         except Exception as e:
             logger.error(f"Failed to resume UI refresh: {e}", exc_info=True)
+
+    def _auto_pause_refresh_for_session(self, session):
+        """自动暂停（文本选择触发）：不改变UI单选按钮，不覆盖手动暂停"""
+        try:
+            if not session or not session.rtt2uart:
+                return
+            rtt = session.rtt2uart
+
+            # 已经手动暂停：不要覆盖
+            if getattr(rtt, 'ui_refresh_paused', False) and getattr(rtt, 'ui_refresh_pause_reason', None) == 'manual':
+                return
+
+            if not getattr(rtt, 'ui_refresh_paused', False):
+                rtt.ui_refresh_paused = True
+                try:
+                    rtt.ui_refresh_pause_reason = 'auto'
+                except Exception:
+                    pass
+                logger.debug(f"[AUTO-PAUSE] UI refresh paused for {session.get_display_name()}")
+        except Exception as e:
+            logger.debug(f"[AUTO-PAUSE] Failed: {e}")
+
+    def _auto_resume_refresh_for_session(self, session):
+        """自动恢复（文本选择结束5秒后）：仅恢复auto暂停，不影响手动暂停"""
+        try:
+            if not session or not session.rtt2uart:
+                return
+            rtt = session.rtt2uart
+
+            if not getattr(rtt, 'ui_refresh_paused', False):
+                return
+
+            # 只恢复 auto 暂停
+            if getattr(rtt, 'ui_refresh_pause_reason', None) != 'auto':
+                return
+
+            rtt.ui_refresh_paused = False
+            try:
+                rtt.ui_refresh_pause_reason = None
+            except Exception:
+                pass
+
+            if not self._is_closing:
+                rtt.flush_paused_data()
+            else:
+                rtt.clear_paused_data()
+
+            logger.debug(f"[AUTO-RESUME] UI refresh resumed for {session.get_display_name()}")
+        except Exception as e:
+            logger.debug(f"[AUTO-RESUME] Failed: {e}")
     
     def on_clear_clicked(self):
         """F4清空当前TAB - 操作当前激活的MDI设备窗口"""
