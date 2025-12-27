@@ -68,6 +68,8 @@ class rtt_to_serial():
 
         # 线程
         self._write_lock = threading.Lock()
+        # JLink API lock: pylink is not thread-safe; Watch/Memory + RTT thread may call JLink concurrently.
+        self._jlink_lock = threading.RLock()
 
         try:
             self.serial = serial.Serial()
@@ -1404,7 +1406,8 @@ class rtt_to_serial():
                     max_read_attempts = 5
                     for _ in range(max_read_attempts):
                         try:
-                            recv_log = self.jlink.rtt_read(0, 4096)
+                            with self._jlink_lock:
+                                recv_log = self.jlink.rtt_read(0, 4096)
                             if not recv_log:
                                 break
                             else:
@@ -1496,7 +1499,8 @@ class rtt_to_serial():
                 for attempt in range(max_clear_attempts):
                     try:
                         # 读取并丢弃垃圾数据
-                        garbage_data = self.jlink.rtt_read(channel, 4096)
+                        with self._jlink_lock:
+                            garbage_data = self.jlink.rtt_read(channel, 4096)
                         if not garbage_data or len(garbage_data) == 0:
                             break  # 缓冲区已空
                         
@@ -1617,7 +1621,8 @@ class rtt_to_serial():
                         continue
                     
                     try:
-                        rtt_recv_data = self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE)
+                        with self._jlink_lock:
+                            rtt_recv_data = self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE)
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):

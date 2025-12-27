@@ -93,6 +93,11 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QMdiArea, QMdiSubWindow, QTableWidget, QTableWidgetItem,
     QDialogButtonBox
 )
+
+# Watch / Memory dock (MAP+ELF)
+# 说明：入口菜单必须始终显示；模块/依赖缺失时，点击后再提示用户安装。
+WatchDock = None
+WATCH_PANEL_AVAILABLE = True
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
 # ========== 设备会话管理 ==========
@@ -4191,6 +4196,9 @@ class RTTMainWindow(QMainWindow):
             logger.info("Auto update check scheduled")
         else:
             logger.warning("Auto update module not available")
+
+        # Watch / Memory dock (lazy init)
+        self._watch_dock = None
     
     # 串口转发功能已移动到连接对话框中
     
@@ -4269,6 +4277,12 @@ class RTTMainWindow(QMainWindow):
         open_config_folder_action.triggered.connect(self.on_open_config_folder_clicked)
         self.tools_menu.addAction(open_config_folder_action)
         
+        self.tools_menu.addSeparator()
+
+        # Watch / Memory
+        watch_action = QAction(QCoreApplication.translate("main_window", "Watch / Memory(&M)..."), self)
+        watch_action.triggered.connect(self.show_watch_memory_dock)
+        self.tools_menu.addAction(watch_action)
         self.tools_menu.addSeparator()
         
         # RTT Chain Info 动作
@@ -7822,6 +7836,36 @@ class RTTMainWindow(QMainWindow):
                     
         except Exception as e:
             logger.error(f"Failed to resume UI refresh: {e}", exc_info=True)
+
+    def show_watch_memory_dock(self):
+        """Show Watch/Memory dock. Window can show without selected files; parsing is enabled after selecting MAP+ELF."""
+        try:
+            # Lazy import to ensure menu entry always exists
+            global WatchDock
+            if WatchDock is None:
+                try:
+                    from watch_panel import WatchDock as _WatchDock
+                    WatchDock = _WatchDock
+                except Exception as e:
+                    QMessageBox.warning(
+                        self,
+                        QCoreApplication.translate("main_window", "Watch / Memory"),
+                        QCoreApplication.translate(
+                            "main_window",
+                            "Watch module is not available.\n\n"
+                            "Please ensure dependencies are installed (pyelftools).\n\nError: %s"
+                        ) % str(e),
+                    )
+                    return
+
+            if self._watch_dock is None:
+                self._watch_dock = WatchDock(self)
+                self.addDockWidget(Qt.RightDockWidgetArea, self._watch_dock)
+                self._watch_dock.setFloating(False)
+            self._watch_dock.show()
+            self._watch_dock.raise_()
+        except Exception as e:
+            logger.error(f"Failed to open Watch dock: {e}", exc_info=True)
 
     def _auto_pause_refresh_for_session(self, session):
         """自动暂停（文本选择触发）：不改变UI单选按钮，不覆盖手动暂停"""
