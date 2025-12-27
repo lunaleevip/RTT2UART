@@ -64,6 +64,10 @@ def update_translations():
         "ui_constants.py",
         "update_dialog.py",
         "color_config_dialog.py",
+        # Watch / Memory
+        "watch_panel.py",
+        "watch_dwarf.py",
+        "map_parser.py",
         "ui/xexunrtt.ui",
         "ui/rtt2uart_updated.ui",
         "ui/sel_device.ui",

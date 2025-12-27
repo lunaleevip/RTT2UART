@@ -49,6 +49,17 @@ hiddenimports = [
     'qdarkstyle',
     'resources_rc',  # 包含资源文件
     'requests',  # HTTP 请求库
+
+    # Watch / Memory (lazy-imported) + pyelftools
+    'watch_panel',
+    'watch_dwarf',
+    'map_parser',
+    'elftools',
+    'elftools.elf.elffile',
+    'elftools.dwarf.die',
+    'elftools.dwarf.dwarfinfo',
+    'elftools.dwarf.descriptions',
+    'elftools.construct',
 ]
 
 # 排除的模块（减少包大小）

@@ -109,8 +109,9 @@ class WatchDock(QDockWidget):
         top_layout.setContentsMargins(6, 6, 6, 6)
         top_layout.setSpacing(6)
 
-        self.label_status = QLabel(QCoreApplication.translate("watch", "Select MAP and ELF to enable."))
+        self.label_status = QLabel(QCoreApplication.translate("watch", "Select ELF to enable."))
         self.label_status.setWordWrap(True)
+        self.label_status.setVisible(False)
 
         self.text_log = QPlainTextEdit()
         self.text_log.setReadOnly(True)
@@ -129,7 +130,9 @@ class WatchDock(QDockWidget):
         row_map.addWidget(btn_map)
         w_map = QWidget()
         w_map.setLayout(row_map)
-        form.addRow(QCoreApplication.translate("watch", "MAP"), w_map)
+        # 先暂时隐藏 MAP 行，因为暂时不需要使用 MAP
+        w_map.setVisible(False)
+        #form.addRow(QCoreApplication.translate("watch", "MAP"), w_map)
 
         self.edit_elf = QLineEdit()
         self.edit_elf.setReadOnly(True)
@@ -194,9 +197,9 @@ class WatchDock(QDockWidget):
         ])
         self.tree_watch.setColumnWidth(0, 260)
         self.tree_watch.setContextMenuPolicy(Qt.ActionsContextMenu)
-        act_del = QAction(QCoreApplication.translate("watch", "Remove"), self.tree_watch)
-        act_del.triggered.connect(self._remove_selected)
-        self.tree_watch.addAction(act_del)
+        # act_del = QAction(QCoreApplication.translate("watch", "Remove"), self.tree_watch)
+        # act_del.triggered.connect(self._remove_selected)
+        # self.tree_watch.addAction(act_del)
 
         act_view_mem = QAction(QCoreApplication.translate("watch", "View Memory"), self.tree_watch)
         act_view_mem.triggered.connect(self._view_memory_for_selected)
@@ -303,7 +306,7 @@ class WatchDock(QDockWidget):
         if not enabled:
             self.tree_watch.clear()
             # Keep memory dump usable; only hint for Watch area
-            self._log_ui("Watch disabled (MAP+ELF not selected). Memory dump is available.")
+            # self._log_ui("Watch disabled (ELF not selected). Memory dump is available.")
 
     def _should_log(self, key: str, interval_sec: Optional[float] = None) -> bool:
         try:
@@ -371,29 +374,37 @@ class WatchDock(QDockWidget):
             self._try_enable()
 
     def _try_enable(self):
-        if self.map_path and self.elf_path:
+        # ELF is required; MAP is optional (enhances static/global symbol resolution)
+        if self.elf_path:
             ok = self._reload_symbols()
             self._set_watch_enabled(bool(ok))
         else:
             self._set_watch_enabled(False)
 
     def _reload_symbols(self) -> bool:
-        if not (self.map_path and self.elf_path):
-            self._log_ui("Reload skipped: MAP/ELF not selected.", "warning")
+        if not self.elf_path:
+            self._log_ui("Reload skipped: ELF not selected.", "warning")
             return False
-        try:
-            self._map_symbols = parse_segger_map(self.map_path)
-        except Exception as e:
-            self._log_ui(f"MAP parse failed: {e}", "error")
-            QMessageBox.warning(self, QCoreApplication.translate("watch", "Error"), str(e))
-            return False
+        # MAP optional
+        self._map_symbols = {}
+        if self.map_path:
+            try:
+                self._map_symbols = parse_segger_map(self.map_path)
+            except Exception as e:
+                self._log_ui(f"MAP parse failed: {e}", "error")
+                QMessageBox.warning(self, QCoreApplication.translate("watch", "Error"), str(e))
+                return False
         try:
             self._dwarf = DwarfIndex(self.elf_path)
-            self._log_ui("DWARF loaded OK.")
+            # DwarfIndex may still work in ELF-only/symtab-only mode
+            if self._dwarf.variables:
+                self._log_ui("DWARF loaded OK.")
+            else:
+                self._log_ui("ELF loaded (symtab-only mode).")
         except Exception as e:
-            # DWARF解析失败时降级：仍可使用MAP符号与Memory Dump，结构体字段展开不可用
+            # ELF解析失败时降级：仅MAP可用（无类型、无ELF符号）
             self._dwarf = None
-            self._log_ui(f"DWARF parse failed, MAP-only mode. Error: {e}", "warning")
+            self._log_ui(f"ELF parse failed, MAP-only mode. Error: {e}", "warning")
             QMessageBox.warning(
                 self,
                 QCoreApplication.translate("watch", "DWARF Parse Failed"),
@@ -409,11 +420,16 @@ class WatchDock(QDockWidget):
             names = set(self._map_symbols.keys()) if self._map_symbols else set()
             if self._dwarf is not None:
                 names.update(self._dwarf.variables.keys())
+                # Also include symtab symbols for ELF-only usage
+                try:
+                    names.update(self._dwarf.symtab_symbols.keys())
+                except Exception:
+                    pass
             # Filter out empty names and sort for stable UI
             name_list = sorted([n for n in names if isinstance(n, str) and n.strip()])
             self._symbol_model.setStringList(name_list)
             self._log_ui(
-                f"Symbols loaded: MAP={len(self._map_symbols)}; DWARF={'OK' if self._dwarf is not None else 'OFF'}; Total={len(name_list)}"
+                f"Symbols loaded: MAP={len(self._map_symbols)}; DWARF={'OK' if (self._dwarf is not None and bool(self._dwarf.variables)) else 'OFF'}; Total={len(name_list)}"
             )
         except Exception:
             self._symbol_model.setStringList([])
@@ -493,25 +509,30 @@ class WatchDock(QDockWidget):
         if not expr:
             return
         self.edit_expr.clear()
-        # Allow MAP-only mode (DWARF may be unavailable)
-        if not self._map_symbols:
+        # Allow ELF-only mode (MAP optional). Require at least one source of symbols.
+        if not self._map_symbols and self._dwarf is None:
             QMessageBox.information(
                 self,
                 QCoreApplication.translate("watch", "Watch"),
-                QCoreApplication.translate("watch", "Please select MAP and ELF, then click Reload Symbols."),
+                QCoreApplication.translate("watch", "Please select ELF (and optional MAP), then click Reload Symbols."),
             )
             self._log_ui("Add failed: symbols not loaded (Reload Symbols first).", "warning")
             return
 
         name = expr.strip()
         self._log_ui(f"Add watch: {name}")
-        ms = lookup_symbol(self._map_symbols, name)
+        ms = lookup_symbol(self._map_symbols, name) if self._map_symbols else None
         dv: Optional[DwarfVariable] = self._dwarf.lookup(name) if self._dwarf is not None else None
+        elf_sym = self._dwarf.lookup_symbol_addr(name) if (dv is None and self._dwarf is not None) else None
 
         if dv is not None:
             addr = dv.address
             typ = dv.typ
             size = typ.size or (ms.size if ms else 0)
+        elif elf_sym is not None:
+            addr = int(elf_sym[0])
+            typ = None
+            size = int(elf_sym[1] or (ms.size if ms else 0))
         elif ms is not None:
             addr = ms.address
             typ = None

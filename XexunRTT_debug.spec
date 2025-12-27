@@ -45,8 +45,9 @@ if sys.platform == 'win32':
         print(f"Warning: Could not locate pywin32 DLLs: {e}")
 
 # 从正式版 spec 导入所有配置
+# NOTE: keep debug build aligned with onefile win spec filename in repo
 import importlib.util
-spec_path = Path.cwd() / "XexunRTT_onefile_v2_2.spec"
+spec_path = Path.cwd() / "XexunRTT_onefile_win.spec"
 spec = importlib.util.spec_from_file_location("base_spec", spec_path)
 
 # 直接使用相同的 Analysis 配置
@@ -140,6 +141,19 @@ a = Analysis(
         
         # 第三方模块
         'qdarkstyle',
+
+        # Watch / Memory (lazy-imported) + pyelftools
+        'watch_panel',
+        'watch_dwarf',
+        'map_parser',
+        'elftools',
+        'elftools.elf.elffile',
+        'elftools.dwarf.die',
+        'elftools.dwarf.dwarfinfo',
+        'elftools.dwarf.descriptions',
+        'elftools.construct',
+        # stdlib (required by pyelftools in some code paths)
+        'pdb',
         
         # 自定义模块
         'config_manager',
@@ -176,7 +190,6 @@ a = Analysis(
         'pytest',
         'unittest',
         'doctest',
-        'pdb',
         'profile',
         'cProfile',
         'pstats',

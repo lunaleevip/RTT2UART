@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Union
 
 from elftools.elf.elffile import ELFFile
-from elftools.elf.constants import SHN_INDICES
-from elftools.elf.enums import ENUM_ST_INFO_TYPE
 
 
 @dataclass(frozen=True)
@@ -163,16 +161,15 @@ class DwarfIndex:
 
         with open(elf_path, "rb") as f:
             elf = ELFFile(f)
-            if not elf.has_dwarf_info():
-                raise RuntimeError("ELF has no DWARF info")
             self._sym_addr_by_name = self._load_object_symbols(elf)
-            # Cortex-M/embedded ELFs often don't need relocation for DWARF, and some toolchains
-            # emit relocation records that pyelftools cannot handle (e.g. "Unsupported relocation type: 0").
-            # Disable relocation to improve compatibility.
-            dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
-            for cu in dwarf.iter_CUs():
-                top = cu.get_top_DIE()
-                self._index_cu(top, cu)
+            if elf.has_dwarf_info():
+                # Cortex-M/embedded ELFs often don't need relocation for DWARF, and some toolchains
+                # emit relocation records that pyelftools cannot handle (e.g. "Unsupported relocation type: 0").
+                # Disable relocation to improve compatibility.
+                dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
+                for cu in dwarf.iter_CUs():
+                    top = cu.get_top_DIE()
+                    self._index_cu(top, cu)
 
     def _load_object_symbols(self, elf: ELFFile) -> Dict[str, Tuple[int, int]]:
         out: Dict[str, Tuple[int, int]] = {}
@@ -320,6 +317,31 @@ class DwarfIndex:
     @property
     def variables(self) -> Dict[str, DwarfVariable]:
         return self._vars_by_name
+
+    @property
+    def symtab_symbols(self) -> Dict[str, Tuple[int, int]]:
+        """ELF symbol table object symbols: name -> (addr, size). Available even when DWARF is absent."""
+        return self._sym_addr_by_name
+
+    def lookup_symbol_addr(self, name: str) -> Optional[Tuple[int, int]]:
+        """Lookup address/size from ELF symbol table (no type info)."""
+        sym = self._sym_addr_by_name.get(name)
+        if sym:
+            return sym
+        try:
+            import re
+            base = re.sub(r"\.\d+$", "", name)
+            if base != name:
+                sym = self._sym_addr_by_name.get(base)
+                if sym:
+                    return sym
+            if name.startswith("_"):
+                sym = self._sym_addr_by_name.get(name[1:])
+                if sym:
+                    return sym
+        except Exception:
+            pass
+        return None
 
     def lookup(self, name: str) -> Optional[DwarfVariable]:
         v = self._vars_by_name.get(name)

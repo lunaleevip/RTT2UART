@@ -230,6 +230,19 @@ a = Analysis(
         'qdarkstyle.dark',
         'qdarkstyle.light',
         'qdarkstyle.palette',
+
+        # Watch / Memory (lazy-imported) + pyelftools
+        'watch_panel',
+        'watch_dwarf',
+        'map_parser',
+        'elftools',
+        'elftools.elf.elffile',
+        'elftools.dwarf.die',
+        'elftools.dwarf.dwarfinfo',
+        'elftools.dwarf.descriptions',
+        'elftools.construct',
+        # stdlib (required by pyelftools in some code paths)
+        'pdb',
         
         # 自定义模块
         'config_manager',
@@ -270,7 +283,6 @@ a = Analysis(
         'pytest',
         'unittest',
         'doctest',
-        'pdb',
         'profile',
         'cProfile',
         'pstats',

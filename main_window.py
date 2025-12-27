@@ -7862,6 +7862,11 @@ class RTTMainWindow(QMainWindow):
                 self._watch_dock = WatchDock(self)
                 self.addDockWidget(Qt.RightDockWidgetArea, self._watch_dock)
                 self._watch_dock.setFloating(False)
+                # Set default dock width (only on first creation)
+                try:
+                    self.resizeDocks([self._watch_dock], [520], Qt.Horizontal)
+                except Exception:
+                    pass
             self._watch_dock.show()
             self._watch_dock.raise_()
         except Exception as e:
