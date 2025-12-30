@@ -6936,13 +6936,8 @@ class RTTMainWindow(QMainWindow):
                 logger.debug(f"Error releasing instance lock in closeEvent: {ex}")
 
             e.accept()
-            # No waiting. Force kill all XexunRTT related processes, then exit immediately.
-            try:
-                self._force_kill_all_app_processes(reason="closeEvent_immediate")
-            except Exception:
-                pass
-            logger.warning("Immediate exit: os._exit(0) (no waiting)")
-            os._exit(0)
+            logger.warning("Immediate exit requested (zero-wait hard terminate)")
+            self._hard_terminate_process(exit_code=0)
     
     def _stop_all_timers(self):
         """停止所有定时器"""
@@ -6961,6 +6956,46 @@ class RTTMainWindow(QMainWindow):
             logger.info("All timers stopped")
         except Exception as e:
             logger.error(f"Error stopping timers: {e}")
+
+    def _hard_terminate_process(self, exit_code: int = 0):
+        """Hard terminate current process with zero waiting.
+
+        On Windows, prefer TerminateProcess() to avoid being blocked by DLL unload (DllMain detach),
+        which can hang when J-Link DLL is involved. Fallback to os._exit on other platforms.
+        """
+        try:
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                    TerminateProcess = kernel32.TerminateProcess
+                    TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                    TerminateProcess.restype = ctypes.c_int
+
+                    GetCurrentProcess = kernel32.GetCurrentProcess
+                    GetCurrentProcess.argtypes = []
+                    GetCurrentProcess.restype = ctypes.c_void_p
+
+                    hproc = GetCurrentProcess()
+                    ok = TerminateProcess(hproc, int(exit_code))
+
+                    # If TerminateProcess fails for any reason, use FailFast (no cleanup).
+                    if not ok:
+                        try:
+                            RaiseFailFastException = kernel32.RaiseFailFastException
+                            RaiseFailFastException.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+                            RaiseFailFastException.restype = None
+                            RaiseFailFastException(None, None, 0)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            os._exit(int(exit_code))
+        except Exception:
+            try:
+                os._exit(int(exit_code))
+            except Exception:
+                sys.exit(int(exit_code))
     
     def _force_terminate_threads(self):
         """强制终止所有线程"""
@@ -7325,13 +7360,13 @@ class RTTMainWindow(QMainWindow):
         try:
             logger.info("Force quitting application...")
             # Do not wait for any thread/Qt teardown here.
-            os._exit(0)
+            self._hard_terminate_process(exit_code=0)
             
         except Exception as e:
             logger.error(f"Error force quitting application: {e}")
             # 最后的手段：直接退出进程
             try:
-                os._exit(0)
+                self._hard_terminate_process(exit_code=0)
             except:
                 sys.exit(0)
 
