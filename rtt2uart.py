@@ -1139,13 +1139,17 @@ class rtt_to_serial():
         self.rtt2uart.start()
         
         
-    def stop(self, keep_folder=False):
+    def stop(self, keep_folder=False, fast=False):
         """停止RTT服务
         
         Args:
             keep_folder: 如果为True，保留日志文件夹（用于自动重连）；如果为False，清理空文件夹
+            fast: If True, force-stop threads quickly and skip blocking J-Link/serial close.
         """
-        logger.debug(QCoreApplication.translate("rtt2uart", "stop rtt2uart - Starting to stop RTT service"))
+        if fast:
+            logger.warning(QCoreApplication.translate("rtt2uart", "stop rtt2uart (fast) - Force stopping RTT threads for app exit"))
+        else:
+            logger.debug(QCoreApplication.translate("rtt2uart", "stop rtt2uart - Starting to stop RTT service"))
 
         # 清空暂停缓冲区（如果有），避免关闭时卡住
         self.clear_paused_data()
@@ -1153,9 +1157,14 @@ class rtt_to_serial():
         # 设置停止标志
         self.thread_switch = False
         logger.debug(QCoreApplication.translate("rtt2uart", "Thread stop flag set"))
-        
+
+        # Fast stop is for application exit: do not wait/join, do not touch J-Link/serial here
+        # (may block for seconds). Process exit will end daemon threads.
+        if fast:
+            return
+
         # 强制停止线程，增加更严格的超时处理
-        self._force_stop_threads()
+        self._force_stop_threads(fast=False)
         
         # 改进的 JLink 关闭逻辑
         if self._connect_inf != 'EXISTING':
@@ -1170,7 +1179,7 @@ class rtt_to_serial():
         
         logger.debug(QCoreApplication.translate("rtt2uart", "RTT service stop completed"))
     
-    def _force_stop_threads(self):
+    def _force_stop_threads(self, fast: bool = False):
         """强制停止所有RTT线程"""
         import time
         
@@ -1178,6 +1187,11 @@ class rtt_to_serial():
             ('RTT读取线程', self.rtt_thread),
             ('RTT2UART线程', self.rtt2uart)
         ]
+
+        # Fast path: keep joins extremely short to avoid blocking UI during app exit.
+        join1 = 0.05 if fast else 0.5
+        join2 = 0.05 if fast else 0.3
+        final_sleep = 0.0 if fast else 0.2
         
         for thread_name, thread in threads_to_stop:
             if thread and thread.is_alive():
@@ -1185,7 +1199,7 @@ class rtt_to_serial():
                 
                 # 第一次尝试：优雅停止,减少超时时间避免长时间卡住
                 try:
-                    thread.join(timeout=0.5)  # 从2.0秒减少到0.5秒
+                    thread.join(timeout=join1)
                     if not thread.is_alive():
                         logger.info(f"{thread_name}已优雅停止")
                         continue
@@ -1199,7 +1213,7 @@ class rtt_to_serial():
                     thread.daemon = True
                     
                     # 再次尝试join，但时间更短
-                    thread.join(timeout=0.3)  # 从1.0秒减少到0.3秒
+                    thread.join(timeout=join2)
                     
                     if thread.is_alive():
                         logger.warning(f"{thread_name}仍在运行，将在主程序退出时被强制终止")
@@ -1211,7 +1225,8 @@ class rtt_to_serial():
         
         # 给线程一些时间完成清理
         try:
-            time.sleep(0.2)
+            if final_sleep > 0:
+                time.sleep(final_sleep)
         except OSError:
             # 程序退出时可能句柄已无效，忽略此错误
             pass

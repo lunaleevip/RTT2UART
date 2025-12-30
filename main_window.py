@@ -180,10 +180,24 @@ class DeviceSession:
         # 关闭MDI窗口
         if self.mdi_window:
             try:
+                # During app shutdown Qt may have already deleted the underlying C++ object.
+                try:
+                    import shiboken6  # type: ignore
+                    if not shiboken6.isValid(self.mdi_window):
+                        self.mdi_window = None
+                        return
+                except Exception:
+                    pass
+
                 self.mdi_window.close()
                 self.mdi_window = None
             except Exception as e:
                 logger.error(f"Failed to close MDI window: {e}")
+                # Ensure reference is cleared to avoid repeated close attempts.
+                try:
+                    self.mdi_window = None
+                except Exception:
+                    pass
         
         logger.info(f"DeviceSession cleaned up: {self.session_id}")
 
@@ -4517,6 +4531,11 @@ class RTTMainWindow(QMainWindow):
     def _on_mdi_window_closed(self, device_session):
         """MDI窗口关闭事件"""
         try:
+            # When the app is closing, Qt may delete MDI objects first.
+            # Ignore destroyed callbacks to avoid touching already-deleted widgets.
+            if getattr(self, "_is_closing", False):
+                return
+
             # 找到对应的会话索引
             for i, session in enumerate(self.device_sessions):
                 if session.session_id == device_session.session_id:
@@ -4867,8 +4886,19 @@ class RTTMainWindow(QMainWindow):
         
         session = self.device_sessions[index]
         
-        # 断开连接并清理
-        session.cleanup()
+        # During app shutdown, avoid heavy Qt operations (widgets may already be deleted).
+        if getattr(self, "_is_closing", False):
+            try:
+                session.disconnect()
+            except Exception:
+                pass
+            try:
+                session.mdi_window = None
+            except Exception:
+                pass
+        else:
+            # 断开连接并清理
+            session.cleanup()
         
         # 安全关闭该会话的ConnectionDialog
         if hasattr(session, 'connection_dialog') and session.connection_dialog:
@@ -4896,18 +4926,29 @@ class RTTMainWindow(QMainWindow):
         if self.device_sessions:
             self.current_session = self.device_sessions[0]
             # 激活第一个设备的MDI窗口
-            if self.current_session.mdi_window:
-                self.mdi_area.setActiveSubWindow(self.current_session.mdi_window.mdi_sub_window)
+            if not getattr(self, "_is_closing", False):
+                try:
+                    import shiboken6  # type: ignore
+                    if shiboken6.isValid(self.mdi_area) and self.current_session.mdi_window:
+                        self.mdi_area.setActiveSubWindow(self.current_session.mdi_window.mdi_sub_window)
+                except Exception:
+                    pass
             
             # 如果只剩一个窗口，先设置默认大小再最大化
-            remaining_windows = self.mdi_area.subWindowList()
-            if len(remaining_windows) == 1:
-                remaining_windows[0].resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
-                remaining_windows[0].showMaximized()
-                logger.info(f"Only one MDI window remaining, set to default size (800x600) then maximized")
-            else:
-                #水平排列所有窗口
-                pass
+            if not getattr(self, "_is_closing", False):
+                try:
+                    import shiboken6  # type: ignore
+                    if shiboken6.isValid(self.mdi_area):
+                        remaining_windows = self.mdi_area.subWindowList()
+                        if len(remaining_windows) == 1:
+                            remaining_windows[0].resize(WindowSize.MDI_WINDOW_DEFAULT_WIDTH, WindowSize.MDI_WINDOW_DEFAULT_HEIGHT)
+                            remaining_windows[0].showMaximized()
+                            logger.info("Only one MDI window remaining, set to default size (800x600) then maximized")
+                        else:
+                            # 水平排列所有窗口（保持原逻辑）
+                            pass
+                except Exception:
+                    pass
         else:
             self.current_session = None
             # 恢复到主连接对话框
@@ -6842,111 +6883,66 @@ class RTTMainWindow(QMainWindow):
 
     def closeEvent(self, e):
         """程序关闭事件处理 - 断开所有设备并确保所有资源被正确清理"""
-        logger.info("Starting program shutdown process...")
-        
-        # 启动看门狗线程 - 确保关闭流程不会无限卡住
-        def shutdown_watchdog():
-            """关闭看门狗 - 如果2秒内没有正常退出则强制终止"""
-            import time as _time
-            _time.sleep(2.0)  # 2秒超时
-            logger.warning("⚠️ Shutdown timeout! Force terminating process...")
-            os._exit(0)
-        
-        import threading
-        watchdog_thread = threading.Thread(target=shutdown_watchdog, daemon=True)
-        watchdog_thread.start()
-        logger.info("Shutdown watchdog started (2s timeout)")
-        
-        # 设置关闭标志，防止在关闭时显示连接对话框
+        # Fast, non-blocking close:
+        # Do NOT disconnect devices / join threads here (UI thread). It can freeze the window.
+        # Exit immediately to avoid waiting for any QThread/JLink teardown.
+
+        if getattr(self, "_is_closing", False):
+            e.accept()
+            return
+
+        logger.info("Starting program shutdown process (fast path)...")
+
+        # Mark closing to prevent dialogs during teardown
         self._is_closing = True
-        
-        # 断开所有设备并清理所有MDI窗口
+
         try:
-            # 获取所有MDI子窗口
-            sub_windows = self.mdi_area.subWindowList()
-            for sub_window in sub_windows:
-                try:
-                    # sub_window是QMdiSubWindow，需要获取其内部的DeviceMdiWindow
-                    mdi_content = sub_window.widget()
-                    if isinstance(mdi_content, DeviceMdiWindow):
-                        # 断开设备连接
-                        if mdi_content.device_session.is_connected:
-                            logger.info(f"Disconnecting device: {mdi_content.device_session.device_serial}")
-                            mdi_content.device_session.disconnect()
-                    
-                    # 关闭MDI窗口
-                    sub_window.close()
-                except Exception as mdi_e:
-                    logger.error(f"Failed to close MDI window: {mdi_e}", exc_info=True)
-            
-            logger.info(f"Closed {len(sub_windows)} MDI window(s)")
-        except Exception as ex:
-            logger.error(f"Error closing MDI windows: {ex}", exc_info=True)
-        
-        # 清理所有设备会话
-        try:
-            session_manager.cleanup_all()
-            logger.info("All device sessions cleaned up")
-        except Exception as ex:
-            logger.error(f"Error cleaning up device sessions: {ex}", exc_info=True)
-        
-        # 如果处于紧凑模式，先清除窗口置顶标志，确保能正常关闭
-        if self.compact_mode:
+            # Minimal best-effort cleanup that should not block UI.
             try:
-                current_flags = self.windowFlags()
-                new_flags = current_flags & ~Qt.WindowStaysOnTopHint
-                # 确保保留关闭按钮
-                new_flags |= Qt.WindowSystemMenuHint | Qt.WindowCloseButtonHint
-                self.setWindowFlags(new_flags)
-                logger.info("Cleared window stay-on-top flag for clean shutdown")
-            except Exception as ex:
-                logger.warning(f"Error clearing window flags: {ex}")
-        
-        try:
-            # 注意：在MDI架构中，所有设备的RTT连接已在上面的循环中断开
-            # 不再需要单独处理 self.connection_dialog.rtt2uart
-            
-            # 1. 停止所有定时器
-            self._stop_all_timers()
-            
-            # 2. 强制终止所有工作线程
-            self._force_terminate_threads()
-            
-            # 3. 清理UI资源
-            self._cleanup_ui_resources()
-            
-            # 4. 清理日志目录
-            self._cleanup_log_directories()
-            
-            # 5. 关闭连接对话框
-            if self.connection_dialog:
-                self.connection_dialog.hide()
-                self.connection_dialog.close()
-            
-            # 7. 强制终止所有子进程
-            self._force_terminate_child_processes()
-            
-            # 8. 强制退出应用程序
-            self._force_quit_application()
-            
+                self._stop_all_timers()
+            except Exception:
+                pass
+
+            # Force-stop all RTT/JLink threads quickly (do NOT close JLink here; it may block).
+            try:
+                for s in session_manager.get_all_sessions():
+                    rtt = getattr(s, "rtt2uart", None)
+                    if rtt:
+                        try:
+                            rtt.stop(keep_folder=True, fast=True)
+                        except TypeError:
+                            # Backward compatibility: older signature
+                            rtt.stop(keep_folder=True)
+            except Exception:
+                pass
+
+            try:
+                if self.connection_dialog:
+                    # Hide only; avoid triggering potentially blocking closeEvent chains here.
+                    self.connection_dialog.hide()
+            except Exception:
+                pass
+
         except Exception as ex:
-            logger.error(f"Error closing program: {ex}")
+            logger.error(f"Error closing program (fast path): {ex}", exc_info=True)
         finally:
-            # 释放单实例锁
+            # Release single-instance lock (best-effort)
             try:
-                # 从main模块的全局命名空间获取release_instance_lock函数
-                import sys
                 main_module = sys.modules.get('__main__')
                 if main_module and hasattr(main_module, 'release_instance_lock'):
-                    release_func = getattr(main_module, 'release_instance_lock')
-                    release_func()
+                    getattr(main_module, 'release_instance_lock')()
                     logger.info("Instance lock released in closeEvent")
             except Exception as ex:
                 logger.debug(f"Error releasing instance lock in closeEvent: {ex}")
-            
-            # 确保窗口关闭
+
             e.accept()
-            logger.info("Program shutdown process completed")
+            # No waiting. Force kill all XexunRTT related processes, then exit immediately.
+            try:
+                self._force_kill_all_app_processes(reason="closeEvent_immediate")
+            except Exception:
+                pass
+            logger.warning("Immediate exit: os._exit(0) (no waiting)")
+            os._exit(0)
     
     def _stop_all_timers(self):
         """停止所有定时器"""
@@ -7063,50 +7059,273 @@ class RTTMainWindow(QMainWindow):
             
         except Exception as e:
             logger.error(f"Error force terminating child processes: {e}")
+
+    def _force_terminate_related_processes(self, reason: str = ""):
+        """Terminate other XexunRTT processes that match the current executable/script cmdline.
+
+        This is a last-resort safety net for cases where a sibling/orphan process survives
+        (e.g. venv launch or updater scenarios) and keeps the J-Link occupied.
+        """
+        try:
+            import time as _time
+
+            current = psutil.Process()
+            current_pid = current.pid
+
+            # Build exclusion set: self + parent chain (avoid killing launcher/terminal).
+            exclude_pids = {current_pid}
+            try:
+                p = current
+                for _ in range(10):
+                    ppid = p.ppid()
+                    if not ppid or ppid in exclude_pids:
+                        break
+                    exclude_pids.add(ppid)
+                    p = psutil.Process(ppid)
+            except Exception:
+                pass
+
+            # Determine match signature
+            try:
+                cur_cmdline = current.cmdline() or []
+            except Exception:
+                cur_cmdline = []
+
+            try:
+                cur_exe = (current.exe() or "").lower()
+            except Exception:
+                cur_exe = ""
+
+            script_path = ""
+            try:
+                script_path = os.path.abspath(__file__)
+            except Exception:
+                script_path = ""
+            script_path_l = script_path.lower()
+            cur_cmdline_l = [str(x).lower() for x in cur_cmdline if x is not None]
+            cur_exe_basename = os.path.basename(cur_exe) if cur_exe else ""
+
+            is_frozen = bool(getattr(sys, "frozen", False))
+
+            def _cmd_has_this_script(cmd_l: list[str]) -> bool:
+                if not cmd_l:
+                    return False
+                # Normalize path separators for robust matching (debugpy may use forward slashes).
+                def _norm(s: str) -> str:
+                    return str(s).lower().replace("/", "\\")
+
+                cmd_n = [_norm(x) for x in cmd_l]
+                joined = " ".join(cmd_n)
+
+                if script_path_l:
+                    sp = _norm(script_path_l)
+                    # Direct match or substring match
+                    if any(arg == sp for arg in cmd_n) or (sp and sp in joined):
+                        return True
+
+                # Match by basename + directory hint (reduces false positives)
+                base = os.path.basename(script_path_l) if script_path_l else "main_window.py"
+                if base and any(os.path.basename(arg) == base for arg in cmd_n):
+                    script_dir = os.path.dirname(_norm(script_path_l)) if script_path_l else ""
+                    if script_dir:
+                        if script_dir in joined:
+                            return True
+                    else:
+                        # No script_dir available: still accept basename match if it looks like our project.
+                        # (Best-effort; keeps scope tight to this app.)
+                        if "\\rtt2uart2\\" in joined or " rtt2uart2" in joined:
+                            return True
+
+                # debugpy launcher form: "...debugpy\\launcher... <port> -- <script>"
+                if base and base in joined:
+                    if script_path_l:
+                        script_dir = os.path.dirname(_norm(script_path_l))
+                        if script_dir and script_dir in joined:
+                            return True
+                    # If launched from the same python executable, allow basename match.
+                    try:
+                        if cur_exe and cur_exe_basename and cur_exe_basename in (os.path.basename(_norm(joined))):
+                            return True
+                    except Exception:
+                        pass
+
+                return False
+
+            def _is_related_process(proc: psutil.Process) -> bool:
+                if proc.pid in exclude_pids:
+                    return False
+                try:
+                    name_l = (proc.name() or "").lower()
+                except Exception:
+                    name_l = ""
+                try:
+                    exe_l = (proc.exe() or "").lower()
+                except Exception:
+                    exe_l = ""
+                try:
+                    cmd_l = [str(x).lower() for x in (proc.cmdline() or []) if x is not None]
+                except Exception:
+                    cmd_l = []
+
+                if is_frozen:
+                    # PyInstaller/packed: match same executable basename.
+                    if cur_exe_basename and os.path.basename(exe_l) == cur_exe_basename:
+                        return True
+                    # Extra fallback for historical name.
+                    if os.path.basename(exe_l) == "xexunrtt.exe":
+                        return True
+                    return False
+
+                # Python/venv: match by script path in cmdline.
+                if name_l in ("python.exe", "pythonw.exe", "python"):
+                    return _cmd_has_this_script(cmd_l)
+                # Also match a direct python path (venv) by cmdline signature.
+                if _cmd_has_this_script(cmd_l):
+                    return True
+                return False
+
+            related = []
+            for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+                try:
+                    if _is_related_process(proc):
+                        related.append(proc)
+                except Exception:
+                    continue
+
+            if not related:
+                return
+
+            logger.warning(
+                "Terminating related process(es): count=%d reason=%s exclude_pids=%s",
+                len(related),
+                reason or "",
+                sorted(exclude_pids),
+            )
+
+            # Terminate first
+            for p in related:
+                try:
+                    try:
+                        cmd_preview = " ".join([str(x) for x in (p.cmdline() or [])])
+                    except Exception:
+                        cmd_preview = ""
+                    logger.warning("Terminating related process PID=%s name=%s cmdline=%s", p.pid, p.name(), cmd_preview)
+                    p.terminate()
+                except Exception:
+                    continue
+
+            # Short wait, then kill survivors
+            end = _time.time() + 0.6
+            for p in related:
+                try:
+                    remain = max(0.05, end - _time.time())
+                    p.wait(timeout=remain)
+                except Exception:
+                    pass
+
+            for p in related:
+                try:
+                    if p.is_running():
+                        logger.warning("Killing related process PID=%s name=%s", p.pid, p.name())
+                        p.kill()
+                except Exception:
+                    continue
+
+            end2 = _time.time() + 0.6
+            for p in related:
+                try:
+                    remain = max(0.05, end2 - _time.time())
+                    p.wait(timeout=remain)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error("Error terminating related processes: %s", e, exc_info=True)
+
+    def _force_kill_all_app_processes(self, reason: str = ""):
+        """Force kill all processes belonging to this application (no waiting).
+
+        Targets:
+        - python/pythonw running this script (main_window.py)
+        - packed executable (XexunRTT.exe or same exe basename)
+        - child processes of current process
+        """
+        try:
+            current = psutil.Process()
+            current_pid = current.pid
+
+            try:
+                cur_exe = (current.exe() or "").lower()
+            except Exception:
+                cur_exe = ""
+            cur_exe_base = os.path.basename(cur_exe) if cur_exe else ""
+
+            try:
+                script_path = os.path.abspath(__file__)
+            except Exception:
+                script_path = ""
+            script_path_l = script_path.lower().replace("/", "\\")
+            script_base = os.path.basename(script_path_l) if script_path_l else "main_window.py"
+
+            is_frozen = bool(getattr(sys, "frozen", False))
+
+            # 1) Kill child processes (no wait)
+            try:
+                for child in current.children(recursive=True):
+                    try:
+                        child.kill()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # 2) Kill all other app processes (no wait)
+            killed = 0
+            for p in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+                try:
+                    pid = p.pid
+                    if pid == current_pid:
+                        continue
+
+                    name_l = (p.info.get("name") or "").lower()
+                    exe_l = (p.info.get("exe") or "").lower()
+                    cmd = p.info.get("cmdline") or []
+                    cmd_join = " ".join([str(x) for x in cmd if x is not None]).lower().replace("/", "\\")
+
+                    match = False
+                    if is_frozen:
+                        if cur_exe_base and os.path.basename(exe_l) == cur_exe_base:
+                            match = True
+                        if os.path.basename(exe_l) == "xexunrtt.exe":
+                            match = True
+                    else:
+                        if name_l in ("python.exe", "pythonw.exe", "python"):
+                            if script_path_l and script_path_l in cmd_join:
+                                match = True
+                            elif script_base and script_base in cmd_join and "\\rtt2uart2\\" in cmd_join:
+                                match = True
+
+                    if match:
+                        try:
+                            p.kill()
+                            killed += 1
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+
+            logger.warning("Force killed app processes: %d reason=%s", killed, reason or "")
+        except Exception as e:
+            logger.debug("Force kill app processes failed: %s", e, exc_info=True)
+
     
     
     def _force_quit_application(self):
         """强制退出应用程序 - 确保进程完全终止"""
         try:
             logger.info("Force quitting application...")
-            
-            # 1. 先尝试终止所有子进程
-            try:
-                current_process = psutil.Process()
-                children = current_process.children(recursive=True)
-                for child in children:
-                    try:
-                        child.terminate()
-                    except:
-                        pass
-            except:
-                pass
-            
-            # 2. 启动独立线程执行强制退出（不依赖Qt事件循环）
-            def force_exit_thread():
-                """独立线程强制退出 - 确保即使Qt事件循环卡住也能退出"""
-                import time as _time
-                _time.sleep(0.5)  # 0.5秒后强制退出
-                logger.warning("Force exit triggered by watchdog thread")
-                os._exit(0)
-            
-            # 启动看门狗线程
-            import threading
-            watchdog = threading.Thread(target=force_exit_thread, daemon=True)
-            watchdog.start()
-            logger.info("Watchdog thread started for force exit")
-            
-            # 3. 尝试正常退出
-            app = QApplication.instance()
-            if app:
-                # 处理所有待处理事件
-                app.processEvents()
-                
-                # 设置退出代码并立即退出
-                app.quit()
-            else:
-                # 没有应用实例，直接退出
-                os._exit(0)
+            # Do not wait for any thread/Qt teardown here.
+            os._exit(0)
             
         except Exception as e:
             logger.error(f"Error force quitting application: {e}")
