@@ -9,6 +9,7 @@ from PySide6.QtCore import QCoreApplication, QTimer, Qt
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
     QCompleter,
+    QAbstractItemView,
     QComboBox,
     QDockWidget,
     QFileDialog,
@@ -33,6 +34,31 @@ from map_parser import parse_segger_map, lookup_symbol
 from watch_dwarf import DwarfIndex, TypeDesc, DwarfVariable
 
 logger = logging.getLogger(__name__)
+
+class _InlineInputLineEdit(QLineEdit):
+    """Inline input editor used as the last row in the watch tree."""
+    def __init__(self, dock: "WatchDock"):
+        super().__init__(dock.tree_watch)
+        self._dock = dock
+        self.setPlaceholderText(QCoreApplication.translate("watch", "Type expression here, press Enter"))
+        self.setClearButtonEnabled(True)
+        self.setMinimumHeight(int(self.sizeHint().height()) + 2)
+        self.setCompleter(dock._completer)
+        self.textEdited.connect(dock._on_expr_text_edited)
+        self.returnPressed.connect(lambda: dock._submit_inline_expr(self.text().strip()))
+
+    def keyPressEvent(self, event):
+        # If completer popup is visible, Enter should accept completion, not submit.
+        try:
+            comp = self.completer()
+            if comp is not None and comp.popup() is not None and comp.popup().isVisible():
+                key = int(event.key())
+                if key in (int(Qt.Key_Return), int(Qt.Key_Enter)):
+                    super().keyPressEvent(event)
+                    return
+        except Exception:
+            pass
+        super().keyPressEvent(event)
 
 
 @dataclass
@@ -196,7 +222,13 @@ class WatchDock(QDockWidget):
         btn_add.clicked.connect(lambda _checked=False: self._add_watch())
         add_row.addWidget(self.edit_expr, 1)
         add_row.addWidget(btn_add)
-        watch_layout.addLayout(add_row)
+        add_row_widget = QWidget()
+        add_row_widget.setLayout(add_row)
+        # Hide the top input row; use inline input row in tree instead
+        add_row_widget.setVisible(False)
+        watch_layout.addWidget(add_row_widget)
+
+        # Keep original input for fallback shortcuts, but it's hidden.
 
         self.tree_watch = QTreeWidget()
         self.tree_watch.setHeaderLabels([
@@ -204,10 +236,19 @@ class WatchDock(QDockWidget):
             QCoreApplication.translate("watch", "Value"),
         ])
         self.tree_watch.setColumnWidth(0, 260)
+        self.tree_watch.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.tree_watch.setContextMenuPolicy(Qt.ActionsContextMenu)
         # act_del = QAction(QCoreApplication.translate("watch", "Remove"), self.tree_watch)
         # act_del.triggered.connect(self._remove_selected)
         # self.tree_watch.addAction(act_del)
+
+        act_add_to_watch = QAction(QCoreApplication.translate("watch", "Add to Watch"), self.tree_watch)
+        act_add_to_watch.triggered.connect(self._add_selected_to_watch)
+        self.tree_watch.addAction(act_add_to_watch)
+
+        act_refresh_one = QAction(QCoreApplication.translate("watch", "Refresh"), self.tree_watch)
+        act_refresh_one.triggered.connect(self._refresh_selected_only)
+        self.tree_watch.addAction(act_refresh_one)
 
         act_view_mem = QAction(QCoreApplication.translate("watch", "View Memory"), self.tree_watch)
         act_view_mem.triggered.connect(self._view_memory_for_selected)
@@ -221,6 +262,12 @@ class WatchDock(QDockWidget):
         self.tree_watch.addAction(act_del_key)
 
         watch_layout.addWidget(self.tree_watch, 1)
+
+        # Inline input row (always last). New items are inserted before it (do NOT move it).
+        self._input_item: Optional[QTreeWidgetItem] = None
+        self._inline_input: Optional[QLineEdit] = None
+        self._create_input_row()
+        self.tree_watch.itemClicked.connect(self._on_tree_item_clicked)
 
         splitter.addWidget(watch_box)
 
@@ -250,7 +297,7 @@ class WatchDock(QDockWidget):
         mem_layout.addWidget(self.text_dump, 1)
 
         splitter.addWidget(mem_box)
-        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
 
         self._set_watch_enabled(False)
@@ -449,9 +496,73 @@ class WatchDock(QDockWidget):
         existing = list(self._watch_items.keys())
         self._watch_items.clear()
         self.tree_watch.clear()
+        self._create_input_row()
         for expr in existing:
             self._add_watch(expr)
         return True
+
+    def _create_input_row(self):
+        """Create (or recreate) the inline input row at the bottom of the tree."""
+        # Recreate every time after clear() to avoid stale widgets
+        self._input_item = QTreeWidgetItem(["", ""])
+        self._input_item.setData(0, Qt.UserRole, {"kind": "input"})
+        self._input_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        try:
+            self._input_item.setSizeHint(0, self.tree_watch.fontMetrics().height() * 2)
+        except Exception:
+            pass
+        self.tree_watch.addTopLevelItem(self._input_item)
+
+        self._inline_input = _InlineInputLineEdit(self)
+        self.tree_watch.setItemWidget(self._input_item, 0, self._inline_input)
+        self._input_item.setText(1, "")
+
+    def _insert_before_input_row(self, item: QTreeWidgetItem):
+        """Insert a top-level item before the inline input row."""
+        try:
+            if self._input_item is not None:
+                idx = self.tree_watch.indexOfTopLevelItem(self._input_item)
+                if idx >= 0:
+                    self.tree_watch.insertTopLevelItem(idx, item)
+                    return
+        except Exception:
+            pass
+        self.tree_watch.addTopLevelItem(item)
+
+    def _on_tree_item_clicked(self, item: QTreeWidgetItem, column: int):
+        try:
+            meta = item.data(0, Qt.UserRole)
+            if isinstance(meta, dict) and meta.get("kind") == "input":
+                if self._inline_input is not None:
+                    self._inline_input.setFocus()
+                    self._inline_input.selectAll()
+        except Exception:
+            pass
+
+    def _submit_inline_expr(self, expr: str):
+        """Submit expression from inline input."""
+        if not expr:
+            return
+        self._add_watch(expr)
+        # Defer clear to next event loop tick: prevents completer/return key handling from restoring text.
+        def _clear_later():
+            try:
+                ed = getattr(self, "_inline_input", None)
+                if ed is None:
+                    return
+                ed.blockSignals(True)
+                ed.setText("")
+                ed.blockSignals(False)
+                ed.setFocus()
+                ed.selectAll()
+                # Restore global symbol list in completer after submit
+                self._symbol_model.setStringList(self._all_symbol_names)
+            except Exception:
+                return
+        try:
+            QTimer.singleShot(0, _clear_later)
+        except Exception:
+            _clear_later()
 
     def _on_expr_text_edited(self, text: str):
         # Dynamic completion: base symbol list or member/index list based on current expression.
@@ -721,6 +832,22 @@ class WatchDock(QDockWidget):
         name = expr.strip()
         self._log_ui(f"Add watch: {name}")
 
+        # De-dup: if already exists, just refresh the existing row (do not add a new item)
+        if name in self._watch_items:
+            try:
+                existing_item = self._find_top_level_item_by_expr(name)
+                if existing_item is not None:
+                    self._refresh_item(existing_item, self._watch_items[name])
+                    existing_item.setSelected(True)
+                    self.tree_watch.scrollToItem(existing_item)
+                else:
+                    # Fallback: refresh via model only
+                    self._log_ui(f"Refresh existing (no tree item found): {name}", rate_key=f"refresh-exist:{name}", rate_sec=2.0)
+                return
+            except Exception as e:
+                self._log_ui(f"Refresh existing failed: {e}", "warning", rate_key="refresh-exist-failed", rate_sec=2.0)
+                return
+
         # Computed expression support (e.g. 3+4, (float)3.14*44, sym.member*20)
         # Heuristic: contains arithmetic/bitwise operators (excluding '.' and brackets used by member/index paths)
         if re.search(r"(<<|>>|[+\-*/%&|^])", name):
@@ -757,8 +884,9 @@ class WatchDock(QDockWidget):
                         "storage_bytes": model.storage_bytes,
                     },
                 )
-                self.tree_watch.addTopLevelItem(root)
-                root.setExpanded(True)
+                self._insert_before_input_row(root)
+                # Default collapsed for newly inserted expressions
+                root.setExpanded(False)
                 self._populate_children(root, r_typ, depth=0, max_depth=3)
                 self._refresh_item(root, model)
                 self._log_ui(f"Added: {name} @0x{int(r_addr):08X} size=0x{int(r_size):X} type={'DWARF' if r_typ else 'MAP'}")
@@ -783,13 +911,13 @@ class WatchDock(QDockWidget):
         else:
             # Add placeholder
             item = QTreeWidgetItem([name, QCoreApplication.translate("watch", "symbol not found")])
-            self.tree_watch.addTopLevelItem(item)
+            self._insert_before_input_row(item)
             self._log_ui(f"Add failed: symbol not found: {name}", "warning")
             return
 
         if addr == 0:
             item = QTreeWidgetItem([name, QCoreApplication.translate("watch", "address is 0 (not placed)")] )
-            self.tree_watch.addTopLevelItem(item)
+            self._insert_before_input_row(item)
             self._log_ui(f"Add failed: address is 0 for {name}", "warning")
             return
 
@@ -798,11 +926,27 @@ class WatchDock(QDockWidget):
         root = QTreeWidgetItem([name, ""])
         # Store full model on the tree item to support recursive refresh/expand
         root.setData(0, Qt.UserRole, {"kind": "root", "name": name, "addr": int(addr), "typ": typ, "size": int(size)})
-        self.tree_watch.addTopLevelItem(root)
-        root.setExpanded(True)
+        self._insert_before_input_row(root)
+        # Default collapsed for newly inserted expressions
+        root.setExpanded(False)
         self._populate_children(root, typ, depth=0, max_depth=3)
         self._refresh_item(root, model)
         self._log_ui(f"Added: {name} @0x{addr:08X} size=0x{size:X} type={'DWARF' if typ else 'MAP'}")
+
+    def _find_top_level_item_by_expr(self, expr: str) -> Optional[QTreeWidgetItem]:
+        """Find existing top-level watch item by its expression string."""
+        try:
+            for i in range(self.tree_watch.topLevelItemCount()):
+                it = self.tree_watch.topLevelItem(i)
+                meta = it.data(0, Qt.UserRole)
+                if isinstance(meta, dict) and meta.get("kind") == "root" and meta.get("name") == expr:
+                    return it
+                # Fallback: compare display text
+                if (it.text(0) or "") == expr:
+                    return it
+        except Exception:
+            return None
+        return None
 
     def _parse_expression(self, expr: str) -> Optional[Tuple[str, List[Tuple[str, Union[str, int]]]]]:
         """
@@ -981,7 +1125,7 @@ class WatchDock(QDockWidget):
         self._watch_items[expr] = model
         root = QTreeWidgetItem([expr, ""])
         root.setData(0, Qt.UserRole, {"kind": "root", "name": expr, "addr": 0, "typ": None, "size": 0, "computed": True})
-        self.tree_watch.addTopLevelItem(root)
+        self._insert_before_input_row(root)
         self._refresh_item(root, model)
         return True
 
@@ -1314,6 +1458,77 @@ class WatchDock(QDockWidget):
         idx = self.tree_watch.indexOfTopLevelItem(it)
         if idx >= 0:
             self.tree_watch.takeTopLevelItem(idx)
+
+    def _refresh_selected_only(self):
+        """Context menu: refresh only the selected entry (top-level), not all."""
+        it = self.tree_watch.currentItem()
+        if not it:
+            return
+        # Refresh top-level only
+        while it.parent():
+            it = it.parent()
+        meta = it.data(0, Qt.UserRole)
+        expr = None
+        if isinstance(meta, dict) and meta.get("kind") == "root":
+            expr = meta.get("name")
+        if not expr:
+            expr = it.text(0)
+        if not expr:
+            return
+        if expr not in self._watch_items:
+            return
+        self._refresh_item(it, self._watch_items[expr])
+
+    def _add_selected_to_watch(self):
+        """Context menu: add selected member/index node as a standalone Watch item."""
+        it = self.tree_watch.currentItem()
+        if not it:
+            return
+        expr = self._get_expression_for_item(it)
+        if not expr:
+            return
+        # Avoid duplicates
+        if expr in self._watch_items:
+            self._log_ui(f"Already exists: {expr}", rate_key=f"add-to-watch-exists:{expr}", rate_sec=2.0)
+            return
+        self._add_watch(expr)
+
+    # NOTE: inline embedded input row was removed; we use the original top input box.
+
+    def _get_expression_for_item(self, item: QTreeWidgetItem) -> Optional[str]:
+        """Build a full expression path for a tree node (root/member/index)."""
+        if item is None:
+            return None
+        # Find root
+        root = item
+        while root.parent():
+            root = root.parent()
+        rmeta = root.data(0, Qt.UserRole)
+        if not isinstance(rmeta, dict) or rmeta.get("kind") != "root":
+            return None
+        base_expr = str(rmeta.get("name") or root.text(0) or "").strip()
+        if not base_expr:
+            return None
+        if item is root:
+            return base_expr
+
+        # Collect segments from item -> root (excluding root)
+        segs: List[str] = []
+        cur = item
+        while cur is not None and cur is not root:
+            seg = (cur.text(0) or "").strip()
+            if seg:
+                segs.append(seg)
+            cur = cur.parent()
+        segs.reverse()
+
+        expr = base_expr
+        for seg in segs:
+            if seg.startswith("[") and seg.endswith("]"):
+                expr += seg
+            else:
+                expr += "." + seg
+        return expr
 
     def _view_memory_for_selected(self):
         """Context menu: fill memory dump address/size from selected watch node and load."""
