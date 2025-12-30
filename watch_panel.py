@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from PySide6.QtCore import QCoreApplication, QTimer, Qt
 from PySide6.QtGui import QAction, QFont
@@ -41,6 +41,11 @@ class WatchItemModel:
     addr: int
     typ: Optional[TypeDesc]
     size: int
+    # bitfield (optional)
+    bit_size: Optional[int] = None
+    bit_lsb: Optional[int] = None
+    storage_bytes: Optional[int] = None
+    computed: bool = False
 
 
 def _parse_int(text: str) -> Optional[int]:
@@ -96,6 +101,7 @@ class WatchDock(QDockWidget):
         self._completer.setCaseSensitivity(Qt.CaseInsensitive)
         self._completer.setFilterMode(Qt.MatchContains)
         self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._all_symbol_names: List[str] = []
 
         root = QWidget(self)
         self.setWidget(root)
@@ -183,6 +189,8 @@ class WatchDock(QDockWidget):
         self.edit_expr = QLineEdit()
         self.edit_expr.setPlaceholderText(QCoreApplication.translate("watch", "Expression / symbol name"))
         self.edit_expr.setCompleter(self._completer)
+        self.edit_expr.returnPressed.connect(lambda: self._add_watch())
+        self.edit_expr.textEdited.connect(self._on_expr_text_edited)
         btn_add = QPushButton(QCoreApplication.translate("watch", "Add"))
         # QPushButton.clicked emits a bool argument; avoid it being treated as expr parameter.
         btn_add.clicked.connect(lambda _checked=False: self._add_watch())
@@ -427,12 +435,14 @@ class WatchDock(QDockWidget):
                     pass
             # Filter out empty names and sort for stable UI
             name_list = sorted([n for n in names if isinstance(n, str) and n.strip()])
+            self._all_symbol_names = name_list
             self._symbol_model.setStringList(name_list)
             self._log_ui(
                 f"Symbols loaded: MAP={len(self._map_symbols)}; DWARF={'OK' if (self._dwarf is not None and bool(self._dwarf.variables)) else 'OFF'}; Total={len(name_list)}"
             )
         except Exception:
             self._symbol_model.setStringList([])
+            self._all_symbol_names = []
             self._log_ui("Failed to build symbol completer list.", "warning")
 
         # Re-resolve existing watch items
@@ -442,6 +452,195 @@ class WatchDock(QDockWidget):
         for expr in existing:
             self._add_watch(expr)
         return True
+
+    def _on_expr_text_edited(self, text: str):
+        # Dynamic completion: base symbol list or member/index list based on current expression.
+        try:
+            candidates = self._build_completion_candidates(text)
+            if candidates is None:
+                return
+            self._symbol_model.setStringList(candidates)
+        except Exception:
+            # Keep previous completer list if anything goes wrong
+            return
+
+    def _build_completion_candidates(self, text: str) -> Optional[List[str]]:
+        s = (text or "").strip()
+        if not s:
+            self._symbol_model.setStringList(self._all_symbol_names)
+            return self._all_symbol_names
+
+        # If no member/index syntax, show global symbol list
+        if ("." not in s) and ("[" not in s) and ("->" not in s):
+            self._symbol_model.setStringList(self._all_symbol_names)
+            return self._all_symbol_names
+
+        info = self._parse_expression_for_completion(s)
+        if info is None:
+            return self._all_symbol_names
+        base, completed_steps, mode, prefix, prefix_expr = info
+
+        # Need DWARF types to suggest members
+        if self._dwarf is None:
+            return self._all_symbol_names
+
+        dv = self._dwarf.lookup(base)
+        if dv is None or dv.typ is None:
+            return self._all_symbol_names
+
+        cur_typ: Optional[TypeDesc] = dv.typ
+        # Walk completed steps to current type
+        for kind, val in completed_steps:
+            t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+            if t0 is None:
+                return self._all_symbol_names
+            if kind == "member":
+                # pointer-to-struct: treat as target type for completion
+                if t0.kind == "pointer" and t0.target is not None:
+                    cur_typ = t0.target
+                    t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+                    if t0 is None:
+                        return self._all_symbol_names
+                if t0.kind != "struct":
+                    return self._all_symbol_names
+                mem = next((m for m in t0.members if m.name == str(val)), None)
+                if mem is None:
+                    return self._all_symbol_names
+                cur_typ = mem.typ
+            elif kind == "index":
+                idx = int(val)
+                if t0.kind == "array" and t0.target is not None:
+                    cur_typ = t0.target
+                elif t0.kind == "pointer" and t0.target is not None:
+                    cur_typ = t0.target
+                else:
+                    return self._all_symbol_names
+            else:
+                return self._all_symbol_names
+
+        if mode == "member":
+            t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+            if t0 is None:
+                return self._all_symbol_names
+            if t0.kind == "pointer" and t0.target is not None:
+                t0 = self._unwrap_typedef(t0.target) or t0.target
+            if t0 is None or t0.kind != "struct":
+                return self._all_symbol_names
+            pref = (prefix or "")
+            mem_names = [m.name for m in t0.members if m.name]
+            if pref:
+                mem_names = [m for m in mem_names if m.lower().startswith(pref.lower())]
+            # Build full-expression candidates
+            base_expr = prefix_expr
+            return [f"{base_expr}{m}" for m in sorted(mem_names)]
+
+        if mode == "index":
+            t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+            if t0 is None:
+                return self._all_symbol_names
+            # Suggest 0..15 by default
+            pref_d = (prefix or "")
+            sugg = [str(i) for i in range(16)]
+            if pref_d:
+                sugg = [x for x in sugg if x.startswith(pref_d)]
+            return [f"{prefix_expr}{d}]" for d in sugg]
+
+        return self._all_symbol_names
+
+    def _parse_expression_for_completion(
+        self, expr: str
+    ) -> Optional[Tuple[str, List[Tuple[str, Union[str, int]]], str, str, str]]:
+        """
+        Parse expression allowing incomplete last token.
+        Returns:
+          base, completed_steps, mode('member'|'index'|'none'), prefix, prefix_expr
+        prefix_expr is the expression prefix up to where completion should append.
+        """
+        s = (expr or "").strip()
+        if not s:
+            return None
+        s = s.replace("->", ".")
+        i = 0
+        n = len(s)
+
+        def read_ident_partial(pos: int) -> Tuple[str, int]:
+            j = pos
+            while j < n and (s[j].isalnum() or s[j] in ("_", "$")):
+                j += 1
+            return s[pos:j], j
+
+        # base ident
+        if i >= n or not (s[i].isalpha() or s[i] == "_"):
+            return None
+        base, i = read_ident_partial(i)
+        if not base:
+            return None
+
+        steps: List[Tuple[str, Union[str, int]]] = []
+        mode = "none"
+        prefix = ""
+        prefix_expr = base
+
+        while i < n:
+            if s[i] == ".":
+                i += 1
+                if i >= n:
+                    mode = "member"
+                    prefix = ""
+                    prefix_expr = s
+                    break
+                if not (s[i].isalpha() or s[i] == "_"):
+                    mode = "member"
+                    prefix = ""
+                    prefix_expr = s[:i]
+                    break
+                ident, j = read_ident_partial(i)
+                # If ident ends at end or before another delimiter, it may be complete or partial.
+                if j == n:
+                    mode = "member"
+                    prefix = ident
+                    prefix_expr = s[:i]  # up to start of ident
+                    break
+                if j < n and s[j] in (".", "["):
+                    # complete member
+                    steps.append(("member", ident))
+                    prefix_expr = s[:j]
+                    i = j
+                    continue
+                # unknown char -> treat as partial member
+                mode = "member"
+                prefix = ident
+                prefix_expr = s[:i]
+                break
+
+            if s[i] == "[":
+                i += 1
+                # digits optional
+                j = i
+                while j < n and s[j].isdigit():
+                    j += 1
+                digits = s[i:j]
+                if j >= n:
+                    mode = "index"
+                    prefix = digits
+                    prefix_expr = s[:i]  # up to start digits
+                    break
+                if s[j] != "]":
+                    mode = "index"
+                    prefix = digits
+                    prefix_expr = s[:i]
+                    break
+                # Have closing ]
+                if digits:
+                    steps.append(("index", int(digits)))
+                prefix_expr = s[: j + 1]
+                i = j + 1
+                continue
+
+            # unexpected char
+            break
+
+        return base, steps, mode, prefix, prefix_expr
 
     def _is_target_connected(self) -> bool:
         """Check target connectivity; used to stop refresh timer when disconnected."""
@@ -521,6 +720,50 @@ class WatchDock(QDockWidget):
 
         name = expr.strip()
         self._log_ui(f"Add watch: {name}")
+
+        # Computed expression support (e.g. 3+4, (float)3.14*44, sym.member*20)
+        # Heuristic: contains arithmetic/bitwise operators (excluding '.' and brackets used by member/index paths)
+        if re.search(r"(<<|>>|[+\-*/%&|^])", name):
+            if self._try_add_computed_expression(name):
+                return
+
+        # Expression support: a.b.c, a.b[3], etc.
+        if any(x in name for x in (".", "[", "]", "->")):
+            resolved = self._resolve_expression(name)
+            if resolved is not None:
+                r_addr, r_typ, r_size, r_bit = resolved
+                model = WatchItemModel(
+                    expr=name,
+                    addr=int(r_addr),
+                    typ=r_typ,
+                    size=int(r_size),
+                    bit_size=(r_bit.get("bit_size") if r_bit else None),
+                    bit_lsb=(r_bit.get("bit_lsb") if r_bit else None),
+                    storage_bytes=(r_bit.get("storage_bytes") if r_bit else None),
+                )
+                self._watch_items[name] = model
+                root = QTreeWidgetItem([name, ""])
+                root.setData(
+                    0,
+                    Qt.UserRole,
+                    {
+                        "kind": "root",
+                        "name": name,
+                        "addr": int(r_addr),
+                        "typ": r_typ,
+                        "size": int(r_size),
+                        "bit_size": model.bit_size,
+                        "bit_lsb": model.bit_lsb,
+                        "storage_bytes": model.storage_bytes,
+                    },
+                )
+                self.tree_watch.addTopLevelItem(root)
+                root.setExpanded(True)
+                self._populate_children(root, r_typ, depth=0, max_depth=3)
+                self._refresh_item(root, model)
+                self._log_ui(f"Added: {name} @0x{int(r_addr):08X} size=0x{int(r_size):X} type={'DWARF' if r_typ else 'MAP'}")
+                return
+
         ms = lookup_symbol(self._map_symbols, name) if self._map_symbols else None
         dv: Optional[DwarfVariable] = self._dwarf.lookup(name) if self._dwarf is not None else None
         elf_sym = self._dwarf.lookup_symbol_addr(name) if (dv is None and self._dwarf is not None) else None
@@ -561,6 +804,414 @@ class WatchDock(QDockWidget):
         self._refresh_item(root, model)
         self._log_ui(f"Added: {name} @0x{addr:08X} size=0x{size:X} type={'DWARF' if typ else 'MAP'}")
 
+    def _parse_expression(self, expr: str) -> Optional[Tuple[str, List[Tuple[str, Union[str, int]]]]]:
+        """
+        Parse expression like:
+          base.member1.member2
+          base.member[3]
+        Returns (base, steps) where steps are:
+          ("member", "name") or ("index", 3)
+        """
+        s = (expr or "").strip()
+        if not s:
+            return None
+        # Normalize "->" to "." (we'll handle pointer deref automatically when needed)
+        s = s.replace("->", ".")
+        i = 0
+        n = len(s)
+
+        def read_ident(pos: int) -> Tuple[Optional[str], int]:
+            if pos >= n:
+                return None, pos
+            # allow leading underscore
+            if not (s[pos].isalpha() or s[pos] == "_"):
+                return None, pos
+            j = pos + 1
+            while j < n and (s[j].isalnum() or s[j] in ("_", "$")):
+                j += 1
+            return s[pos:j], j
+
+        base, i2 = read_ident(i)
+        if not base:
+            return None
+        i = i2
+        steps: List[Tuple[str, Union[str, int]]] = []
+
+        while i < n:
+            if s[i] == ".":
+                ident, j = read_ident(i + 1)
+                if not ident:
+                    return None
+                steps.append(("member", ident))
+                i = j
+                continue
+            if s[i] == "[":
+                j = i + 1
+                k = j
+                while k < n and s[k].isdigit():
+                    k += 1
+                if k == j:
+                    return None
+                if k >= n or s[k] != "]":
+                    return None
+                idx = int(s[j:k], 10)
+                steps.append(("index", idx))
+                i = k + 1
+                continue
+            # unsupported token
+            return None
+        return base, steps
+
+    def _resolve_expression(self, expr: str) -> Optional[Tuple[int, Optional[TypeDesc], int, Optional[Dict[str, int]]]]:
+        """
+        Resolve expression to (addr, typ, size, bitfield_meta).
+        Requires DWARF type information for member/index traversal.
+        """
+        parsed = self._parse_expression(expr)
+        if not parsed:
+            return None
+        base, steps = parsed
+        if self._dwarf is None:
+            self._log_ui("Expression resolve failed: no ELF/DWARF loaded.", "warning", rate_key="expr-no-dwarf", rate_sec=3.0)
+            return None
+
+        dv = self._dwarf.lookup(base)
+        if dv is None:
+            # fallback to MAP/ELF symtab base symbol only (no traversal)
+            return None
+
+        cur_addr = int(dv.address)
+        cur_typ: Optional[TypeDesc] = dv.typ
+        bit_meta: Optional[Dict[str, int]] = None
+
+        for kind, val in steps:
+            t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+            if t0 is None:
+                return None
+
+            if kind == "member":
+                mname = str(val)
+                # If current is pointer-to-struct, dereference to struct address automatically
+                if t0.kind == "pointer" and t0.target is not None:
+                    # Need connection to read pointer value
+                    if not self._is_target_connected():
+                        self._log_ui("Expression requires target connection to dereference pointer.", "warning", rate_key="expr-need-conn", rate_sec=3.0)
+                        return None
+                    jlink, lock = self._get_active_jlink()
+                    if not jlink:
+                        return None
+                    if lock:
+                        with lock:
+                            cur_addr = int(self._read_ptr_value(jlink, cur_addr, int(t0.size or 4)))
+                    else:
+                        cur_addr = int(self._read_ptr_value(jlink, cur_addr, int(t0.size or 4)))
+                    cur_typ = t0.target
+                    t0 = self._unwrap_typedef(cur_typ) if cur_typ else None
+                    if t0 is None:
+                        return None
+
+                if t0.kind != "struct":
+                    return None
+                mem = next((m for m in t0.members if m.name == mname), None)
+                if mem is None:
+                    return None
+                cur_addr = int(cur_addr + int(mem.offset))
+                cur_typ = mem.typ
+                # Capture bitfield meta if present for final leaf
+                if getattr(mem, "bit_size", None) is not None and getattr(mem, "bit_lsb", None) is not None:
+                    bit_meta = {
+                        "bit_size": int(getattr(mem, "bit_size") or 0),
+                        "bit_lsb": int(getattr(mem, "bit_lsb") or 0),
+                        "storage_bytes": int(getattr(mem, "storage_bytes") or 1),
+                    }
+                else:
+                    bit_meta = None
+                continue
+
+            if kind == "index":
+                idx = int(val)
+                # array or pointer indexing
+                if t0.kind == "array" and t0.target is not None:
+                    stride = int(t0.target.size or 1)
+                    cur_addr = int(cur_addr + idx * stride)
+                    cur_typ = t0.target
+                    bit_meta = None
+                    continue
+                if t0.kind == "pointer" and t0.target is not None:
+                    if not self._is_target_connected():
+                        self._log_ui("Expression requires target connection to dereference pointer.", "warning", rate_key="expr-need-conn", rate_sec=3.0)
+                        return None
+                    jlink, lock = self._get_active_jlink()
+                    if not jlink:
+                        return None
+                    if lock:
+                        with lock:
+                            base_ptr = int(self._read_ptr_value(jlink, cur_addr, int(t0.size or 4)))
+                    else:
+                        base_ptr = int(self._read_ptr_value(jlink, cur_addr, int(t0.size or 4)))
+                    stride = int(t0.target.size or 1)
+                    cur_addr = int(base_ptr + idx * stride)
+                    cur_typ = t0.target
+                    bit_meta = None
+                    continue
+                return None
+
+        size = int(getattr(self._unwrap_typedef(cur_typ) if cur_typ else None, "size", 0) or 0)
+        if size <= 0:
+            size = 4
+        return cur_addr, cur_typ, size, bit_meta
+
+    # ---------------- Computed expression support ----------------
+    _CE_TOKEN_RE = re.compile(
+        r"\s*(?:(0x[0-9A-Fa-f]+)|(\d+\.\d+|\d+)|([A-Za-z_][A-Za-z0-9_\$]*)|(<<|>>|[+\-*/%&|^()\\[\\].]))"
+    )
+
+    def _try_add_computed_expression(self, expr: str) -> bool:
+        # Reject if it is a pure member/index path (we already handle those)
+        if any(x in expr for x in (".", "[", "]", "->")) and not re.search(r"(<<|>>|[+\-*/%&|^])", expr):
+            return False
+
+        # Validate parse (do not require connection at add-time)
+        try:
+            _ = self._eval_computed_expression(expr, allow_no_jlink=True)
+        except Exception:
+            return False
+
+        model = WatchItemModel(expr=expr, addr=0, typ=None, size=0, computed=True)
+        self._watch_items[expr] = model
+        root = QTreeWidgetItem([expr, ""])
+        root.setData(0, Qt.UserRole, {"kind": "root", "name": expr, "addr": 0, "typ": None, "size": 0, "computed": True})
+        self.tree_watch.addTopLevelItem(root)
+        self._refresh_item(root, model)
+        return True
+
+    def _ce_tokenize(self, s: str) -> List[str]:
+        out: List[str] = []
+        i = 0
+        while i < len(s):
+            m = self._CE_TOKEN_RE.match(s, i)
+            if not m:
+                raise ValueError(f"Invalid token near: {s[i:i+16]}")
+            tok = m.group(1) or m.group(2) or m.group(3) or m.group(4)
+            out.append(tok)
+            i = m.end()
+        return out
+
+    def _eval_computed_expression(self, expr: str, allow_no_jlink: bool = False) -> Union[int, float]:
+        tokens = self._ce_tokenize(expr.replace("->", "."))
+        self._ce_tok = tokens
+        self._ce_pos = 0
+        v = self._ce_parse_expr()
+        if self._ce_pos != len(self._ce_tok):
+            raise ValueError("Unexpected tokens at end")
+        return v
+
+    def _ce_peek(self) -> Optional[str]:
+        return self._ce_tok[self._ce_pos] if self._ce_pos < len(self._ce_tok) else None
+
+    def _ce_eat(self, t: str) -> bool:
+        if self._ce_peek() == t:
+            self._ce_pos += 1
+            return True
+        return False
+
+    def _ce_expect(self, t: str):
+        if not self._ce_eat(t):
+            raise ValueError(f"Expected '{t}'")
+
+    # Precedence: | ^ & << >> + - * / %
+    def _ce_parse_expr(self) -> Union[int, float]:
+        return self._ce_parse_bitor()
+
+    def _ce_parse_bitor(self):
+        v = self._ce_parse_bitxor()
+        while self._ce_eat("|"):
+            v2 = self._ce_parse_bitxor()
+            v = int(v) | int(v2)
+        return v
+
+    def _ce_parse_bitxor(self):
+        v = self._ce_parse_bitand()
+        while self._ce_eat("^"):
+            v2 = self._ce_parse_bitand()
+            v = int(v) ^ int(v2)
+        return v
+
+    def _ce_parse_bitand(self):
+        v = self._ce_parse_shift()
+        while self._ce_eat("&"):
+            v2 = self._ce_parse_shift()
+            v = int(v) & int(v2)
+        return v
+
+    def _ce_parse_shift(self):
+        v = self._ce_parse_add()
+        while True:
+            if self._ce_eat("<<"):
+                v2 = self._ce_parse_add()
+                v = int(v) << int(v2)
+                continue
+            if self._ce_eat(">>"):
+                v2 = self._ce_parse_add()
+                v = int(v) >> int(v2)
+                continue
+            break
+        return v
+
+    def _ce_parse_add(self):
+        v = self._ce_parse_mul()
+        while True:
+            if self._ce_eat("+"):
+                v2 = self._ce_parse_mul()
+                v = v + v2
+                continue
+            if self._ce_eat("-"):
+                v2 = self._ce_parse_mul()
+                v = v - v2
+                continue
+            break
+        return v
+
+    def _ce_parse_mul(self):
+        v = self._ce_parse_unary()
+        while True:
+            if self._ce_eat("*"):
+                v2 = self._ce_parse_unary()
+                v = v * v2
+                continue
+            if self._ce_eat("/"):
+                v2 = self._ce_parse_unary()
+                v = v / v2
+                continue
+            if self._ce_eat("%"):
+                v2 = self._ce_parse_unary()
+                v = int(v) % int(v2)
+                continue
+            break
+        return v
+
+    def _ce_parse_unary(self):
+        if self._ce_eat("+"):
+            return +self._ce_parse_unary()
+        if self._ce_eat("-"):
+            return -self._ce_parse_unary()
+        # C-style cast: (type)unary
+        if self._ce_peek() == "(":
+            save = self._ce_pos
+            self._ce_pos += 1
+            tname = self._ce_peek()
+            if tname and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", tname):
+                self._ce_pos += 1
+                if self._ce_eat(")"):
+                    v = self._ce_parse_unary()
+                    return self._ce_apply_cast(tname, v)
+            self._ce_pos = save
+        return self._ce_parse_primary()
+
+    def _ce_apply_cast(self, tname: str, v: Union[int, float]) -> Union[int, float]:
+        t = (tname or "").lower()
+        if t in ("float", "double"):
+            return float(v)
+        if "int" in t or t.endswith("_t") or t in ("char", "short", "long"):
+            return int(v)
+        return v
+
+    def _ce_parse_primary(self):
+        tok = self._ce_peek()
+        if tok is None:
+            raise ValueError("Unexpected end")
+        if tok == "(":
+            self._ce_pos += 1
+            v = self._ce_parse_expr()
+            self._ce_expect(")")
+            return v
+        if tok.startswith("0x"):
+            self._ce_pos += 1
+            return int(tok, 16)
+        if re.match(r"^\\d+\\.\\d+$", tok):
+            self._ce_pos += 1
+            return float(tok)
+        if re.match(r"^\\d+$", tok):
+            self._ce_pos += 1
+            return int(tok, 10)
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_\\$]*$", tok):
+            self._ce_pos += 1
+            parts = [tok]
+            while True:
+                if self._ce_eat("."):
+                    ident = self._ce_peek()
+                    if not ident or not re.match(r"^[A-Za-z_][A-Za-z0-9_\\$]*$", ident):
+                        raise ValueError("Expected member name after '.'")
+                    self._ce_pos += 1
+                    parts.append(".")
+                    parts.append(ident)
+                    continue
+                if self._ce_eat("["):
+                    idx_val = self._ce_parse_expr()
+                    self._ce_expect("]")
+                    parts.append("[")
+                    parts.append(str(int(idx_val)))
+                    parts.append("]")
+                    continue
+                break
+            sym_expr = "".join(parts)
+            return self._read_symbol_as_number(sym_expr)
+        raise ValueError(f"Unexpected token: {tok}")
+
+    def _read_symbol_as_number(self, sym_expr: str) -> Union[int, float]:
+        # Resolve address/type (supports bitfield via _resolve_expression)
+        resolved = self._resolve_expression(sym_expr) if any(x in sym_expr for x in (".", "[", "]", "->")) else None
+        if resolved is not None:
+            addr, typ, _size, bit = resolved
+            jlink, lock = self._get_active_jlink()
+            if not jlink:
+                raise ValueError("No active JLink")
+            if bit:
+                if lock:
+                    with lock:
+                        return int(self._read_bitfield(jlink, int(addr), int(bit["bit_lsb"]), int(bit["bit_size"]), int(bit["storage_bytes"])))
+                return int(self._read_bitfield(jlink, int(addr), int(bit["bit_lsb"]), int(bit["bit_size"]), int(bit["storage_bytes"])))
+            t0 = self._unwrap_typedef(typ) if typ else None
+            if t0 and t0.kind == "pointer":
+                if lock:
+                    with lock:
+                        return int(self._read_ptr_value(jlink, int(addr), int(t0.size or 4)))
+                return int(self._read_ptr_value(jlink, int(addr), int(t0.size or 4)))
+            n = int(getattr(t0, "size", 4) or 4) if t0 else 4
+            n = max(1, min(n, 8))
+            if lock:
+                with lock:
+                    raw = bytes(jlink.memory_read8(int(addr), n))
+            else:
+                raw = bytes(jlink.memory_read8(int(addr), n))
+            return int.from_bytes(raw, "little", signed=False)
+
+        # Fallback: top-level symbol only (MAP/ELF symtab)
+        ms = lookup_symbol(self._map_symbols, sym_expr) if self._map_symbols else None
+        dv = self._dwarf.lookup(sym_expr) if self._dwarf is not None else None
+        elf_sym = self._dwarf.lookup_symbol_addr(sym_expr) if (dv is None and self._dwarf is not None) else None
+        if dv is None and ms is None and elf_sym is None:
+            raise ValueError("symbol not found")
+        addr = int(dv.address) if dv is not None else (int(elf_sym[0]) if elf_sym is not None else int(ms.address))
+        typ = dv.typ if dv is not None else None
+        jlink, lock = self._get_active_jlink()
+        if not jlink:
+            raise ValueError("No active JLink")
+        t0 = self._unwrap_typedef(typ) if typ else None
+        if t0 and t0.kind == "pointer":
+            if lock:
+                with lock:
+                    return int(self._read_ptr_value(jlink, addr, int(t0.size or 4)))
+            return int(self._read_ptr_value(jlink, addr, int(t0.size or 4)))
+        n = int(getattr(t0, "size", 4) or 4) if t0 else 4
+        n = max(1, min(n, 8))
+        if lock:
+            with lock:
+                raw = bytes(jlink.memory_read8(addr, n))
+        else:
+            raw = bytes(jlink.memory_read8(addr, n))
+        return int.from_bytes(raw, "little", signed=False)
+
     def _unwrap_typedef(self, typ: Optional[TypeDesc]) -> Optional[TypeDesc]:
         t = typ
         seen = 0
@@ -598,7 +1249,18 @@ class WatchDock(QDockWidget):
         if st is not None:
             for m in st.members[:128]:
                 child = QTreeWidgetItem([m.name, ""])
-                child.setData(0, Qt.UserRole, {"kind": "member", "offset": int(m.offset), "typ": m.typ})
+                child.setData(
+                    0,
+                    Qt.UserRole,
+                    {
+                        "kind": "member",
+                        "offset": int(m.offset),
+                        "typ": m.typ,
+                        "bit_size": getattr(m, "bit_size", None),
+                        "bit_lsb": getattr(m, "bit_lsb", None),
+                        "storage_bytes": getattr(m, "storage_bytes", None),
+                    },
+                )
                 root_item.addChild(child)
                 self._populate_children(child, m.typ, depth + 1, max_depth)
             return
@@ -609,7 +1271,18 @@ class WatchDock(QDockWidget):
             _pt, st2 = pts
             for m in st2.members[:128]:
                 child = QTreeWidgetItem([m.name, ""])
-                child.setData(0, Qt.UserRole, {"kind": "member", "offset": int(m.offset), "typ": m.typ})
+                child.setData(
+                    0,
+                    Qt.UserRole,
+                    {
+                        "kind": "member",
+                        "offset": int(m.offset),
+                        "typ": m.typ,
+                        "bit_size": getattr(m, "bit_size", None),
+                        "bit_lsb": getattr(m, "bit_lsb", None),
+                        "storage_bytes": getattr(m, "storage_bytes", None),
+                    },
+                )
                 root_item.addChild(child)
                 self._populate_children(child, m.typ, depth + 1, max_depth)
             return
@@ -672,6 +1345,8 @@ class WatchDock(QDockWidget):
             root = root.parent()
         rmeta = root.data(0, Qt.UserRole)
         if not isinstance(rmeta, dict) or rmeta.get("kind") != "root":
+            return None, None
+        if rmeta.get("computed"):
             return None, None
 
         base_var_addr = int(rmeta.get("addr") or 0)
@@ -782,6 +1457,22 @@ class WatchDock(QDockWidget):
             return b""
         return bytes(jlink.memory_read8(int(addr), n))
 
+    def _read_bitfield(self, jlink, addr: int, bit_lsb: int, bit_size: int, storage_bytes: int) -> int:
+        n = int(storage_bytes or 1)
+        if n <= 0:
+            n = 1
+        raw = bytes(jlink.memory_read8(int(addr), n))
+        base = int.from_bytes(raw, "little", signed=False)
+        shift = int(bit_lsb)
+        bsz = int(bit_size)
+        if bsz <= 0:
+            return 0
+        if bsz >= 64:
+            mask = (2**64) - 1
+        else:
+            mask = (1 << bsz) - 1
+        return (base >> shift) & mask
+
     def _format_byte_preview(self, data: bytes, max_len: int = 32) -> str:
         if not data:
             return ""
@@ -876,7 +1567,17 @@ class WatchDock(QDockWidget):
                     ch.setText(1, "NULL")
                     continue
                 caddr = int(child_base) + off
-                self._refresh_tree(ch, jlink, lock, caddr, ctyp, getattr(ctyp, "size", 0) if ctyp else 4)
+                bsz = cmeta.get("bit_size")
+                blsb = cmeta.get("bit_lsb")
+                sbytes = cmeta.get("storage_bytes")
+                if bsz is not None and blsb is not None:
+                    try:
+                        val = self._read_bitfield(jlink, caddr, int(blsb), int(bsz), int(sbytes or 1))
+                        ch.setText(1, str(val))
+                    except Exception:
+                        self._refresh_tree(ch, jlink, lock, caddr, ctyp, getattr(ctyp, "size", 0) if ctyp else 4)
+                else:
+                    self._refresh_tree(ch, jlink, lock, caddr, ctyp, getattr(ctyp, "size", 0) if ctyp else 4)
 
     def _refresh_item(self, item: QTreeWidgetItem, model: WatchItemModel):
         jlink, lock = self._get_active_jlink()
@@ -884,6 +1585,37 @@ class WatchDock(QDockWidget):
             item.setText(1, QCoreApplication.translate("watch", "No active JLink"))
             return
         try:
+            if getattr(model, "computed", False):
+                def _read_ce():
+                    v = self._eval_computed_expression(model.expr)
+                    if isinstance(v, float):
+                        item.setText(1, f"{v:g}")
+                    else:
+                        item.setText(1, str(int(v)))
+                if lock:
+                    with lock:
+                        _read_ce()
+                else:
+                    _read_ce()
+                return
+
+            # Bitfield leaf expression: show extracted bits
+            meta = item.data(0, Qt.UserRole)
+            if isinstance(meta, dict) and meta.get("kind") == "root":
+                bsz = meta.get("bit_size")
+                blsb = meta.get("bit_lsb")
+                sbytes = meta.get("storage_bytes")
+                if bsz is not None and blsb is not None:
+                    def _read_bf():
+                        v = self._read_bitfield(jlink, int(model.addr), int(blsb), int(bsz), int(sbytes or 1))
+                        item.setText(1, str(v))
+                    if lock:
+                        with lock:
+                            _read_bf()
+                    else:
+                        _read_bf()
+                    return
+
             if lock:
                 with lock:
                     self._refresh_tree(item, jlink, lock, int(model.addr), model.typ, int(model.size or 4))

@@ -23,6 +23,10 @@ class StructMember:
     name: str
     offset: int  # bytes
     typ: TypeDesc
+    # bitfield support (if not None)
+    bit_size: Optional[int] = None          # number of bits
+    bit_lsb: Optional[int] = None           # LSB bit offset from start of storage unit (0..)
+    storage_bytes: Optional[int] = None     # storage unit bytes to read (usually base type size)
 
 
 @dataclass(frozen=True)
@@ -149,6 +153,51 @@ def _decode_member_offset(die) -> int:
     except Exception:
         return 0
     return 0
+
+
+def _decode_member_bitfield(ch, base_type: Optional[TypeDesc]) -> Tuple[Optional[int], Optional[int], Optional[int], int]:
+    """
+    Return (bit_size, bit_lsb, storage_bytes, extra_byte_offset).
+    extra_byte_offset is added to member byte offset when bit offset crosses bytes.
+    """
+    try:
+        bit_size = _attr_int(ch, "DW_AT_bit_size")
+        if bit_size is None:
+            return None, None, None, 0
+
+        storage_bytes = None
+        if base_type is not None and base_type.size:
+            storage_bytes = int(base_type.size)
+        else:
+            # Conservative default
+            storage_bytes = 1
+
+        storage_bits = int(storage_bytes * 8)
+
+        # Prefer DW_AT_data_bit_offset (absolute bit offset from start of struct)
+        data_bit_off = _attr_int(ch, "DW_AT_data_bit_offset")
+        if data_bit_off is not None:
+            lsb_abs = int(data_bit_off)
+            extra_byte = int(lsb_abs // 8)
+            bit_lsb = int(lsb_abs % 8)
+            return int(bit_size), bit_lsb, storage_bytes, extra_byte
+
+        # Fallback: DW_AT_bit_offset is from the MSB of the storage unit
+        bit_off_msb = _attr_int(ch, "DW_AT_bit_offset")
+        if bit_off_msb is not None:
+            # Convert MSB-based offset to LSB-based offset inside storage unit
+            # lsb = storage_bits - bit_size - bit_off_msb
+            lsb = int(storage_bits - int(bit_size) - int(bit_off_msb))
+            if lsb < 0:
+                lsb = 0
+            extra_byte = int(lsb // 8)
+            bit_lsb = int(lsb % 8)
+            return int(bit_size), bit_lsb, storage_bytes, extra_byte
+
+    except Exception:
+        return None, None, None, 0
+
+    return None, None, None, 0
 
 
 class DwarfIndex:
@@ -304,7 +353,17 @@ class DwarfIndex:
                     mtype = self._resolve_type_die(mtype_die)
                 except Exception:
                     mtype = TypeDesc(kind="unknown", name="unknown", size=0)
-                members.append(StructMember(name=mname, offset=moff, typ=mtype))
+                bit_size, bit_lsb, storage_bytes, extra_byte = _decode_member_bitfield(ch, mtype)
+                members.append(
+                    StructMember(
+                        name=mname,
+                        offset=int(moff + (extra_byte or 0)),
+                        typ=mtype,
+                        bit_size=bit_size,
+                        bit_lsb=bit_lsb,
+                        storage_bytes=storage_bytes,
+                    )
+                )
             t = TypeDesc(kind="struct", name=name or "struct", size=size, members=tuple(members))
         else:
             size = _attr_int(tdie, "DW_AT_byte_size") or 0
