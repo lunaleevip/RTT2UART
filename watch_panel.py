@@ -5,8 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Union
 
-from PySide6.QtCore import QCoreApplication, QTimer, Qt
-from PySide6.QtGui import QAction, QFont
+from PySide6.QtCore import QCoreApplication, QTimer, Qt, QByteArray
+from PySide6.QtGui import QAction, QFont, QGuiApplication, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QCompleter,
     QAbstractItemView,
@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QPlainTextEdit,
+    QScrollArea,
+    QSizePolicy,
+    QTabWidget,
+    QCheckBox,
 )
 from PySide6.QtCore import QStringListModel
 
@@ -271,7 +275,11 @@ class WatchDock(QDockWidget):
 
         splitter.addWidget(watch_box)
 
-        # Memory dump area
+        # Bottom area: Memory Dump + Frame Buffer (tabs)
+        bottom_tabs = QTabWidget()
+        splitter.addWidget(bottom_tabs)
+
+        # --- Memory Dump tab ---
         mem_box = QWidget()
         mem_layout = QVBoxLayout(mem_box)
         mem_layout.setContentsMargins(6, 6, 6, 6)
@@ -296,7 +304,93 @@ class WatchDock(QDockWidget):
         self.text_dump.setLineWrapMode(QPlainTextEdit.NoWrap)
         mem_layout.addWidget(self.text_dump, 1)
 
-        splitter.addWidget(mem_box)
+        bottom_tabs.addTab(mem_box, QCoreApplication.translate("watch", "Memory Dump"))
+
+        # --- Frame Buffer tab ---
+        fb_box = QWidget()
+        fb_layout = QVBoxLayout(fb_box)
+        fb_layout.setContentsMargins(6, 6, 6, 6)
+        fb_layout.setSpacing(6)
+
+        self.fb_edit_addr = QLineEdit()
+        self.fb_edit_addr.setPlaceholderText("0x20000000")
+        self.fb_spin_w = QSpinBox()
+        self.fb_spin_w.setRange(0, 8192)
+        self.fb_spin_w.setValue(0)
+        self.fb_spin_h = QSpinBox()
+        self.fb_spin_h.setRange(0, 8192)
+        self.fb_spin_h.setValue(0)
+        self.fb_combo_fmt = QComboBox()
+        self.fb_combo_fmt.addItem("ARGB32", "ARGB32")
+        self.fb_combo_fmt.addItem("RGB32", "RGB32")
+        self.fb_combo_fmt.addItem("RGB565", "RGB565")
+        self.fb_combo_fmt.addItem("RGB888", "RGB888")
+        self.fb_combo_fmt.addItem("Mono LSB", "MonoLSB")
+        self.fb_combo_fmt.addItem("Mono MSB", "MonoMSB")
+
+        self.fb_check_auto = QCheckBox(QCoreApplication.translate("watch", "Auto refresh"))
+        btn_fb_load = QPushButton(QCoreApplication.translate("watch", "Load"))
+        btn_fb_load.clicked.connect(self.load_frame_buffer)
+
+        # Row 1: Address / Width / Height / Load
+        fb_row1 = QHBoxLayout()
+        fb_row1.addWidget(QLabel(QCoreApplication.translate("watch", "Address")))
+        fb_row1.addWidget(self.fb_edit_addr, 1)
+        fb_row1.addWidget(QLabel(QCoreApplication.translate("watch", "Width")))
+        fb_row1.addWidget(self.fb_spin_w)
+        fb_row1.addWidget(QLabel(QCoreApplication.translate("watch", "Height")))
+        fb_row1.addWidget(self.fb_spin_h)
+        fb_row1.addWidget(btn_fb_load)
+        fb_layout.addLayout(fb_row1)
+
+        # Row 2: Format / Auto refresh / Refresh Now / Zoom tools
+        fb_row2 = QHBoxLayout()
+        self.fb_btn_refresh = QPushButton(QCoreApplication.translate("watch", "Refresh Now"))
+        self.fb_btn_refresh.clicked.connect(self.load_frame_buffer)
+        self.fb_btn_zoom_out = QPushButton("-")
+        self.fb_btn_zoom_out.clicked.connect(lambda: self._fb_set_zoom(self._fb_zoom / 1.25))
+        self.fb_btn_zoom_in = QPushButton("+")
+        self.fb_btn_zoom_in.clicked.connect(lambda: self._fb_set_zoom(self._fb_zoom * 1.25))
+        self.fb_btn_zoom_1 = QPushButton("1:1")
+        self.fb_btn_zoom_1.clicked.connect(lambda: self._fb_set_zoom(1.0))
+        self.fb_btn_fit = QPushButton(QCoreApplication.translate("watch", "Fit"))
+        self.fb_btn_fit.clicked.connect(self._fb_fit_to_view)
+
+        fb_row2.addWidget(QLabel(QCoreApplication.translate("watch", "Format")))
+        fb_row2.addWidget(self.fb_combo_fmt)
+        fb_row2.addWidget(self.fb_check_auto)
+        fb_row2.addWidget(self.fb_btn_refresh)
+        fb_row2.addStretch(1)
+        fb_row2.addWidget(self.fb_btn_zoom_out)
+        fb_row2.addWidget(self.fb_btn_zoom_in)
+        fb_row2.addWidget(self.fb_btn_zoom_1)
+        fb_row2.addWidget(self.fb_btn_fit)
+        fb_layout.addLayout(fb_row2)
+
+        self._fb_zoom = 1.0
+        self._fb_last_qimage: Optional[QImage] = None
+        self._fb_last_bytes: Optional[bytes] = None
+        self._fb_job_id = 0
+
+        self.fb_label = QLabel(QCoreApplication.translate("watch", "No address specified"))
+        self.fb_label.setAlignment(Qt.AlignCenter)
+        self.fb_label.setMinimumHeight(120)
+        self.fb_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.fb_label.setFocusPolicy(Qt.StrongFocus)
+        self.fb_label.setContextMenuPolicy(Qt.ActionsContextMenu)
+
+        act_copy_fb = QAction(QCoreApplication.translate("watch", "Copy Image"), self.fb_label)
+        act_copy_fb.setShortcut(QKeySequence.Copy)
+        act_copy_fb.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_copy_fb.triggered.connect(self._fb_copy_to_clipboard)
+        self.fb_label.addAction(act_copy_fb)
+
+        self.fb_scroll = QScrollArea()
+        self.fb_scroll.setWidgetResizable(True)
+        self.fb_scroll.setWidget(self.fb_label)
+        fb_layout.addWidget(self.fb_scroll, 1)
+
+        bottom_tabs.addTab(fb_box, QCoreApplication.translate("watch", "Frame Buffer"))
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
 
@@ -344,6 +438,10 @@ class WatchDock(QDockWidget):
             self.tree_watch.setFont(font)
             self.text_dump.setFont(font)
             self.text_log.setFont(font)
+            try:
+                self.fb_edit_addr.setFont(font)
+            except Exception:
+                pass
         except Exception as e:
             self._log_ui(f"Apply font failed: {e}", "warning", rate_key="apply-font-failed", rate_sec=10.0)
 
@@ -357,6 +455,15 @@ class WatchDock(QDockWidget):
         self.edit_addr.setEnabled(True)
         self.spin_size.setEnabled(True)
         self.text_dump.setEnabled(True)
+        try:
+            self.fb_edit_addr.setEnabled(True)
+            self.fb_spin_w.setEnabled(True)
+            self.fb_spin_h.setEnabled(True)
+            self.fb_combo_fmt.setEnabled(True)
+            self.fb_check_auto.setEnabled(True)
+            self.fb_btn_refresh.setEnabled(True)
+        except Exception:
+            pass
 
         if not enabled:
             self.tree_watch.clear()
@@ -787,8 +894,230 @@ class WatchDock(QDockWidget):
                             self._refresh_item(item, self._watch_items[key])
             # Always refresh memory dump on manual refresh; also enables auto refresh
             self.load_memory_dump(manual=True)
+            # Manual refresh for framebuffer too
+            try:
+                self.load_frame_buffer()
+            except Exception:
+                pass
         except Exception as e:
             self._log_ui(f"Refresh Now failed: {e}", "warning", rate_key="refresh-now-failed", rate_sec=3.0)
+
+    def _fb_set_zoom(self, zoom: float):
+        try:
+            z = float(zoom)
+            if z < 0.05:
+                z = 0.05
+            if z > 20.0:
+                z = 20.0
+            self._fb_zoom = z
+            self._fb_update_pixmap()
+        except Exception:
+            pass
+
+    def _fb_fit_to_view(self):
+        try:
+            img = self._fb_last_qimage
+            if img is None or img.isNull():
+                return
+            viewport = self.fb_scroll.viewport().size()
+            if viewport.width() <= 0 or viewport.height() <= 0:
+                return
+            zx = viewport.width() / max(1, img.width())
+            zy = viewport.height() / max(1, img.height())
+            self._fb_set_zoom(min(zx, zy))
+        except Exception:
+            pass
+
+    def _fb_update_pixmap(self):
+        try:
+            img = self._fb_last_qimage
+            if img is None or img.isNull():
+                return
+            pm = QPixmap.fromImage(img)
+            if float(getattr(self, "_fb_zoom", 1.0)) != 1.0:
+                pm = pm.scaled(
+                    int(max(1, img.width() * float(self._fb_zoom))),
+                    int(max(1, img.height() * float(self._fb_zoom))),
+                    Qt.IgnoreAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            self.fb_label.setPixmap(pm)
+            self.fb_label.setText("")
+        except Exception as e:
+            self.fb_label.setPixmap(QPixmap())
+            self.fb_label.setText(str(e))
+
+    def _fb_copy_to_clipboard(self):
+        try:
+            # Copy the actually rendered display result at 1:1:
+            # temporarily force zoom=1.0, render pixmap, copy, then restore zoom.
+            pm = None
+            try:
+                prev_zoom = float(getattr(self, "_fb_zoom", 1.0))
+                self._fb_zoom = 1.0
+                self._fb_update_pixmap()
+                pm0 = self.fb_label.pixmap()
+                if pm0 is not None and not pm0.isNull():
+                    pm = QPixmap(pm0)  # detach
+            except Exception:
+                pm = None
+            finally:
+                try:
+                    self._fb_zoom = prev_zoom
+                    self._fb_update_pixmap()
+                except Exception:
+                    pass
+
+            if pm is not None and not pm.isNull():
+                QGuiApplication.clipboard().setPixmap(pm)
+                return
+
+            # Fallback: copy raw 1:1 image if available
+            img = getattr(self, "_fb_last_qimage", None)
+            if img is not None and not img.isNull():
+                QGuiApplication.clipboard().setImage(img.convertToFormat(QImage.Format_ARGB32))
+        except Exception:
+            pass
+
+    def load_frame_buffer(self):
+        """Read framebuffer from target memory and render into an image (non-blocking)."""
+        try:
+            self._fb_job_id = int(getattr(self, "_fb_job_id", 0)) + 1
+            job_id = int(self._fb_job_id)
+
+            addr = _parse_int(self.fb_edit_addr.text())
+            w = int(self.fb_spin_w.value())
+            h = int(self.fb_spin_h.value())
+            fmt = str(self.fb_combo_fmt.currentData() or "ARGB32")
+
+            if addr is None or addr <= 0:
+                self.fb_label.setPixmap(QPixmap())
+                self.fb_label.setText(QCoreApplication.translate("watch", "No address specified"))
+                return
+            if w <= 0 or h <= 0:
+                self.fb_label.setPixmap(QPixmap())
+                self.fb_label.setText(QCoreApplication.translate("watch", "Invalid size"))
+                return
+
+            jlink, jlink_lock = self._get_active_jlink()
+            if not jlink:
+                self.fb_label.setPixmap(QPixmap())
+                self.fb_label.setText(QCoreApplication.translate("watch", "No active JLink"))
+                return
+
+            self.fb_label.setPixmap(QPixmap())
+            self.fb_label.setText(QCoreApplication.translate("watch", "Loading..."))
+
+            import threading
+
+            def _worker():
+                try:
+                    # Many framebuffers use 4-byte aligned stride per line. Auto-align to improve correctness.
+                    if fmt in ("ARGB32", "RGB32"):
+                        stride = w * 4
+                    elif fmt == "RGB565":
+                        stride = w * 2
+                    elif fmt == "RGB888":
+                        stride = w * 3
+                    elif fmt in ("MonoLSB", "MonoMSB"):
+                        stride = (w + 7) // 8
+                    else:
+                        stride = w * 4
+                    stride = int(((int(stride) + 3) // 4) * 4)  # 4-byte aligned
+                    n = int(stride) * int(h)
+
+                    if jlink_lock:
+                        with jlink_lock:
+                            raw = bytes(jlink.memory_read8(int(addr), int(n)))
+                    else:
+                        raw = bytes(jlink.memory_read8(int(addr), int(n)))
+
+                    def _apply():
+                        if int(getattr(self, "_fb_job_id", 0)) != int(job_id):
+                            return
+                        self._fb_last_bytes = raw
+                        self._fb_last_meta = {
+                            "addr": int(addr),
+                            "w": int(w),
+                            "h": int(h),
+                            "fmt": str(fmt),
+                            "stride": int(stride),
+                        }
+                        self._fb_last_qimage = self._fb_decode_image(raw, w, h, fmt, stride)
+                        self._fb_update_pixmap()
+
+                    # Ensure UI update is posted to GUI thread (worker thread may have no event loop)
+                    QTimer.singleShot(0, self, _apply)
+                except Exception as e:
+                    def _err():
+                        if int(getattr(self, "_fb_job_id", 0)) != int(job_id):
+                            return
+                        self.fb_label.setPixmap(QPixmap())
+                        self.fb_label.setText(str(e))
+                    QTimer.singleShot(0, self, _err)
+
+            threading.Thread(target=_worker, daemon=True, name="framebuffer_loader").start()
+        except Exception as e:
+            self.fb_label.setPixmap(QPixmap())
+            self.fb_label.setText(str(e))
+
+    def _fb_decode_image(self, raw: bytes, w: int, h: int, fmt: str, stride: int) -> QImage:
+        """Decode raw framebuffer bytes into QImage."""
+        try:
+            if fmt == "ARGB32":
+                ba = QByteArray(raw)
+                img = QImage(ba, w, h, int(stride), QImage.Format_ARGB32)
+                return img.copy()
+            if fmt == "RGB32":
+                ba = QByteArray(raw)
+                img = QImage(ba, w, h, int(stride), QImage.Format_RGB32)
+                return img.copy()
+            if fmt == "RGB888":
+                if int(stride) == w * 3:
+                    ba = QByteArray(raw)
+                    img = QImage(ba, w, h, int(stride), QImage.Format_RGB888)
+                    return img.copy()
+                # Strip per-line padding
+                out = bytearray(w * h * 3)
+                for y in range(h):
+                    src0 = y * int(stride)
+                    src1 = src0 + (w * 3)
+                    dst0 = y * (w * 3)
+                    out[dst0: dst0 + (w * 3)] = raw[src0:src1]
+                ba = QByteArray(bytes(out))
+                img = QImage(ba, w, h, w * 3, QImage.Format_RGB888)
+                return img.copy()
+            if fmt == "RGB565":
+                mv = memoryview(raw)
+                out = bytearray(w * h * 3)
+                oi = 0
+                row_bytes = w * 2
+                for y in range(h):
+                    base = y * int(stride)
+                    for x in range(0, row_bytes, 2):
+                        i = base + x
+                        v = mv[i] | (mv[i + 1] << 8)
+                        r = (v >> 11) & 0x1F
+                        g = (v >> 5) & 0x3F
+                        b = v & 0x1F
+                        out[oi] = (r << 3) | (r >> 2)
+                        out[oi + 1] = (g << 2) | (g >> 4)
+                        out[oi + 2] = (b << 3) | (b >> 2)
+                        oi += 3
+                ba = QByteArray(bytes(out))
+                img = QImage(ba, w, h, w * 3, QImage.Format_RGB888)
+                return img.copy()
+            if fmt == "MonoLSB":
+                ba = QByteArray(raw)
+                img = QImage(ba, w, h, int(stride), QImage.Format_MonoLSB)
+                return img.copy()
+            if fmt == "MonoMSB":
+                ba = QByteArray(raw)
+                img = QImage(ba, w, h, int(stride), QImage.Format_Mono)
+                return img.copy()
+        except Exception:
+            pass
+        return QImage()
 
     def _on_refresh_interval_changed(self):
         sec = int(self.combo_refresh.currentData() or 0)
@@ -1660,6 +1989,13 @@ class WatchDock(QDockWidget):
         # Memory dump auto refresh (if enabled interval)
         if self._memory_auto_enabled and self.combo_refresh.currentData() and int(self.combo_refresh.currentData()) > 0:
             self.load_memory_dump(manual=False)
+
+        # Frame buffer auto refresh (independent from MAP/ELF)
+        try:
+            if hasattr(self, "fb_check_auto") and self.fb_check_auto.isChecked():
+                self.load_frame_buffer()
+        except Exception:
+            pass
 
     def _read_ptr_value(self, jlink, addr: int, ptr_size: int) -> int:
         psz = int(ptr_size or 4)

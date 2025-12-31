@@ -11291,7 +11291,20 @@ class ConnectionDialog(QDialog):
         self.ui.comboBox_Speed.setCurrentIndex(self.config.get_speed())
         
         # 应用串口设置
-        self.ui.comboBox_Port.setCurrentIndex(self.config.get_port_index())
+        # Prefer restoring by port name (stable when port list changes).
+        try:
+            port_name = self.config.get_port_name()
+            if port_name:
+                for i in range(self.ui.comboBox_Port.count()):
+                    text = self.ui.comboBox_Port.itemText(i)
+                    if text == port_name or text.startswith(f"{port_name} " ) or text.startswith(f"{port_name}-") or text.startswith(f"{port_name} -"):
+                        self.ui.comboBox_Port.setCurrentIndex(i)
+                        break
+            else:
+                # Default to "No Serial" at index 0 when port_name is empty.
+                self.ui.comboBox_Port.setCurrentIndex(0)
+        except Exception:
+            self.ui.comboBox_Port.setCurrentIndex(0)
         self.ui.comboBox_baudrate.setCurrentIndex(self.config.get_baudrate())
         
         # 应用其他设置
@@ -11359,9 +11372,22 @@ class ConnectionDialog(QDialog):
                 self.ui.comboBox_Interface.setCurrentIndex(interface_index)
             
             # 设置端口选择框
-            port_index = self.config.get_port_index()
-            if port_index < self.ui.comboBox_Port.count():
-                self.ui.comboBox_Port.setCurrentIndex(port_index)
+            try:
+                port_name = self.config.get_port_name()
+            except Exception:
+                port_name = ""
+            if port_name:
+                for i in range(self.ui.comboBox_Port.count()):
+                    text = self.ui.comboBox_Port.itemText(i)
+                    if text == port_name or text.startswith(f"{port_name} " ) or text.startswith(f"{port_name}-") or text.startswith(f"{port_name} -"):
+                        self.ui.comboBox_Port.setCurrentIndex(i)
+                        break
+            else:
+                port_index = self.config.get_port_index()
+                if port_index < self.ui.comboBox_Port.count():
+                    self.ui.comboBox_Port.setCurrentIndex(port_index)
+                else:
+                    self.ui.comboBox_Port.setCurrentIndex(0)
                 
         except Exception as e:
             logger.debug(f"应用配置到UI时出错: {e}")
@@ -11400,10 +11426,18 @@ class ConnectionDialog(QDialog):
             
             # 保存当前选中的端口名
             current_port_text = self.ui.comboBox_Port.currentText()
-            if " - " in current_port_text:
-                port_name = current_port_text.split(" - ")[0]
-            else:
-                port_name = current_port_text
+            try:
+                if current_port_text.strip() == QCoreApplication.translate("main_window", "No Serial"):
+                    port_name = ""
+                elif " - " in current_port_text:
+                    port_name = current_port_text.split(" - ")[0]
+                else:
+                    port_name = current_port_text
+            except Exception:
+                if " - " in current_port_text:
+                    port_name = current_port_text.split(" - ")[0]
+                else:
+                    port_name = current_port_text
             self.config.set_port_name(port_name)
             
             # 保存串口转发设置
@@ -11595,6 +11629,11 @@ class ConnectionDialog(QDialog):
     def port_scan(self):
         port_list = list(serial.tools.list_ports.comports())
         self.ui.comboBox_Port.clear()
+        # Put "No Serial" at index 0 (default).
+        try:
+            self.ui.comboBox_Port.addItem(QCoreApplication.translate("main_window", "No Serial"))
+        except Exception:
+            pass
         port_list.sort()
         for port in port_list:
             try:
@@ -11620,6 +11659,12 @@ class ConnectionDialog(QDialog):
     def get_selected_port_name(self):
         """从显示文本中提取实际的端口名"""
         display_text = self.ui.comboBox_Port.currentText()
+        # "No Serial" option: return empty port name.
+        try:
+            if display_text.strip() == QCoreApplication.translate("main_window", "No Serial"):
+                return ""
+        except Exception:
+            pass
         if " - " in display_text:
             return display_text.split(" - ")[0]
         return display_text
@@ -14151,29 +14196,64 @@ class Worker(QObject):
             data: 原始字节数据
         """
         try:
-            # 确保remaining_data是bytes类型
-            if not isinstance(self.remaining_data, bytes):
-                self.remaining_data = b''
-            
-            # 使用bytes的连接操作
-            self.remaining_data += data
-            
-            # 严格按照正常连接的方式处理数据：使用0xFF分隔符模式
-            # 无论是否为回放模式，都统一使用实时连接的处理流程
-            while self.remaining_data:
-                # 查找分隔符位置
-                separator_pos = self.remaining_data.find(b'\xFF')
-                if separator_pos == -1:
-                    # 没有找到分隔符，保留数据等待下一批
-                    break
-                # 提取分隔符前的数据段
-                chunk = self.remaining_data[:separator_pos]
-                # 更新剩余数据
-                self.remaining_data = self.remaining_data[separator_pos + 1:]
+            # Normalize to bytearray for efficient incremental parsing
+            if not isinstance(self.remaining_data, bytearray):
+                try:
+                    self.remaining_data = bytearray(self.remaining_data or b"")
+                except Exception:
+                    self.remaining_data = bytearray()
+            if not data:
+                return
+            if isinstance(data, (bytes, bytearray)):
+                self.remaining_data.extend(data)
+            else:
+                # Defensive: unexpected type
+                self.remaining_data.extend(bytes(data))
 
-                if chunk:
-                    # 处理数据段
-                    self._process_chunk(chunk)
+            # Auto-detect stream format:
+            # - New format: <channel nibble + payload> + 0xFF separator
+            # - Old format (legacy): no 0xFF; treat '\n' as record separator
+            # This enables parsing old realtime rtt_log.raw that lacks 0xFF separators.
+            if not hasattr(self, "_use_ff_separator"):
+                self._use_ff_separator = None  # None/True/False
+
+            if self._use_ff_separator is None:
+                if b"\xFF" in self.remaining_data:
+                    self._use_ff_separator = True
+                elif b"\n" in self.remaining_data:
+                    # If we saw line breaks before any 0xFF, assume legacy newline framing
+                    self._use_ff_separator = False
+                elif len(self.remaining_data) > 4096:
+                    # Avoid unbounded buffering if legacy stream has no 0xFF and no early '\n'
+                    self._use_ff_separator = False
+
+            if self._use_ff_separator:
+                # New format: split by 0xFF
+                while self.remaining_data:
+                    sep = self.remaining_data.find(0xFF)
+                    if sep < 0:
+                        break
+                    chunk = bytes(self.remaining_data[:sep])
+                    del self.remaining_data[: sep + 1]
+                    if chunk:
+                        self._process_chunk(chunk)
+            else:
+                # Legacy format: split by newline; keep '\n' in payload for correct rendering
+                while True:
+                    nl = self.remaining_data.find(b"\n")
+                    if nl < 0:
+                        break
+                    line = bytes(self.remaining_data[: nl + 1])
+                    del self.remaining_data[: nl + 1]
+                    if line:
+                        self._process_chunk(line)
+
+                # Safety: if no newline ever arrives, cap buffer to avoid memory blowup
+                if len(self.remaining_data) > 1024 * 1024:
+                    chunk = bytes(self.remaining_data)
+                    self.remaining_data.clear()
+                    if chunk:
+                        self._process_chunk(chunk)
         except Exception as e:
             logger.error(f"Error processing bytes: {e}", exc_info=True)
     

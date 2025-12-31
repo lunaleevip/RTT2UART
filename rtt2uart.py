@@ -1110,20 +1110,26 @@ class rtt_to_serial():
             logger.error(f'Start RTT failed: {e}', exc_info=True)
             raise
 
-        # 修复：只有启用串口转发时才打开串口
-        if self.serial_forward_tab != -1:  # -1表示禁用转发
-            try:
-                if self.serial.isOpen() == False:
-                    # 设置串口参数并打开串口
-                    self.serial.port = self.port
-                    self.serial.baudrate = self.baudrate
-                    self.serial.timeout = 3
-                    self.serial.write_timeout = 3
-                    self.serial.open()
-                    logger.info(f'串口转发已启用，串口 {self.port} 打开成功')
-            except:
-                logger.error('Open serial failed', exc_info=True)
-                raise
+        # Open serial only when forwarding is enabled.
+        # If no serial port exists (or configured port is invalid), do not fail app startup.
+        if self.serial_forward_tab != -1:  # -1 means forwarding disabled
+            if not self.port:
+                logger.warning(QCoreApplication.translate("rtt2uart", "Serial forwarding enabled but no COM port selected; disabling forwarding"))
+                self.serial_forward_tab = -1
+            else:
+                try:
+                    if self.serial.isOpen() == False:
+                        # Configure and open serial port
+                        self.serial.port = self.port
+                        self.serial.baudrate = self.baudrate
+                        self.serial.timeout = 3
+                        self.serial.write_timeout = 3
+                        self.serial.open()
+                        logger.info(f'串口转发已启用，串口 {self.port} 打开成功')
+                except Exception as e:
+                    # Disable forwarding if open fails (e.g. no serial devices on the system)
+                    logger.warning(QCoreApplication.translate("rtt2uart", "Failed to open COM port %s: %s; disabling forwarding") % (str(self.port), str(e)), exc_info=True)
+                    self.serial_forward_tab = -1
         else:
             logger.info(QCoreApplication.translate("rtt2uart", "Serial forwarding disabled, skipping port open"))
         
