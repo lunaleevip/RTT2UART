@@ -36,6 +36,7 @@ from PySide6.QtCore import QStringListModel
 
 from map_parser import parse_segger_map, lookup_symbol
 from watch_dwarf import DwarfIndex, TypeDesc, DwarfVariable
+from config_manager import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -397,6 +398,13 @@ class WatchDock(QDockWidget):
         self._set_watch_enabled(False)
         self._log_ui("Watch/Memory dock initialized.")
         self._apply_app_font()
+        self._recent_exprs: List[str] = []
+
+        # Load persisted panel settings
+        try:
+            self._load_panel_settings()
+        except Exception:
+            pass
 
         # Follow main window font settings (if available)
         try:
@@ -404,6 +412,18 @@ class WatchDock(QDockWidget):
                 self.main_window.ui.font_combo.currentTextChanged.connect(lambda _t: self._apply_app_font())
             if hasattr(self.main_window, "ui") and hasattr(self.main_window.ui, "fontsize_box"):
                 self.main_window.ui.fontsize_box.valueChanged.connect(lambda _v: self._apply_app_font())
+        except Exception:
+            pass
+
+        # Persist settings on changes
+        try:
+            self.edit_addr.editingFinished.connect(self._save_memdump_settings)
+            self.spin_size.valueChanged.connect(lambda _v: self._save_memdump_settings())
+            self.fb_edit_addr.editingFinished.connect(self._save_framebuffer_settings)
+            self.fb_spin_w.valueChanged.connect(lambda _v: self._save_framebuffer_settings())
+            self.fb_spin_h.valueChanged.connect(lambda _v: self._save_framebuffer_settings())
+            self.fb_combo_fmt.currentIndexChanged.connect(lambda _i: self._save_framebuffer_settings())
+            self.fb_check_auto.toggled.connect(lambda _b: self._save_framebuffer_settings())
         except Exception:
             pass
 
@@ -533,6 +553,11 @@ class WatchDock(QDockWidget):
             self.elf_path = path
             self.edit_elf.setText(path)
             self._log_ui(f"ELF selected: {path}")
+            try:
+                config_manager.set_watch_elf_path(path)
+                config_manager.save_config()
+            except Exception:
+                pass
             self._try_enable()
 
     def _try_enable(self):
@@ -650,6 +675,10 @@ class WatchDock(QDockWidget):
         """Submit expression from inline input."""
         if not expr:
             return
+        try:
+            self._record_recent_expr(expr)
+        except Exception:
+            pass
         self._add_watch(expr)
         # Defer clear to next event loop tick: prevents completer/return key handling from restoring text.
         def _clear_later():
@@ -982,6 +1011,10 @@ class WatchDock(QDockWidget):
     def load_frame_buffer(self):
         """Read framebuffer from target memory and render into an image (non-blocking)."""
         try:
+            try:
+                self._save_framebuffer_settings()
+            except Exception:
+                pass
             self._fb_job_id = int(getattr(self, "_fb_job_id", 0)) + 1
             job_id = int(self._fb_job_id)
 
@@ -1997,6 +2030,85 @@ class WatchDock(QDockWidget):
         except Exception:
             pass
 
+    def _record_recent_expr(self, expr: str):
+        s = (expr or "").strip()
+        if not s:
+            return
+        try:
+            self._recent_exprs = [x for x in self._recent_exprs if x != s]
+        except Exception:
+            self._recent_exprs = []
+        self._recent_exprs.insert(0, s)
+        self._recent_exprs = self._recent_exprs[:10]
+        try:
+            config_manager.set_watch_recent_exprs(self._recent_exprs)
+            config_manager.save_config()
+        except Exception:
+            pass
+
+    def _save_memdump_settings(self):
+        try:
+            config_manager.set_watch_mem_addr((self.edit_addr.text() or "").strip())
+            config_manager.set_watch_mem_size(int(self.spin_size.value()))
+            config_manager.save_config()
+        except Exception:
+            pass
+
+    def _save_framebuffer_settings(self):
+        try:
+            config_manager.set_watch_fb_addr((self.fb_edit_addr.text() or "").strip())
+            config_manager.set_watch_fb_w(int(self.fb_spin_w.value()))
+            config_manager.set_watch_fb_h(int(self.fb_spin_h.value()))
+            config_manager.set_watch_fb_fmt(str(self.fb_combo_fmt.currentData() or "MonoLSB"))
+            config_manager.set_watch_fb_auto(bool(self.fb_check_auto.isChecked()))
+            config_manager.save_config()
+        except Exception:
+            pass
+
+    def _load_panel_settings(self):
+        # Recent expressions
+        try:
+            self._recent_exprs = config_manager.get_watch_recent_exprs()[:10]
+        except Exception:
+            self._recent_exprs = []
+
+        # Memory dump
+        try:
+            a = config_manager.get_watch_mem_addr()
+            if isinstance(a, str) and a.strip():
+                self.edit_addr.setText(a.strip())
+            s = int(config_manager.get_watch_mem_size() or 256)
+            s = max(1, min(s, int(self.spin_size.maximum())))
+            self.spin_size.setValue(s)
+        except Exception:
+            pass
+
+        # Framebuffer
+        try:
+            fa = config_manager.get_watch_fb_addr()
+            if isinstance(fa, str) and fa.strip():
+                self.fb_edit_addr.setText(fa.strip())
+            self.fb_spin_w.setValue(int(config_manager.get_watch_fb_w() or 0))
+            self.fb_spin_h.setValue(int(config_manager.get_watch_fb_h() or 0))
+            fmt = str(config_manager.get_watch_fb_fmt() or "MonoLSB")
+            for i in range(self.fb_combo_fmt.count()):
+                if str(self.fb_combo_fmt.itemData(i) or "") == fmt:
+                    self.fb_combo_fmt.setCurrentIndex(i)
+                    break
+            self.fb_check_auto.setChecked(bool(config_manager.get_watch_fb_auto()))
+        except Exception:
+            pass
+
+        # ELF path
+        try:
+            p = config_manager.get_watch_elf_path()
+            if isinstance(p, str) and p.strip():
+                self.elf_path = p.strip()
+                self.edit_elf.setText(self.elf_path)
+                self._try_enable()
+        except Exception:
+            pass
+
     def _read_ptr_value(self, jlink, addr: int, ptr_size: int) -> int:
         psz = int(ptr_size or 4)
         raw = bytes(jlink.memory_read8(int(addr), min(psz, 8)))
@@ -2219,6 +2331,10 @@ class WatchDock(QDockWidget):
         return f"0x{val:0{min(size, 8)*2}X}"
 
     def load_memory_dump(self, manual: bool = True):
+        try:
+            self._save_memdump_settings()
+        except Exception:
+            pass
         jlink, lock = self._get_active_jlink()
         if not jlink:
             self.text_dump.setPlainText(QCoreApplication.translate("watch", "No active JLink"))

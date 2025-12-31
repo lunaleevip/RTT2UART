@@ -88,6 +88,20 @@ class ConfigManager:
             'mode': 'LOG',     # LOG 或 DATA
             'target_tab': '-1' # 转发目标TAB索引
         }
+
+        # Watch/Memory/FrameBuffer panel settings
+        # NOTE: recent expressions are stored as JSON list
+        self.config['WatchPanel'] = {
+            'elf_path': '',
+            'recent_exprs': '[]',
+            'mem_addr': '0x20000000',
+            'mem_size': '256',
+            'fb_addr': '',
+            'fb_w': '0',
+            'fb_h': '0',
+            'fb_fmt': 'MonoLSB',
+            'fb_auto': 'false',
+        }
         
         # Restart 设置
         self.config['Restart'] = {
@@ -542,6 +556,88 @@ class ConfigManager:
     def set_serial_forward_target_tab(self, tab: int):
         """设置串口转发目标TAB"""
         self.config.set('SerialForward', 'target_tab', str(tab))
+
+    # ===========================================
+    # Watch/Memory/FrameBuffer panel settings
+    # ===========================================
+
+    def get_watch_elf_path(self) -> str:
+        return self._safe_get('WatchPanel', 'elf_path', '')
+
+    def set_watch_elf_path(self, path: str):
+        self.config.set('WatchPanel', 'elf_path', path or '')
+
+    def get_watch_recent_exprs(self) -> List[str]:
+        try:
+            raw = self.config.get('WatchPanel', 'recent_exprs', fallback='[]')
+            arr = json.loads(raw)
+            if isinstance(arr, list):
+                out: List[str] = []
+                for x in arr:
+                    if isinstance(x, str) and x.strip():
+                        out.append(x.strip())
+                return out
+        except Exception:
+            return []
+        return []
+
+    def set_watch_recent_exprs(self, exprs: List[str]):
+        try:
+            arr = [x for x in exprs if isinstance(x, str) and x.strip()]
+            self.config.set('WatchPanel', 'recent_exprs', json.dumps(arr[:10], ensure_ascii=False))
+        except Exception:
+            self.config.set('WatchPanel', 'recent_exprs', '[]')
+
+    def get_watch_mem_addr(self) -> str:
+        return self._safe_get('WatchPanel', 'mem_addr', '0x20000000')
+
+    def set_watch_mem_addr(self, addr_text: str):
+        self.config.set('WatchPanel', 'mem_addr', addr_text or '')
+
+    def get_watch_mem_size(self) -> int:
+        return self._safe_getint('WatchPanel', 'mem_size', 256)
+
+    def set_watch_mem_size(self, size: int):
+        try:
+            self.config.set('WatchPanel', 'mem_size', str(int(size)))
+        except Exception:
+            self.config.set('WatchPanel', 'mem_size', '256')
+
+    def get_watch_fb_addr(self) -> str:
+        return self._safe_get('WatchPanel', 'fb_addr', '')
+
+    def set_watch_fb_addr(self, addr_text: str):
+        self.config.set('WatchPanel', 'fb_addr', addr_text or '')
+
+    def get_watch_fb_w(self) -> int:
+        return self._safe_getint('WatchPanel', 'fb_w', 0)
+
+    def set_watch_fb_w(self, w: int):
+        try:
+            self.config.set('WatchPanel', 'fb_w', str(int(w)))
+        except Exception:
+            self.config.set('WatchPanel', 'fb_w', '0')
+
+    def get_watch_fb_h(self) -> int:
+        return self._safe_getint('WatchPanel', 'fb_h', 0)
+
+    def set_watch_fb_h(self, h: int):
+        try:
+            self.config.set('WatchPanel', 'fb_h', str(int(h)))
+        except Exception:
+            self.config.set('WatchPanel', 'fb_h', '0')
+
+    def get_watch_fb_fmt(self) -> str:
+        return self._safe_get('WatchPanel', 'fb_fmt', 'MonoLSB')
+
+    def set_watch_fb_fmt(self, fmt: str):
+        self.config.set('WatchPanel', 'fb_fmt', fmt or 'MonoLSB')
+
+    def get_watch_fb_auto(self) -> bool:
+        return self._safe_getboolean('WatchPanel', 'fb_auto', False)
+
+    def set_watch_fb_auto(self, enabled: bool):
+        self.config.set('WatchPanel', 'fb_auto', str(bool(enabled)).lower())
     
     # ===========================================
     # UI设置相关方法
