@@ -2124,7 +2124,7 @@ class DeviceMdiWindow(QWidget):
         
         # 🔧 修复：记录每个TAB上次更新的时间，用于低频率刷新非激活TAB
         self.last_tab_update_times = [0.0] * MAX_TAB_SIZE
-        self.inactive_tab_update_interval = 3.0  # 非激活TAB更新间隔：3秒
+        self.inactive_tab_update_interval = 1.0  # 非激活TAB更新间隔：1秒（避免切换TAB时积压过多导致观感“重刷”）
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
@@ -2739,17 +2739,8 @@ class DeviceMdiWindow(QWidget):
                             self.last_display_lengths[channel] = 0
                             last_length = 0
                         
-                        # 🔧 修复：非激活TAB的数据丢失检测也应该有频率限制（5秒一次）
-                        if hasattr(self, 'last_inactive_gap_check_times') and hasattr(self, 'inactive_gap_check_interval'):
-                            time_since_last_gap_check = current_time - self.last_inactive_gap_check_times[channel]
-                            if time_since_last_gap_check >= self.inactive_gap_check_interval:
-                                # 只有超过5秒才检查数据丢失
-                                if current_length > last_length + 1024:
-                                    logger.warning(f"🔧 [CH{channel}] Inactive TAB data gap detected: gap={current_length - last_length}, forcing refresh")
-                                    if hasattr(self, '_force_refresh_tab'):
-                                        self._force_refresh_tab(channel)
-                                # 更新数据丢失检测时间戳
-                                self.last_inactive_gap_check_times[channel] = current_time
+                        # ⚠️ 注意：非激活TAB如果长时间不更新，会出现“积压”。
+                        # 这不是丢数据，禁止在这里触发 _force_refresh_tab()（会 clear()+last_display_lengths=0 导致切换TAB时观感为“重刷/重复输出”）。
                         continue
                     # 更新非激活TAB的时间戳
                     self.last_tab_update_times[channel] = current_time
