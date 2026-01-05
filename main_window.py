@@ -2114,17 +2114,20 @@ class DeviceMdiWindow(QWidget):
         ]
         # 每次 UI tick 允许追加的最大字符数（按字符计数，通常与字节近似）
         self._ui_append_max_active = 64 * 1024
-        self._ui_append_max_inactive = 16 * 1024
+        # 非激活TAB也需要后台追赶，否则切换TAB时会堆积很多内容，看起来像“没有后台更新”
+        self._ui_append_max_inactive = 64 * 1024
         # 严重性能状态下进一步降载（只更新当前激活TAB，减少解析/插入压力）
         self._ui_append_max_active_crit = 16 * 1024
-        self._ui_append_max_inactive_crit = 0
+        # 关键：即使在 perf_crit 下，非激活TAB也必须做最小后台追赶；
+        # 否则会出现“未激活TAB完全不更新，切换后一次性刷大量内容”的现象。
+        self._ui_append_max_inactive_crit = 2 * 1024
         
         # 🔧 修复：监听TAB切换事件，切换时强制刷新当前TAB内容
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         
         # 🔧 修复：记录每个TAB上次更新的时间，用于低频率刷新非激活TAB
         self.last_tab_update_times = [0.0] * MAX_TAB_SIZE
-        self.inactive_tab_update_interval = 1.0  # 非激活TAB更新间隔：1秒（避免切换TAB时积压过多导致观感“重刷”）
+        self.inactive_tab_update_interval = 0.5  # 非激活TAB更新间隔：0.5秒（提升后台追赶速度）
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
@@ -2765,8 +2768,6 @@ class DeviceMdiWindow(QWidget):
 
                 # 分片追赶：每次 tick 最多写入指定大小，避免大字符串 join/解析阻塞
                 if perf_crit:
-                    if not is_active_tab and self._ui_append_max_inactive_crit <= 0:
-                        continue
                     max_append = self._ui_append_max_active_crit if is_active_tab else self._ui_append_max_inactive_crit
                 else:
                     max_append = self._ui_append_max_active if is_active_tab else self._ui_append_max_inactive

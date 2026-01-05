@@ -183,6 +183,27 @@ class rtt_to_serial():
             except RuntimeError:
                 # 程序退出时GUI对象可能已被删除，忽略此错误
                 pass
+
+    def _call_jlink_with_timeout(self, desc: str, fn, timeout_sec: float = 5.0):
+        """Run a JLink call with a hard timeout to avoid infinite hangs (device busy, driver issues, etc.)."""
+        result = {"exc": None}
+
+        def _runner():
+            try:
+                with self._jlink_lock:
+                    fn()
+            except Exception as e:
+                result["exc"] = e
+
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
+        t.join(float(timeout_sec))
+
+        if t.is_alive():
+            raise TimeoutError(f"{desc} timeout after {timeout_sec:.1f}s")
+        if result["exc"] is not None:
+            raise result["exc"]
+        return True
     
     def _auto_reset_jlink_connection(self):
         """自动重置JLink连接"""
@@ -200,7 +221,7 @@ class rtt_to_serial():
             # 2. 断开目标连接
             try:
                 if hasattr(self.jlink, 'close'):
-                    self.jlink.close()
+                    self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection closed"))
             except Exception as e:
                 logger.warning(f"Failed to close JLink during reset: {e}")
@@ -222,9 +243,13 @@ class rtt_to_serial():
                 # 重新打开JLink
                 try:
                     if self._connect_inf == 'USB':
-                        self.jlink.open(self._connect_para)
+                        self._call_jlink_with_timeout(
+                            "jlink.open(usb)",
+                            lambda: self.jlink.open(self._connect_para),
+                            5.0,
+                        )
                     else:
-                        self.jlink.open()
+                        self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink reopened successfully"))
                 except pylink.errors.JLinkException as e:
                     error_msg = str(e)
@@ -234,7 +259,7 @@ class rtt_to_serial():
                         import time
                         # 尝试关闭
                         try:
-                            self.jlink.close()
+                            self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                             time.sleep(0.3)
                         except Exception as close_e:
                             logger.warning(f"Failed to close JLink: {close_e}")
@@ -255,9 +280,13 @@ class rtt_to_serial():
                         
                         # 重试打开
                         if self._connect_inf == 'USB':
-                            self.jlink.open(self._connect_para)
+                            self._call_jlink_with_timeout(
+                                "jlink.open(usb)",
+                                lambda: self.jlink.open(self._connect_para),
+                                5.0,
+                            )
                         else:
-                            self.jlink.open()
+                            self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
                     else:
                         raise
@@ -271,11 +300,15 @@ class rtt_to_serial():
                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink interface reset: %s") % str(self._interface))
                 
                 # 重新连接目标
-                self.jlink.connect(self.device)
+                self._call_jlink_with_timeout(
+                    "jlink.connect(...)",
+                    lambda: self.jlink.connect(self.device),
+                    5.0,
+                )
                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device reconnected: %s") % str(self.device))
                 
                 # 重新启动RTT
-                self.jlink.rtt_start()
+                self._call_jlink_with_timeout("jlink.rtt_start()", lambda: self.jlink.rtt_start(), 5.0)
                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT restarted successfully"))
                 
                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection reset completed!"))
@@ -303,7 +336,7 @@ class rtt_to_serial():
                 if hasattr(self, 'jlink') and self.jlink:
                     try:
                         if self.jlink.connected():
-                            self.jlink.close()
+                            self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection safely disconnected"))
                     except Exception:
                         pass  # 忽略断开时的错误
@@ -519,7 +552,7 @@ class rtt_to_serial():
                         logger.warning("Found existing JLink connection at startup, closing it first...")
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found existing JLink connection, closing it first..."))
                         try:
-                            self.jlink.close()
+                            self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                             import time
                             time.sleep(0.5)  # 等待关闭完成
                             logger.info("Closed existing JLink connection at startup")
@@ -568,7 +601,7 @@ class rtt_to_serial():
                 if need_reopen:
                     try:
                         logger.info('Closing JLink to switch device...')
-                        self.jlink.close()
+                        self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                         import time
                         time.sleep(0.3)
                         is_opened = False  # 标记为未打开，需要重新 open
@@ -583,13 +616,21 @@ class rtt_to_serial():
                         if self._connect_inf == 'USB':
                             if self._connect_para:
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via USB (Serial: %s)") % self._connect_para)
-                                self.jlink.open(serial_no=self._connect_para)
+                                self._call_jlink_with_timeout(
+                                    "jlink.open(serial_no=...)",
+                                    lambda: self.jlink.open(serial_no=self._connect_para),
+                                    5.0,
+                                )
                             else:
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via USB (Auto-detect)"))
-                                self.jlink.open()
+                                self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
                         else:
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting JLink via TCP/IP (%s)") % self._connect_para)
-                            self.jlink.open(ip_addr=self._connect_para)
+                            self._call_jlink_with_timeout(
+                                "jlink.open(ip_addr=...)",
+                                lambda: self.jlink.open(ip_addr=self._connect_para),
+                                5.0,
+                            )
                         
                         # 短暂等待连接稳定
                         import time
@@ -645,7 +686,7 @@ class rtt_to_serial():
                                 if is_opened:
                                     try:
                                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Closing existing JLink connection..."))
-                                        self.jlink.close()
+                                        self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                                         time.sleep(0.5)  # 增加等待时间，确保DLL层面完全关闭
                                         logger.debug("JLink close() called, waiting for DLL to release")
                                     except Exception as close_e:
@@ -680,7 +721,7 @@ class rtt_to_serial():
                                     try:
                                         # 尝试最后一次强制关闭
                                         try:
-                                            self.jlink.close()
+                                            self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                                         except:
                                             pass
                                         
@@ -707,11 +748,19 @@ class rtt_to_serial():
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Retrying JLink connection..."))
                                 if self._connect_inf == 'USB':
                                     if self._connect_para:
-                                        self.jlink.open(serial_no=self._connect_para)
+                                        self._call_jlink_with_timeout(
+                                            "jlink.open(serial_no=...)",
+                                            lambda: self.jlink.open(serial_no=self._connect_para),
+                                            5.0,
+                                        )
                                     else:
-                                        self.jlink.open()
+                                        self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
                                 else:
-                                    self.jlink.open(ip_addr=self._connect_para)
+                                    self._call_jlink_with_timeout(
+                                        "jlink.open(ip_addr=...)",
+                                        lambda: self.jlink.open(ip_addr=self._connect_para),
+                                        5.0,
+                                    )
                                 
                                 time.sleep(0.1)
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection re-established"))
@@ -815,7 +864,11 @@ class rtt_to_serial():
                     # 🔑 如果 JLink 已经连接到目标设备（重用的情况），跳过 connect() 调用
                     if not already_connected_to_target:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
-                        self.jlink.connect(self.device)
+                        self._call_jlink_with_timeout(
+                            "jlink.connect(...)",
+                            lambda: self.jlink.connect(self.device),
+                            5.0,
+                        )
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device connected successfully: %s") % self.device)
                     else:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Skipping connect, already connected to target device: %s") % self.device)
@@ -840,7 +893,11 @@ class rtt_to_serial():
                                 if data_bytes.startswith(rtt_id):
                                     logger.info(f"Verified RTT Control Block at 0x{address:08X}")
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Verified RTT Control Block at address: 0x%08X") % address)
-                                    self.jlink.rtt_start(address)
+                                    self._call_jlink_with_timeout(
+                                        "jlink.rtt_start(address)",
+                                        lambda: self.jlink.rtt_start(address),
+                                        5.0,
+                                    )
                                 else:
                                     error_msg = QCoreApplication.translate("rtt2uart", "No RTT Control Block found at specified address: 0x%08X") % address
                                     self._log_to_gui(error_msg)
@@ -903,7 +960,11 @@ class rtt_to_serial():
                             
                             if cb_addr:
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
-                                self.jlink.rtt_start(block_address=cb_addr)
+                                self._call_jlink_with_timeout(
+                                    "jlink.rtt_start(block_address=...)",
+                                    lambda: self.jlink.rtt_start(block_address=cb_addr),
+                                    5.0,
+                                )
                             else:
                                 error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in specified range")
                                 self._log_to_gui(error_msg)
@@ -920,7 +981,7 @@ class rtt_to_serial():
                         # 如果设置了跳过RTT块识别，直接使用JLink自动检测
                         if self._skip_rtt_block_detection:
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Skipping RTT block detection, using JLink auto-detection..."))
-                            self.jlink.rtt_start()
+                            self._call_jlink_with_timeout("jlink.rtt_start()", lambda: self.jlink.rtt_start(), 5.0)
                         else:
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Searching for RTT Control Block in memory..."))
                             
@@ -997,7 +1058,7 @@ class rtt_to_serial():
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X), trying JLink auto-detection...") % (ram_start, ram_start + ram_size))
                                     try:
                                         # 尝试使用JLink自动检测
-                                        self.jlink.rtt_start()
+                                        self._call_jlink_with_timeout("jlink.rtt_start()", lambda: self.jlink.rtt_start(), 5.0)
                                         logger.info("JLink auto-detection succeeded")
                                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started using JLink auto-detection"))
                                     except Exception as auto_e:
@@ -1009,7 +1070,11 @@ class rtt_to_serial():
                                 else:
                                     # 使用找到的地址启动 RTT
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
-                                    self.jlink.rtt_start(block_address=cb_addr)
+                                    self._call_jlink_with_timeout(
+                                        "jlink.rtt_start(block_address=...)",
+                                        lambda: self.jlink.rtt_start(block_address=cb_addr),
+                                        5.0,
+                                    )
                                     
                                     # 后台搜索将继续在ConnectionDialog中启动
                                     
@@ -1268,7 +1333,7 @@ class rtt_to_serial():
                     try:
                         # 关闭JLink连接
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Closing JLink..."))
-                        self.jlink.close()
+                        self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection closed"))
                         logger.debug('JLink closed successfully')
                         break  # 成功关闭，退出循环
