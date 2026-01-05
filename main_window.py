@@ -8605,6 +8605,36 @@ class RTTMainWindow(QMainWindow):
                 return
             
             rtt2uart = session.rtt2uart
+            jlock = getattr(rtt2uart, "_jlink_lock", None)
+
+            def _with_lock(fn):
+                if jlock is None:
+                    return fn()
+                try:
+                    with jlock:
+                        return fn()
+                except Exception:
+                    # if lock is invalid for any reason, fall back
+                    return fn()
+
+            def _rtt_retry(fn, timeout_sec: float = 2.0, sleep_sec: float = 0.15):
+                """Retry RTT calls briefly to wait for Control Block discovery."""
+                t0 = time.time()
+                last_e = None
+                while (time.time() - t0) < float(timeout_sec):
+                    try:
+                        return _with_lock(fn)
+                    except Exception as e:
+                        last_e = e
+                        emsg = str(e)
+                        # Typical: "The RTT Control Block has not yet been found (wait?)"
+                        if ("RTT Control Block" in emsg and "not yet" in emsg) or ("wait?" in emsg):
+                            time.sleep(float(sleep_sec))
+                            continue
+                        raise
+                if last_e is not None:
+                    raise last_e
+                raise Exception("RTT not ready")
             
             # 检查 JLink 连接和 RTT 状态
             if not hasattr(rtt2uart, 'jlink') or not rtt2uart.jlink:
@@ -8617,7 +8647,7 @@ class RTTMainWindow(QMainWindow):
             
             # 检查 JLink 是否真正打开
             try:
-                if not rtt2uart.jlink.opened():
+                if not _with_lock(lambda: rtt2uart.jlink.opened()):
                     QMessageBox.warning(
                         self,
                         QCoreApplication.translate("main_window", "JLink Not Open"),
@@ -8636,8 +8666,8 @@ class RTTMainWindow(QMainWindow):
             # 获取 RTT 通道信息
             try:
                 # 读取真实的 RTT 控制块信息
-                num_up_buffers = rtt2uart.jlink.rtt_get_num_up_buffers()
-                num_down_buffers = rtt2uart.jlink.rtt_get_num_down_buffers()
+                num_up_buffers = int(_rtt_retry(lambda: rtt2uart.jlink.rtt_get_num_up_buffers(), timeout_sec=2.0))
+                num_down_buffers = int(_rtt_retry(lambda: rtt2uart.jlink.rtt_get_num_down_buffers(), timeout_sec=2.0))
                 
                 logger.info(f"RTT Info: {num_up_buffers} up buffers, {num_down_buffers} down buffers")
                 
@@ -8667,8 +8697,14 @@ class RTTMainWindow(QMainWindow):
                 # 填充 Up channels 数据
                 for i in range(num_up_buffers):
                     try:
-                        buf_info = rtt2uart.jlink.rtt_get_buf_descriptor(i, True)
-                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                        buf_info = _rtt_retry(lambda ii=i: rtt2uart.jlink.rtt_get_buf_descriptor(ii, True), timeout_sec=2.0)
+                        try:
+                            if isinstance(buf_info.name, (bytes, bytearray)):
+                                name = bytes(buf_info.name).decode('utf-8', errors='replace')
+                            else:
+                                name = str(buf_info.name)
+                        except Exception:
+                            name = "-"
                         size = buf_info.SizeOfBuffer
                         flags = buf_info.Flags
                         
@@ -8722,8 +8758,14 @@ class RTTMainWindow(QMainWindow):
                 # 填充 Down channels 数据
                 for i in range(num_down_buffers):
                     try:
-                        buf_info = rtt2uart.jlink.rtt_get_buf_descriptor(i, False)
-                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                        buf_info = _rtt_retry(lambda ii=i: rtt2uart.jlink.rtt_get_buf_descriptor(ii, False), timeout_sec=2.0)
+                        try:
+                            if isinstance(buf_info.name, (bytes, bytearray)):
+                                name = bytes(buf_info.name).decode('utf-8', errors='replace')
+                            else:
+                                name = str(buf_info.name)
+                        except Exception:
+                            name = "-"
                         size = buf_info.SizeOfBuffer
                         flags = buf_info.Flags
                         

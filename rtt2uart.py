@@ -1110,8 +1110,9 @@ class rtt_to_serial():
                         
                         try:
                             # 获取通道信息
-                            num_up = self.jlink.rtt_get_num_up_buffers()
-                            num_down = self.jlink.rtt_get_num_down_buffers()
+                            with self._jlink_lock:
+                                num_up = self.jlink.rtt_get_num_up_buffers()
+                                num_down = self.jlink.rtt_get_num_down_buffers()
                             
                             logger.info(f"RTT channels: {num_up} up, {num_down} down")
                             
@@ -1125,8 +1126,15 @@ class rtt_to_serial():
                                 # 打印每个上行通道的详细信息
                                 for i in range(num_up):
                                     try:
-                                        buf_info = self.jlink.rtt_get_buf_descriptor(i, True)
-                                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                                        with self._jlink_lock:
+                                            buf_info = self.jlink.rtt_get_buf_descriptor(i, True)
+                                        try:
+                                            if isinstance(buf_info.name, (bytes, bytearray)):
+                                                name = bytes(buf_info.name).decode('utf-8', errors='replace')
+                                            else:
+                                                name = str(buf_info.name)
+                                        except Exception:
+                                            name = "-"
                                         size = buf_info.SizeOfBuffer
                                         flags = buf_info.Flags
                                         mode_str = {0: "skip", 1: "trim", 2: "block"}.get(flags, f"mode{flags}")
@@ -1139,8 +1147,15 @@ class rtt_to_serial():
                                 # 打印每个下行通道的详细信息
                                 for i in range(num_down):
                                     try:
-                                        buf_info = self.jlink.rtt_get_buf_descriptor(i, False)
-                                        name = buf_info.name.decode('utf-8') if isinstance(buf_info.name, bytes) else str(buf_info.name)
+                                        with self._jlink_lock:
+                                            buf_info = self.jlink.rtt_get_buf_descriptor(i, False)
+                                        try:
+                                            if isinstance(buf_info.name, (bytes, bytearray)):
+                                                name = bytes(buf_info.name).decode('utf-8', errors='replace')
+                                            else:
+                                                name = str(buf_info.name)
+                                        except Exception:
+                                            name = "-"
                                         size = buf_info.SizeOfBuffer
                                         flags = buf_info.Flags
                                         mode_str = {0: "skip", 1: "trim", 2: "block"}.get(flags, f"mode{flags}")
