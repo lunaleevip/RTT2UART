@@ -2122,6 +2122,8 @@ class DeviceMdiWindow(QWidget):
             {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
             for _ in range(MAX_TAB_SIZE)
         ]
+        # 当缓冲区发生裁剪(trim)时，下一次该TAB更新需要清屏并重置游标，否则流式游标可能错位导致“追不上最新”
+        self._tab_needs_clear_on_next_update = [False] * MAX_TAB_SIZE
         # 每次 UI tick 允许追加的最大字符数（按字符计数，通常与字节近似）
         self._ui_append_max_active = 64 * 1024
         # 非激活TAB也需要后台追赶，否则切换TAB时会堆积很多内容，看起来像“没有后台更新”
@@ -2140,6 +2142,9 @@ class DeviceMdiWindow(QWidget):
         self.inactive_tab_update_interval = 3  # 非激活TAB更新间隔：3秒
         # 非激活TAB追赶目标速率：interval 越大，单次追加越大，避免看起来“完全不更新”，同时避免 0.5s 造成高CPU
         self._ui_inactive_target_rate = 32 * 1024  # ~32KB/s
+        # 非激活TAB自适应追赶：如果一次更新后仍有积压，临时用更短间隔继续追赶，追上后恢复为 3 秒
+        self._inactive_tab_catchup_interval = 0.2
+        self._inactive_tab_next_interval = [float(self.inactive_tab_update_interval)] * MAX_TAB_SIZE
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
@@ -2739,6 +2744,56 @@ class DeviceMdiWindow(QWidget):
             # 获取彩色缓冲区的当前长度
             current_length = colored_buffer_lengths[channel]
             last_length = self.last_display_lengths[channel]
+
+            # 如果该TAB发生过trim，必须先清屏并重置游标/显示偏移，避免重复/错位导致不追赶
+            try:
+                if hasattr(self, '_tab_needs_clear_on_next_update') and self._tab_needs_clear_on_next_update[channel]:
+                    if hasattr(self, 'text_edits') and channel < len(self.text_edits):
+                        text_edit = self.text_edits[channel]
+                        v_scrollbar = text_edit.verticalScrollBar()
+                        h_scrollbar = text_edit.horizontalScrollBar()
+                        vscroll = v_scrollbar.value()
+                        hscroll = h_scrollbar.value()
+                        was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
+
+                        try:
+                            text_edit._programmatic_scroll = True
+                        except Exception:
+                            pass
+                        try:
+                            text_edit.clear()
+                        except Exception:
+                            pass
+                        try:
+                            self.last_display_lengths[channel] = 0
+                            self._reset_ui_stream_state(channel)
+                            last_length = 0
+                        except Exception:
+                            pass
+
+                        v_scrollbar.blockSignals(True)
+                        h_scrollbar.blockSignals(True)
+                        try:
+                            if was_at_bottom or not getattr(text_edit, '_v_scroll_locked', False):
+                                v_scrollbar.setValue(v_scrollbar.maximum())
+                                try:
+                                    text_edit._v_scroll_locked = False
+                                except Exception:
+                                    pass
+                            else:
+                                v_scrollbar.setValue(vscroll)
+                            h_scrollbar.setValue(hscroll)
+                        finally:
+                            v_scrollbar.blockSignals(False)
+                            h_scrollbar.blockSignals(False)
+                            try:
+                                text_edit._programmatic_scroll = False
+                            except Exception:
+                                pass
+
+                    self._tab_needs_clear_on_next_update[channel] = False
+            except Exception:
+                pass
             
             # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
             is_active_tab = (channel == current_tab)
@@ -2746,7 +2801,11 @@ class DeviceMdiWindow(QWidget):
                 # 检查是否需要更新（距离上次更新超过1秒）
                 if hasattr(self, 'last_tab_update_times') and hasattr(self, 'inactive_tab_update_interval'):
                     time_since_last_update = current_time - self.last_tab_update_times[channel]
-                    if time_since_last_update < self.inactive_tab_update_interval:
+                    try:
+                        interval = float(self._inactive_tab_next_interval[channel]) if hasattr(self, '_inactive_tab_next_interval') else float(self.inactive_tab_update_interval)
+                    except Exception:
+                        interval = float(self.inactive_tab_update_interval)
+                    if time_since_last_update < interval:
                         # 跳过本次更新，但继续检查缓冲区裁剪（这是关键问题，必须立即处理）
                         if current_length < last_length:
                             trimmed_length = last_length - current_length
@@ -2862,6 +2921,20 @@ class DeviceMdiWindow(QWidget):
                 # 更新TAB的时间戳（激活和非激活TAB都更新）
                 if hasattr(self, 'last_tab_update_times'):
                     self.last_tab_update_times[channel] = current_time
+
+                # 非激活TAB：如果仍有积压，临时提高刷新频率；追上后恢复为 3 秒
+                if not is_active_tab:
+                    try:
+                        remaining = int(current_length - int(self.last_display_lengths[channel] or 0))
+                    except Exception:
+                        remaining = 0
+                    try:
+                        if remaining > 0:
+                            self._inactive_tab_next_interval[channel] = float(getattr(self, '_inactive_tab_catchup_interval', 0.5) or 0.5)
+                        else:
+                            self._inactive_tab_next_interval[channel] = float(self.inactive_tab_update_interval)
+                    except Exception:
+                        pass
 
     def update_filter_tab_display(self):
         """更新筛选TAB的显示
@@ -14564,10 +14637,27 @@ class Worker(QObject):
                     if session.mdi_window and hasattr(session.mdi_window, 'last_display_lengths'):
                         if buffer_index < len(session.mdi_window.last_display_lengths):
                             old_length = session.mdi_window.last_display_lengths[buffer_index]
-                            # 调整last_display_lengths，但不能小于0
-                            new_length = max(0, old_length - trimmed_length)
-                            session.mdi_window.last_display_lengths[buffer_index] = new_length
-                            logger.debug(f"📊 Updated MDI window last_display_lengths[{buffer_index}]: {old_length} -> {new_length} (trimmed {trimmed_length} bytes)")
+                            # 缓冲区已发生裁剪：流式游标无法安全“平移”到新位置，标记下一次更新先清屏重建显示
+                            try:
+                                session.mdi_window.last_display_lengths[buffer_index] = 0
+                            except Exception:
+                                pass
+                            try:
+                                if hasattr(session.mdi_window, '_reset_ui_stream_state'):
+                                    session.mdi_window._reset_ui_stream_state(buffer_index)
+                            except Exception:
+                                pass
+                            try:
+                                if hasattr(session.mdi_window, '_tab_needs_clear_on_next_update'):
+                                    session.mdi_window._tab_needs_clear_on_next_update[buffer_index] = True
+                            except Exception:
+                                pass
+                            try:
+                                if hasattr(session.mdi_window, 'last_tab_update_times') and buffer_index < len(session.mdi_window.last_tab_update_times):
+                                    session.mdi_window.last_tab_update_times[buffer_index] = 0.0
+                            except Exception:
+                                pass
+                            logger.debug(f"📊 Buffer trimmed: TAB[{buffer_index}] will clear+rebuild on next update (old_display={old_length}, trimmed={trimmed_length})")
         except Exception as e:
             logger.error(f"Failed to notify MDI windows of buffer trim: {e}", exc_info=True)
     
