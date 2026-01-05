@@ -2127,7 +2127,7 @@ class DeviceMdiWindow(QWidget):
         
         # 🔧 修复：记录每个TAB上次更新的时间，用于低频率刷新非激活TAB
         self.last_tab_update_times = [0.0] * MAX_TAB_SIZE
-        self.inactive_tab_update_interval = 0.5  # 非激活TAB更新间隔：0.5秒（提升后台追赶速度）
+        self.inactive_tab_update_interval = 3  # 非激活TAB更新间隔：3秒
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
@@ -5098,6 +5098,20 @@ class RTTMainWindow(QMainWindow):
         self.write_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.status_bar.addWidget(self.write_label)
         
+        # 分隔符5
+        separator5 = QLabel("|")
+        separator5.setFixedWidth(10)
+        separator5.setStyleSheet("padding: 0 3px; color: #888888;")
+        separator5.setAlignment(Qt.AlignCenter)
+        self.status_bar.addWidget(separator5)
+
+        # 6. 刷新状态/倒计时（手动暂停/自动暂停）
+        self.refresh_status_label = QLabel(QCoreApplication.translate("main_window", "Refresh: Running"))
+        self.refresh_status_label.setFixedWidth(240)
+        self.refresh_status_label.setStyleSheet("padding: 0 5px;")
+        self.refresh_status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status_bar.addWidget(self.refresh_status_label)
+
         # 6. 占位符（推动所有内容左对齐）- 使用空标签避免显示问题
         spacer_label = QLabel()
         spacer_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -5109,6 +5123,12 @@ class RTTMainWindow(QMainWindow):
         self.time_timer = QTimer(self)
         self.time_timer.timeout.connect(self._update_time_display)
         self.time_timer.start(1000)  # 每秒更新一次
+
+        # Refresh status timer (1Hz) for countdown updates
+        self._refresh_status_deadline = 0.0  # unix timestamp when auto pause should resume
+        self._refresh_status_timer = QTimer(self)
+        self._refresh_status_timer.timeout.connect(self._update_refresh_status_label)
+        self._refresh_status_timer.start(1000)
     
     def _update_time_display(self):
         """更新时间显示"""
@@ -5124,6 +5144,65 @@ class RTTMainWindow(QMainWindow):
             self.time_label.setVisible(True)
         except Exception as e:
             logger.error(f"Failed to update time display: {e}")
+
+    def _update_refresh_status_label(self):
+        """Update status bar refresh state (manual/auto pause) and auto-resume countdown."""
+        try:
+            if not hasattr(self, 'refresh_status_label') or self.refresh_status_label is None:
+                return
+
+            # Playback window: show pause state if applicable
+            try:
+                active_window = self._get_active_mdi_window()
+                if active_window and hasattr(active_window, '_playback_paused'):
+                    if bool(getattr(active_window, '_playback_paused', False)):
+                        self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused (Playback)"))
+                        return
+            except Exception:
+                pass
+
+            session = None
+            try:
+                session = self._get_active_device_session()
+            except Exception:
+                session = None
+
+            if not session or not getattr(session, 'rtt2uart', None):
+                self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Running"))
+                return
+
+            rtt = session.rtt2uart
+            paused = bool(getattr(rtt, 'ui_refresh_paused', False))
+            reason = getattr(rtt, 'ui_refresh_pause_reason', None)
+
+            if not paused:
+                self._refresh_status_deadline = 0.0
+                self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Running"))
+                return
+
+            if reason == 'manual':
+                self._refresh_status_deadline = 0.0
+                self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused (Manual)"))
+                return
+
+            if reason == 'auto':
+                # Countdown (if we know the deadline)
+                now = time.time()
+                deadline = float(getattr(self, '_refresh_status_deadline', 0.0) or 0.0)
+                if deadline > now:
+                    remain = int(deadline - now + 0.999)  # ceil
+                    self.refresh_status_label.setText(
+                        QCoreApplication.translate("main_window", "Refresh: Paused (Selection, %ds)") % remain
+                    )
+                else:
+                    self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused (Selection)"))
+                return
+
+            # Unknown pause reason
+            self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused"))
+        except Exception:
+            # Never let status updates crash UI
+            return
     
     def _show_connection_settings(self):
         """显示连接设置对话框"""
@@ -7988,6 +8067,10 @@ class RTTMainWindow(QMainWindow):
                     self.ui.radioButton_resume_refresh.setChecked(True)
             
             logger.debug(f"MDI window activated: {session.get_display_name()}, paused={is_paused}")
+            try:
+                self._update_refresh_status_label()
+            except Exception:
+                pass
             
         except Exception as e:
             logger.error(f"Failed to sync state on MDI activation: {e}", exc_info=True)
@@ -8023,6 +8106,11 @@ class RTTMainWindow(QMainWindow):
                     logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh paused") % session.get_display_name())
                     # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
                     # UI刷新暂停信息已通过日志输出显示
+                    try:
+                        self._refresh_status_deadline = 0.0
+                        self._update_refresh_status_label()
+                    except Exception:
+                        pass
                     
                     # 更新UI单选按钮状态
                     if hasattr(self.ui, 'radioButton_pause_refresh'):
@@ -8073,6 +8161,11 @@ class RTTMainWindow(QMainWindow):
                     logger.info(QCoreApplication.translate("main_window", "Device %s UI refresh resumed") % session.get_display_name())
                     # 注意：不再使用 showMessage()，因为它会破坏自定义状态栏布局
                     # UI刷新恢复信息已通过日志输出显示
+                    try:
+                        self._refresh_status_deadline = 0.0
+                        self._update_refresh_status_label()
+                    except Exception:
+                        pass
                     
                     # 更新UI单选按钮状态
                     if hasattr(self.ui, 'radioButton_resume_refresh'):
@@ -8136,6 +8229,12 @@ class RTTMainWindow(QMainWindow):
                 except Exception:
                     pass
                 logger.debug(f"[AUTO-PAUSE] UI refresh paused for {session.get_display_name()}")
+            # Update status bar countdown for active session (reset to 5s on each selection activity)
+            try:
+                self._refresh_status_deadline = time.time() + 5.0
+                self._update_refresh_status_label()
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"[AUTO-PAUSE] Failed: {e}")
 
@@ -8165,6 +8264,11 @@ class RTTMainWindow(QMainWindow):
                 rtt.clear_paused_data()
 
             logger.debug(f"[AUTO-RESUME] UI refresh resumed for {session.get_display_name()}")
+            try:
+                self._refresh_status_deadline = 0.0
+                self._update_refresh_status_label()
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"[AUTO-RESUME] Failed: {e}")
     
