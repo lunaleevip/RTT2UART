@@ -58,6 +58,16 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 # 设置全局异常处理器
 sys.excepthook = global_exception_handler
 
+# ==================== Crash dump (for abnormal exit) ====================
+try:
+    from crash_dump import install_crash_dumps
+    crash_dir = Path.home() / "AppData" / "Local" / "XexunRTT" / "crash_dumps"
+    install_crash_dumps(crash_dir)
+    logger.info(f"Crash dumps enabled: {crash_dir}")
+except Exception as _e:
+    # Never block startup on dump handler install
+    pass
+
 logger.info("=" * 70)
 logger.info("XexunRTT Starting...")
 logger.info(f"Log file: {log_file}")
@@ -4302,6 +4312,11 @@ class RTTMainWindow(QMainWindow):
         watch_action = QAction(QCoreApplication.translate("main_window", "Watch / Memory(&M)..."), self)
         watch_action.triggered.connect(self.show_watch_memory_dock)
         self.tools_menu.addAction(watch_action)
+        
+        # Auto Test
+        auto_test_action = QAction(QCoreApplication.translate("main_window", "Auto Test(&U)..."), self)
+        auto_test_action.triggered.connect(self.show_auto_test_dialog)
+        self.tools_menu.addAction(auto_test_action)
         self.tools_menu.addSeparator()
         
         # RTT Chain Info 动作
@@ -8223,6 +8238,47 @@ class RTTMainWindow(QMainWindow):
             self._watch_dock.raise_()
         except Exception as e:
             logger.error(f"Failed to open Watch dock: {e}", exc_info=True)
+
+    def _get_auto_test_engine(self):
+        """Lazy create AutoTestEngine to avoid import cost at startup."""
+        try:
+            eng = getattr(self, "_auto_test_engine", None)
+            if eng is not None:
+                return eng
+            from auto_test_dialog import AutoTestEngine
+            self._auto_test_engine = AutoTestEngine(self)
+            return self._auto_test_engine
+        except Exception:
+            return None
+
+    def show_auto_test_dialog(self):
+        """Open Auto Test dialog (3 rules)."""
+        try:
+            eng = self._get_auto_test_engine()
+            if eng is None:
+                QMessageBox.warning(
+                    self,
+                    QCoreApplication.translate("main_window", "Auto Test"),
+                    QCoreApplication.translate("main_window", "Auto Test module is not available."),
+                )
+                return
+            if getattr(self, "_auto_test_dialog", None) is None:
+                from auto_test_dialog import AutoTestDialog
+                self._auto_test_dialog = AutoTestDialog(self, eng)
+            self._auto_test_dialog.show()
+            self._auto_test_dialog.raise_()
+        except Exception as e:
+            logger.error(f"Failed to open Auto Test dialog: {e}", exc_info=True)
+
+    def _auto_test_on_new_text(self, tab_index: int, text: str):
+        """Called by Worker when new text arrives (line-framed)."""
+        try:
+            eng = getattr(self, "_auto_test_engine", None)
+            if eng is None:
+                return
+            eng.on_new_text(int(tab_index), str(text or ""))
+        except Exception:
+            return
 
     def _auto_pause_refresh_for_session(self, session):
         """自动暂停（文本选择触发）：不改变UI单选按钮，不覆盖手动暂停"""
@@ -14170,6 +14226,18 @@ class Worker(QObject):
         # 1. ALL页面日志 - 每次都写入，确保完整记录
         all_data = ''.join(buffer_parts)
         self.write_data_to_buffer_log(0, all_data, "all")
+
+        # Auto Test hook: feed new text to main window engine (if enabled)
+        try:
+            if hasattr(self.parent, 'main_window') and self.parent.main_window:
+                mw = self.parent.main_window
+                if hasattr(mw, '_auto_test_on_new_text'):
+                    # channel tab (index+1): clean_data without prefix/ANSI
+                    mw._auto_test_on_new_text(index + 1, clean_data)
+                    # ALL tab (0): prefixed content
+                    mw._auto_test_on_new_text(0, all_data)
+        except Exception:
+            pass
         
         # 2. 通道页面日志 - 减少写入频率：只在数据量较大或周期性写入
         self.write_data_to_buffer_log(index+1, clean_data, str(index))

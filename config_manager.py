@@ -102,6 +102,18 @@ class ConfigManager:
             'fb_fmt': 'MonoLSB',
             'fb_auto': 'false',
         }
+
+        # Auto test rules (max 3): JSON list of rule objects
+        # rule fields:
+        # - enabled: bool
+        # - trigger_type: "text" | "interval"
+        # - trigger_text: str
+        # - interval_sec: int
+        # - action_type: "send" | "restart"
+        # - action_text: str
+        self.config['AutoTest'] = {
+            'rules': '[]'
+        }
         
         # Restart 设置
         self.config['Restart'] = {
@@ -638,6 +650,36 @@ class ConfigManager:
 
     def set_watch_fb_auto(self, enabled: bool):
         self.config.set('WatchPanel', 'fb_auto', str(bool(enabled)).lower())
+
+    # ===========================================
+    # Auto Test
+    # ===========================================
+
+    def get_auto_test_rules(self) -> List[Dict[str, Any]]:
+        """Return up to 3 auto-test rules."""
+        try:
+            raw = self.config.get('AutoTest', 'rules', fallback='[]')
+            arr = json.loads(raw)
+            if not isinstance(arr, list):
+                return []
+            out: List[Dict[str, Any]] = []
+            for item in arr[:3]:
+                if isinstance(item, dict):
+                    out.append(item)
+            return out
+        except Exception:
+            return []
+
+    def set_auto_test_rules(self, rules: List[Dict[str, Any]]):
+        """Persist up to 3 auto-test rules as JSON."""
+        try:
+            arr = []
+            for r in (rules or [])[:3]:
+                if isinstance(r, dict):
+                    arr.append(r)
+            self.config.set('AutoTest', 'rules', json.dumps(arr, ensure_ascii=False))
+        except Exception:
+            self.config.set('AutoTest', 'rules', '[]')
     
     # ===========================================
     # UI设置相关方法
