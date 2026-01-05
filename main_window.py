@@ -2810,7 +2810,23 @@ class DeviceMdiWindow(QWidget):
                         if current_length < last_length:
                             trimmed_length = last_length - current_length
                             logger.warning(f"🔧 [CH{channel}] Inactive TAB buffer trimmed: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
+                            # 关键修复：trim 时必须同步重置 UI 流状态，并标记下一次更新前清屏，否则会出现游标错位/重复叠加导致“看起来不刷新”
                             self.last_display_lengths[channel] = 0
+                            try:
+                                self._reset_ui_stream_state(channel)
+                            except Exception:
+                                pass
+                            try:
+                                if hasattr(self, '_tab_needs_clear_on_next_update'):
+                                    self._tab_needs_clear_on_next_update[channel] = True
+                            except Exception:
+                                pass
+                            # 让该 TAB 下一次 tick 立刻执行清屏+重建（避免被 inactive interval 卡住）
+                            try:
+                                if hasattr(self, 'last_tab_update_times'):
+                                    self.last_tab_update_times[channel] = 0
+                            except Exception:
+                                pass
                             last_length = 0
                         
                         # ⚠️ 注意：非激活TAB如果长时间不更新，会出现“积压”。
@@ -2829,6 +2845,18 @@ class DeviceMdiWindow(QWidget):
                 logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
                 self.last_display_lengths[channel] = 0
                 self._reset_ui_stream_state(channel)
+                # 关键修复：标记下一次更新前清屏，避免旧文本与新缓冲起点错位叠加（ALL 页尤其明显）
+                try:
+                    if hasattr(self, '_tab_needs_clear_on_next_update'):
+                        self._tab_needs_clear_on_next_update[channel] = True
+                except Exception:
+                    pass
+                # 让下一次 tick 不受 inactive interval 限制，尽快清屏并恢复追赶
+                try:
+                    if hasattr(self, 'last_tab_update_times'):
+                        self.last_tab_update_times[channel] = 0
+                except Exception:
+                    pass
                 last_length = 0
 
             # ✅ 重要改动：不再把“显示落后（backlog）”当作“丢数据”，禁止自动强制刷新
