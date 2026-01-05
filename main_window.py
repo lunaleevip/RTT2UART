@@ -2128,6 +2128,8 @@ class DeviceMdiWindow(QWidget):
         # 🔧 修复：记录每个TAB上次更新的时间，用于低频率刷新非激活TAB
         self.last_tab_update_times = [0.0] * MAX_TAB_SIZE
         self.inactive_tab_update_interval = 3  # 非激活TAB更新间隔：3秒
+        # 非激活TAB追赶目标速率：interval 越大，单次追加越大，避免看起来“完全不更新”，同时避免 0.5s 造成高CPU
+        self._ui_inactive_target_rate = 32 * 1024  # ~32KB/s
         self.last_inactive_gap_check_times = [0.0] * MAX_TAB_SIZE  # 非激活TAB数据丢失检测时间
         self.inactive_gap_check_interval = 6.0  # 非激活TAB数据丢失检测间隔：6秒
 
@@ -2770,7 +2772,18 @@ class DeviceMdiWindow(QWidget):
                 if perf_crit:
                     max_append = self._ui_append_max_active_crit if is_active_tab else self._ui_append_max_inactive_crit
                 else:
-                    max_append = self._ui_append_max_active if is_active_tab else self._ui_append_max_inactive
+                    if is_active_tab:
+                        max_append = self._ui_append_max_active
+                    else:
+                        # 非激活TAB：按目标速率动态计算单次追赶量（interval 越大单次越大，平均CPU更平稳）
+                        try:
+                            rate = int(getattr(self, '_ui_inactive_target_rate', 32 * 1024))
+                            interval = float(getattr(self, 'inactive_tab_update_interval', 3.0) or 3.0)
+                            max_append = int(rate * max(0.5, interval))
+                        except Exception:
+                            max_append = self._ui_append_max_inactive
+                        # Clamp：防止一次性插入过大导致卡顿
+                        max_append = max(8 * 1024, min(max_append, 256 * 1024))
 
                 new_data = self._stream_take_incremental(raw_data, channel, max_append)
                 
