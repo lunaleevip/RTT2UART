@@ -548,7 +548,9 @@ class rtt_to_serial():
             if self._connect_inf != 'EXISTING':
                 # 🔑 启动时清理：先检查并关闭任何可能残留的连接
                 try:
-                    if self.jlink.opened():
+                    with self._jlink_lock:
+                        _is_opened0 = self.jlink.opened()
+                    if _is_opened0:
                         logger.warning("Found existing JLink connection at startup, closing it first...")
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found existing JLink connection, closing it first..."))
                         try:
@@ -567,7 +569,8 @@ class rtt_to_serial():
                 is_opened = False
                 need_reopen = False
                 try:
-                    is_opened = self.jlink.opened()
+                    with self._jlink_lock:
+                        is_opened = self.jlink.opened()
                     if is_opened:
                         # JLink 已打开，检查是否连接到同一设备
                         # 通过比较设备序列号来判断
@@ -675,7 +678,8 @@ class rtt_to_serial():
                                 # 第一步：检查当前状态
                                 is_opened = False
                                 try:
-                                    is_opened = self.jlink.opened()
+                                    with self._jlink_lock:
+                                        is_opened = self.jlink.opened()
                                     logger.debug(f"JLink opened status before close: {is_opened}")
                                 except Exception as check_before_e:
                                     logger.debug(f"Cannot check JLink status before close: {check_before_e}")
@@ -700,7 +704,8 @@ class rtt_to_serial():
                                 
                                 while verify_attempt < max_verify_attempts and still_opened:
                                     try:
-                                        still_opened = self.jlink.opened()
+                                        with self._jlink_lock:
+                                            still_opened = self.jlink.opened()
                                         if not still_opened:
                                             logger.debug(f"JLink confirmed closed after {verify_attempt + 1} verification attempt(s)")
                                             break
@@ -804,7 +809,9 @@ class rtt_to_serial():
                 already_connected_to_target = False
                 if is_opened:
                     try:
-                        if self.jlink.connected():
+                        with self._jlink_lock:
+                            already_connected_to_target = bool(self.jlink.connected())
+                        if already_connected_to_target:
                             # JLink 已连接，检查是否连接到同一设备
                             # 注意：pylink 库没有直接的方法获取当前连接的设备名称
                             # 我们假设如果 JLink 已打开且已连接，就是连接到同一设备
@@ -1450,7 +1457,9 @@ class rtt_to_serial():
                     if connection_check_counter >= connection_check_interval:
                         connection_check_counter = 0
                         try:
-                            if not self.jlink.connected():
+                            with self._jlink_lock:
+                                is_conn = self.jlink.connected()
+                            if not is_conn:
                                 current_time = time.time()
                                 # 限制警告频率，避免日志刷屏
                                 if current_time - last_connection_warning_time > connection_warning_interval:
@@ -1673,7 +1682,9 @@ class rtt_to_serial():
                     if connection_check_counter >= connection_check_interval:
                         connection_check_counter = 0
                         try:
-                            if not self.jlink.connected():
+                            with self._jlink_lock:
+                                is_conn = self.jlink.connected()
+                            if not is_conn:
                                 current_time = time.time()
                                 # 限制警告频率，避免日志刷屏
                                 if current_time - last_connection_warning_time > connection_warning_interval:

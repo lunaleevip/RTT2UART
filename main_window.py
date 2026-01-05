@@ -8270,8 +8270,13 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to open Auto Test dialog: {e}", exc_info=True)
 
+    @Slot(int, str)
+    def _auto_test_on_new_text_queued(self, tab_index: int, text: str):
+        """Queued entrypoint: always runs on GUI thread."""
+        self._auto_test_on_new_text(tab_index, text)
+
     def _auto_test_on_new_text(self, tab_index: int, text: str):
-        """Called by Worker when new text arrives (line-framed)."""
+        """Internal: called on GUI thread."""
         try:
             eng = getattr(self, "_auto_test_engine", None)
             if eng is None:
@@ -14231,11 +14236,23 @@ class Worker(QObject):
         try:
             if hasattr(self.parent, 'main_window') and self.parent.main_window:
                 mw = self.parent.main_window
-                if hasattr(mw, '_auto_test_on_new_text'):
-                    # channel tab (index+1): clean_data without prefix/ANSI
-                    mw._auto_test_on_new_text(index + 1, clean_data)
-                    # ALL tab (0): prefixed content
-                    mw._auto_test_on_new_text(0, all_data)
+                if hasattr(mw, '_auto_test_on_new_text_queued'):
+                    # IMPORTANT: Must queue to GUI thread. Calling restart/send from RTT thread can crash pylink (DLL) with access violation.
+                    from PySide6.QtCore import QMetaObject, Q_ARG, Qt
+                    QMetaObject.invokeMethod(
+                        mw,
+                        "_auto_test_on_new_text_queued",
+                        Qt.QueuedConnection,
+                        Q_ARG(int, int(index + 1)),
+                        Q_ARG(str, str(clean_data)),
+                    )
+                    QMetaObject.invokeMethod(
+                        mw,
+                        "_auto_test_on_new_text_queued",
+                        Qt.QueuedConnection,
+                        Q_ARG(int, int(0)),
+                        Q_ARG(str, str(all_data)),
+                    )
         except Exception:
             pass
         
