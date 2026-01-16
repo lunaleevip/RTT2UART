@@ -179,7 +179,24 @@ class rtt_to_serial():
         """将消息发送到GUI日志"""
         if self.jlink_log_callback:
             try:
-                self.jlink_log_callback(message)
+                cb = self.jlink_log_callback
+                # 🛡️ 线程安全：如果回调绑定到 Qt QObject（主窗口），必须投递到GUI线程执行
+                try:
+                    target = getattr(cb, "__self__", None)
+                    if target is not None and isinstance(target, QObject) and hasattr(target, "_append_jlink_log_queued"):
+                        # 如果当前线程不是目标QObject线程，使用QueuedConnection投递
+                        if QThread.currentThread() != target.thread():
+                            QMetaObject.invokeMethod(
+                                target,
+                                "_append_jlink_log_queued",
+                                Qt.QueuedConnection,
+                                Q_ARG(str, str(message)),
+                            )
+                            return
+                except Exception:
+                    pass
+
+                cb(message)
             except RuntimeError:
                 # 程序退出时GUI对象可能已被删除，忽略此错误
                 pass

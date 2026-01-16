@@ -6638,8 +6638,33 @@ class RTTMainWindow(QMainWindow):
         except Exception as e:
             self.append_jlink_log(QCoreApplication.translate("main_window", "Error disabling file logging: %s") % str(e))
     
+    @Slot(str)
+    def _append_jlink_log_queued(self, message: str):
+        """线程安全：供后台线程通过 Qt.QueuedConnection 投递日志到GUI线程。"""
+        try:
+            self.append_jlink_log(message)
+        except Exception:
+            # UI 关闭/销毁过程中允许静默失败
+            pass
+
     def append_jlink_log(self, message):
         """添加JLink日志消息 - 统一的日志显示方法"""
+        # 🛡️ 线程安全：禁止后台线程直接触碰UI控件，否则会触发 Windows fatal exception: access violation
+        try:
+            from PySide6.QtCore import QThread, QMetaObject, Q_ARG, Qt
+            if QThread.currentThread() != self.thread():
+                # 投递到GUI线程执行
+                QMetaObject.invokeMethod(
+                    self,
+                    "_append_jlink_log_queued",
+                    Qt.QueuedConnection,
+                    Q_ARG(str, str(message)),
+                )
+                return
+        except Exception:
+            # 如果Qt对象状态异常，继续尝试直接写入（可能在GUI线程）
+            pass
+
         import datetime
         timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
         formatted_message = f"[{timestamp}] {message}"
@@ -13793,6 +13818,8 @@ class Worker(QObject):
         self.refresh_count = 0
         self.last_log_time = time.time()
         self.log_interval = 5.0  # 每5秒记录一次性能日志
+        # perf 统计：用 update_counter 的增量做速率计算（MDI 架构下 refresh_count 可能不再被正确递增）
+        self._perf_last_update_counter = 0
         # UI 刷新节流（ms）
         self.min_ui_update_interval_ms = 20
         self._last_ui_update_ms = 0
@@ -13805,7 +13832,6 @@ class Worker(QObject):
         # 性能降级状态（不丢缓存/不丢文件，仅降低额外逻辑负载）
         self.perf_warn = False
         self.perf_crit = False
-        self.skip_filter_processing = False
         self._perf_state_last_change = 0.0
     
     def set_turbo_mode(self, enabled, batch_delay=20):
@@ -14403,10 +14429,15 @@ class Worker(QObject):
         self.write_data_to_buffer_log(index+1, clean_data, str(index))
 
         # 📋 统一过滤逻辑：使用清理过的数据进行筛选，确保与页面显示一致
-        # 性能严重时跳过筛选处理（不影响日志文件与缓冲区完整性）
-        if clean_data.strip() and not getattr(self, 'skip_filter_processing', False):
-            clean_lines = [line for line in clean_data.split('\n') if line.strip()]
-            self.process_filter_lines(clean_lines)
+        # 规则：任何情况下都必须执行筛选处理
+        if clean_data.strip():
+            try:
+                clean_lines = [line for line in clean_data.split('\n') if line.strip()]
+                if clean_lines:
+                    self.process_filter_lines(clean_lines)
+            except Exception as _e:
+                # 筛选失败不影响主流程
+                pass
 
         self.finished.emit()
     
@@ -14699,7 +14730,17 @@ class Worker(QObject):
             
             # 计算刷新率
             time_elapsed = current_time - self.last_log_time
-            refresh_rate = self.refresh_count / time_elapsed if time_elapsed > 0 else 0
+            # ⚠️ MDI 架构：refresh_count 可能不会增长（旧的 UI 信号不再触发），会导致误报 0.0Hz。
+            # 用 update_counter 的增量表示“数据处理/追加速率”，仅用于性能告警粗略判断。
+            try:
+                last_uc = int(getattr(self, "_perf_last_update_counter", 0) or 0)
+                cur_uc = int(getattr(self, "update_counter", 0) or 0)
+                delta_uc = max(0, cur_uc - last_uc)
+                refresh_rate = (delta_uc / time_elapsed) if time_elapsed > 0 else 0.0
+                self._perf_last_update_counter = cur_uc
+            except Exception:
+                delta_uc = 0
+                refresh_rate = self.refresh_count / time_elapsed if time_elapsed > 0 else 0.0
             
             # 记录性能指标
             # logger.info(f"[PERF] Performance monitoring - refresh rate: {refresh_rate:.1f}Hz, "
@@ -14708,13 +14749,14 @@ class Worker(QObject):
             #            f"最大单缓冲: {memory_info['max_single_buffer']//1024:.0f}KB")
             
             # 检查性能阈值
-            if memory_info['total_memory_mb'] > 0.8:  # 800KB以上
-                if refresh_rate < 10:  # 刷新率低于10Hz
-                    logger.warning(f"[WARN] 性能警告 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 刷新率下降至: {refresh_rate:.1f}Hz")
+            # 只有“确实在处理新数据”时才告警；否则在空闲状态下会刷屏误报
+            if delta_uc > 0 and memory_info['total_memory_mb'] > 0.8:  # 800KB以上
+                if refresh_rate < 10:  # 处理速率低于10Hz
+                    logger.warning(f"[WARN] 性能警告 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 处理速率下降至: {refresh_rate:.1f}Hz")
                     
-            if memory_info['total_memory_mb'] > 2.0:  # 2MB以上
-                if refresh_rate < 5:  # 刷新率低于5Hz
-                    logger.error(f"[CRIT] 性能严重 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 刷新率严重下降至: {refresh_rate:.1f}Hz")
+            if delta_uc > 0 and memory_info['total_memory_mb'] > 2.0:  # 2MB以上
+                if refresh_rate < 5:  # 处理速率低于5Hz
+                    logger.error(f"[CRIT] 性能严重 - 数据量: {memory_info['total_memory_mb']:.1f}MB, 处理速率严重下降至: {refresh_rate:.1f}Hz")
 
             # 性能降级状态机（不丢数据，仅减少附加逻辑负担）
             # - 进入 CRIT：跳过筛选处理等高CPU逻辑，UI 侧按分片追赶
@@ -14727,14 +14769,12 @@ class Worker(QObject):
                 if (not self.perf_crit and can_switch and
                         memory_info['total_memory_mb'] > 2.0 and refresh_rate < 5):
                     self.perf_crit = True
-                    self.skip_filter_processing = True
                     self._perf_state_last_change = now
-                    logger.error("[PERF] Enter CRIT mode: skip filter processing, UI will catch up in chunks")
+                    logger.error("[PERF] Enter CRIT mode: UI will catch up in chunks")
 
                 if (self.perf_crit and can_switch and
                         memory_info['total_memory_mb'] < 1.0 and refresh_rate > 8):
                     self.perf_crit = False
-                    self.skip_filter_processing = False
                     self._perf_state_last_change = now
                     logger.info("[PERF] Exit CRIT mode: restore normal processing")
             except Exception as _e:
