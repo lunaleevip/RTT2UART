@@ -65,11 +65,18 @@ class rtt_to_serial():
         self.read_bytes0 = 0
         self.read_bytes1 = 0
         self.write_bytes0 = 0
+        # JLink 入口数据时间戳（NO DATA 判定用）
+        self.last_jlink_data_time = 0.0
 
         # 线程
         self._write_lock = threading.Lock()
         # JLink API lock: pylink is not thread-safe; Watch/Memory + RTT thread may call JLink concurrently.
         self._jlink_lock = threading.RLock()
+        # JLink hang guard
+        self._jlink_hung = False
+        self._jlink_hung_ts = 0.0
+        # 启动/重连期间暂停读线程，避免 "DLL is not open" 噪音
+        self._suspend_rtt_reads = False
 
         try:
             self.serial = serial.Serial()
@@ -203,6 +210,12 @@ class rtt_to_serial():
 
     def _call_jlink_with_timeout(self, desc: str, fn, timeout_sec: float = 5.0):
         """Run a JLink call with a hard timeout to avoid infinite hangs (device busy, driver issues, etc.)."""
+        # 强制超时上限 5 秒
+        try:
+            timeout_sec = float(timeout_sec)
+        except Exception:
+            timeout_sec = 5.0
+        timeout_sec = 5.0 if timeout_sec <= 0 else min(timeout_sec, 5.0)
         result = {"exc": None}
 
         def _runner():
@@ -217,10 +230,32 @@ class rtt_to_serial():
         t.join(float(timeout_sec))
 
         if t.is_alive():
+            try:
+                self._force_disconnect_after_timeout(desc, timeout_sec)
+            except Exception:
+                pass
             raise TimeoutError(f"{desc} timeout after {timeout_sec:.1f}s")
         if result["exc"] is not None:
             raise result["exc"]
         return True
+    
+    def _force_disconnect_after_timeout(self, desc: str, timeout_sec: float):
+        """JLink 调用超时后的强制断开处理"""
+        if getattr(self, "_jlink_hung", False):
+            return
+        self._jlink_hung = True
+        self._jlink_hung_ts = time.time()
+        try:
+            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink call timeout (%s, %.1fs). Forcing disconnect.") % (desc, timeout_sec))
+        except Exception:
+            pass
+        # 立即停止线程，避免继续阻塞
+        self.thread_switch = False
+        # 通知主窗口并进入安全停止流程（跳过JLink关闭）
+        try:
+            self._auto_stop_on_connection_lost()
+        except Exception:
+            pass
     
     def _auto_reset_jlink_connection(self):
         """自动重置JLink连接"""
@@ -348,15 +383,18 @@ class rtt_to_serial():
             # 设置线程停止标志
             self.thread_switch = False
             
-            # 安全清理RTT连接状态
+            # 安全清理RTT连接状态（若已判定 JLink 卡死，则跳过 close）
             try:
-                if hasattr(self, 'jlink') and self.jlink:
-                    try:
-                        if self.jlink.connected():
-                            self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
-                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection safely disconnected"))
-                    except Exception:
-                        pass  # 忽略断开时的错误
+                if getattr(self, "_jlink_hung", False):
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink is unresponsive, skip close()"))
+                else:
+                    if hasattr(self, 'jlink') and self.jlink:
+                        try:
+                            if self.jlink.connected():
+                                self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
+                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection safely disconnected"))
+                        except Exception:
+                            pass  # 忽略断开时的错误
             except Exception:
                 pass
             
@@ -556,6 +594,10 @@ class rtt_to_serial():
 
     def start(self):
         logger.debug(QCoreApplication.translate("rtt2uart", "启动RTT2UART"))
+        # 重置JLink卡死标记
+        self._jlink_hung = False
+        # 启动/重连期间暂停读线程
+        self._suspend_rtt_reads = True
         # 初始化首次数据到达标记
         self._first_data_received = False
         # 记录设备连接信息
@@ -888,11 +930,26 @@ class rtt_to_serial():
                     # 🔑 如果 JLink 已经连接到目标设备（重用的情况），跳过 connect() 调用
                     if not already_connected_to_target:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Connecting to target device: %s") % self.device)
-                        self._call_jlink_with_timeout(
-                            "jlink.connect(...)",
-                            lambda: self.jlink.connect(self.device),
-                            5.0,
-                        )
+                        try:
+                            self._call_jlink_with_timeout(
+                                "jlink.connect(...)",
+                                lambda: self.jlink.connect(self.device),
+                                5.0,
+                            )
+                        except pylink.errors.JLinkException as e:
+                            # 真实硬件偶发报“Emulator connection error”，做一次快速重试
+                            if "emulator connection error" in str(e).lower():
+                                logger.warning("Emulator connection error, retrying connect...")
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink connection error, retrying..."))
+                                import time
+                                time.sleep(0.3)
+                                self._call_jlink_with_timeout(
+                                    "jlink.connect(retry)",
+                                    lambda: self.jlink.connect(self.device),
+                                    5.0,
+                                )
+                            else:
+                                raise
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Target device connected successfully: %s") % self.device)
                     else:
                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "Skipping connect, already connected to target device: %s") % self.device)
@@ -1247,6 +1304,8 @@ class rtt_to_serial():
         self.rtt2uart.setDaemon(True)
         self.rtt2uart.name = 'rtt2uart'
         self.rtt2uart.start()
+        # 读线程已就绪，恢复读取
+        self._suspend_rtt_reads = False
         
         
     def stop(self, keep_folder=False, fast=False):
@@ -1483,6 +1542,38 @@ class rtt_to_serial():
                     # 在循环开始时检查停止标志,快速响应停止请求
                     if not self.thread_switch:
                         break
+
+                    # 启动/重连期间暂停读取，避免DLL未打开的噪音
+                    if getattr(self, '_suspend_rtt_reads', False):
+                        time.sleep(0.1)
+                        continue
+
+                    # JLink 未打开时跳过读取
+                    try:
+                        with self._jlink_lock:
+                            opened = self.jlink.opened()
+                        if not opened:
+                            time.sleep(0.1)
+                            continue
+                    except Exception:
+                        time.sleep(0.1)
+                        continue
+
+                    # 启动/重连期间暂停读取，避免DLL未打开的噪音
+                    if getattr(self, '_suspend_rtt_reads', False):
+                        time.sleep(0.1)
+                        continue
+
+                    # JLink 未打开时跳过读取
+                    try:
+                        with self._jlink_lock:
+                            opened = self.jlink.opened()
+                        if not opened:
+                            time.sleep(0.1)
+                            continue
+                    except Exception:
+                        time.sleep(0.1)
+                        continue
                     
                     # 减少连接状态检查频率，避免过多警告
                     connection_check_counter += 1
@@ -1544,6 +1635,9 @@ class rtt_to_serial():
                                 else:
                                     rtt_recv_log.extend(bytearray(recv_log))
                         except pylink.errors.JLinkException as e:
+                            if "dll is not open" in str(e).lower():
+                                time.sleep(0.1)
+                                break
                             current_time = time.time()
                             if current_time - last_rtt_read_warning_time > rtt_read_warning_interval:
                                 logger.warning(QCoreApplication.translate("rtt2uart", "RTT读取失败: %s") % str(e))
@@ -1558,6 +1652,8 @@ class rtt_to_serial():
                             
                             break
 
+                    if len(rtt_recv_log) > 0:
+                        self.last_jlink_data_time = time.time()
                     self.read_bytes0 += len(rtt_recv_log)
                     rtt_log_len = len(rtt_recv_log)
                     
@@ -1752,6 +1848,8 @@ class rtt_to_serial():
                     try:
                         with self._jlink_lock:
                             rtt_recv_data = self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE)
+                        if len(rtt_recv_data) > 0:
+                            self.last_jlink_data_time = time.time()
                         self.read_bytes1 += len(rtt_recv_data)
 
                         if len(rtt_recv_data):
@@ -1790,6 +1888,9 @@ class rtt_to_serial():
                                 time.sleep(0.005)  # 5ms
                             
                     except pylink.errors.JLinkException as e:
+                        if "dll is not open" in str(e).lower():
+                            time.sleep(0.1)
+                            continue
                         logger.warning(f'RTT2UART read failed: {e}')
                         
                         # 检查是否是需要自动重置的错误

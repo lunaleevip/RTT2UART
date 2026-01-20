@@ -2122,8 +2122,10 @@ class DeviceMdiWindow(QWidget):
             {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
             for _ in range(MAX_TAB_SIZE)
         ]
-        # 当缓冲区发生裁剪(trim)时，下一次该TAB更新需要清屏并重置游标，否则流式游标可能错位导致“追不上最新”
-        self._tab_needs_clear_on_next_update = [False] * MAX_TAB_SIZE
+        # UI 流式读取异常保护：连续空读计数（用于检测游标不同步导致的“卡住”）
+        self._ui_stream_empty_reads = [0] * MAX_TAB_SIZE
+        # 当缓冲区发生裁剪(trim)时，记录目标abs位置，下一次更新时对齐游标，避免重复输出
+        self._pending_ui_stream_abs = [None] * MAX_TAB_SIZE
         # 每次 UI tick 允许追加的最大字符数（按字符计数，通常与字节近似）
         self._ui_append_max_active = 64 * 1024
         # 非激活TAB也需要后台追赶，否则切换TAB时会堆积很多内容，看起来像“没有后台更新”
@@ -2279,6 +2281,67 @@ class DeviceMdiWindow(QWidget):
         """重置 UI 流式读取游标（当缓冲区裁剪/重置时调用）"""
         if 0 <= channel < len(self._ui_stream_state):
             self._ui_stream_state[channel] = {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
+
+    def _seek_ui_stream_state(self, raw_data, channel: int, target_abs: int):
+        """将 UI 流式游标对齐到指定绝对位置（用于缓冲区裁剪后对齐）"""
+        if target_abs <= 0:
+            self._reset_ui_stream_state(channel)
+            return
+        if raw_data is None or not isinstance(raw_data, list):
+            # 无法定位时仅同步abs，等待后续正常追赶
+            if 0 <= channel < len(self._ui_stream_state):
+                self._ui_stream_state[channel]["abs"] = int(target_abs)
+            return
+
+        st = self._ui_stream_state[channel]
+        remaining = int(target_abs)
+
+        # 兼容 list[list[str]] 与 list[str]
+        is_nested = bool(raw_data) and isinstance(raw_data[0], list)
+        if is_nested:
+            outer = 0
+            inner = 0
+            offset = 0
+            while outer < len(raw_data) and remaining > 0:
+                sub = raw_data[outer]
+                if not isinstance(sub, list):
+                    sub = [sub]
+                while inner < len(sub) and remaining > 0:
+                    chunk = sub[inner]
+                    if not isinstance(chunk, str):
+                        chunk = str(chunk)
+                    if remaining >= len(chunk):
+                        remaining -= len(chunk)
+                        inner += 1
+                        offset = 0
+                    else:
+                        offset = remaining
+                        remaining = 0
+                if inner >= len(sub):
+                    outer += 1
+                    inner = 0
+                    offset = 0
+            st["outer"] = outer
+            st["inner"] = inner
+            st["offset"] = offset
+        else:
+            idx = 0
+            offset = 0
+            while idx < len(raw_data) and remaining > 0:
+                chunk = raw_data[idx]
+                if not isinstance(chunk, str):
+                    chunk = str(chunk)
+                if remaining >= len(chunk):
+                    remaining -= len(chunk)
+                    idx += 1
+                    offset = 0
+                else:
+                    offset = remaining
+                    remaining = 0
+            st["outer"] = idx
+            st["inner"] = 0
+            st["offset"] = offset
+        st["abs"] = int(target_abs)
 
     def _stream_take_incremental(self, raw_data, channel: int, max_chars: int) -> str:
         """从分块缓冲中按游标提取增量字符串，避免全量 join。
@@ -2745,56 +2808,6 @@ class DeviceMdiWindow(QWidget):
             current_length = colored_buffer_lengths[channel]
             last_length = self.last_display_lengths[channel]
 
-            # 如果该TAB发生过trim，必须先清屏并重置游标/显示偏移，避免重复/错位导致不追赶
-            try:
-                if hasattr(self, '_tab_needs_clear_on_next_update') and self._tab_needs_clear_on_next_update[channel]:
-                    if hasattr(self, 'text_edits') and channel < len(self.text_edits):
-                        text_edit = self.text_edits[channel]
-                        v_scrollbar = text_edit.verticalScrollBar()
-                        h_scrollbar = text_edit.horizontalScrollBar()
-                        vscroll = v_scrollbar.value()
-                        hscroll = h_scrollbar.value()
-                        was_at_bottom = (vscroll >= v_scrollbar.maximum() - 2)
-
-                        try:
-                            text_edit._programmatic_scroll = True
-                        except Exception:
-                            pass
-                        try:
-                            text_edit.clear()
-                        except Exception:
-                            pass
-                        try:
-                            self.last_display_lengths[channel] = 0
-                            self._reset_ui_stream_state(channel)
-                            last_length = 0
-                        except Exception:
-                            pass
-
-                        v_scrollbar.blockSignals(True)
-                        h_scrollbar.blockSignals(True)
-                        try:
-                            if was_at_bottom or not getattr(text_edit, '_v_scroll_locked', False):
-                                v_scrollbar.setValue(v_scrollbar.maximum())
-                                try:
-                                    text_edit._v_scroll_locked = False
-                                except Exception:
-                                    pass
-                            else:
-                                v_scrollbar.setValue(vscroll)
-                            h_scrollbar.setValue(hscroll)
-                        finally:
-                            v_scrollbar.blockSignals(False)
-                            h_scrollbar.blockSignals(False)
-                            try:
-                                text_edit._programmatic_scroll = False
-                            except Exception:
-                                pass
-
-                    self._tab_needs_clear_on_next_update[channel] = False
-            except Exception:
-                pass
-            
             # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
             is_active_tab = (channel == current_tab)
             if not is_active_tab:
@@ -2806,19 +2819,15 @@ class DeviceMdiWindow(QWidget):
                     except Exception:
                         interval = float(self.inactive_tab_update_interval)
                     if time_since_last_update < interval:
-                        # 跳过本次更新，但继续检查缓冲区裁剪（这是关键问题，必须立即处理）
+                        # 仍需检查缓冲区裁剪（这是关键问题，必须立即处理）
                         if current_length < last_length:
                             trimmed_length = last_length - current_length
-                            logger.warning(f"🔧 [CH{channel}] Inactive TAB buffer trimmed: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
-                            # 关键修复：trim 时必须同步重置 UI 流状态，并标记下一次更新前清屏，否则会出现游标错位/重复叠加导致“看起来不刷新”
-                            self.last_display_lengths[channel] = 0
+                            logger.warning(f"🔧 [CH{channel}] Inactive TAB buffer trimmed: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, shifting cursor")
+                            # trim 后前移显示游标，避免重新输出旧内容
+                            new_last = max(0, last_length - trimmed_length)
+                            self.last_display_lengths[channel] = new_last
                             try:
-                                self._reset_ui_stream_state(channel)
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(self, '_tab_needs_clear_on_next_update'):
-                                    self._tab_needs_clear_on_next_update[channel] = True
+                                self._pending_ui_stream_abs[channel] = new_last
                             except Exception:
                                 pass
                             # 让该 TAB 下一次 tick 立刻执行清屏+重建（避免被 inactive interval 卡住）
@@ -2827,11 +2836,15 @@ class DeviceMdiWindow(QWidget):
                                     self.last_tab_update_times[channel] = 0
                             except Exception:
                                 pass
-                            last_length = 0
+                            last_length = new_last
                         
+                        # 如果后台TAB没有新数据，按频控跳过
+                        if current_length <= last_length:
+                            continue
+                        # 否则允许小步追赶，避免长期不更新
+
                         # ⚠️ 注意：非激活TAB如果长时间不更新，会出现“积压”。
                         # 这不是丢数据，禁止在这里触发 _force_refresh_tab()（会 clear()+last_display_lengths=0 导致切换TAB时观感为“重刷/重复输出”）。
-                        continue
                     # 更新非激活TAB的时间戳
                     self.last_tab_update_times[channel] = current_time
                     # 正常更新时也重置数据丢失检测时间戳
@@ -2842,13 +2855,11 @@ class DeviceMdiWindow(QWidget):
             if current_length < last_length:
                 # 计算被裁剪的长度
                 trimmed_length = last_length - current_length
-                logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, resetting to 0")
-                self.last_display_lengths[channel] = 0
-                self._reset_ui_stream_state(channel)
-                # 关键修复：标记下一次更新前清屏，避免旧文本与新缓冲起点错位叠加（ALL 页尤其明显）
+                logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, shifting cursor")
+                new_last = max(0, last_length - trimmed_length)
+                self.last_display_lengths[channel] = new_last
                 try:
-                    if hasattr(self, '_tab_needs_clear_on_next_update'):
-                        self._tab_needs_clear_on_next_update[channel] = True
+                    self._pending_ui_stream_abs[channel] = new_last
                 except Exception:
                     pass
                 # 让下一次 tick 不受 inactive interval 限制，尽快清屏并恢复追赶
@@ -2857,13 +2868,21 @@ class DeviceMdiWindow(QWidget):
                         self.last_tab_update_times[channel] = 0
                 except Exception:
                     pass
-                last_length = 0
+                last_length = new_last
 
             # ✅ 重要改动：不再把“显示落后（backlog）”当作“丢数据”，禁止自动强制刷新
             # UI 将按分片追赶（不丢缓冲区/不丢日志文件），避免大数据时反复 join/重载导致 0Hz。
             
             if current_length > last_length:
                 raw_data = colored_buffers[channel]
+                # 如有裁剪待对齐请求，在读取增量前先对齐游标
+                try:
+                    pending_abs = self._pending_ui_stream_abs[channel] if hasattr(self, '_pending_ui_stream_abs') else None
+                    if pending_abs is not None:
+                        self._seek_ui_stream_state(raw_data, channel, pending_abs)
+                        self._pending_ui_stream_abs[channel] = None
+                except Exception:
+                    pass
 
                 # 分片追赶：每次 tick 最多写入指定大小，避免大字符串 join/解析阻塞
                 if perf_crit:
@@ -2883,6 +2902,23 @@ class DeviceMdiWindow(QWidget):
                         max_append = max(8 * 1024, min(max_append, 256 * 1024))
 
                 new_data = self._stream_take_incremental(raw_data, channel, max_append)
+                if not new_data and current_length > last_length:
+                    try:
+                        if hasattr(self, '_ui_stream_empty_reads') and 0 <= channel < len(self._ui_stream_empty_reads):
+                            self._ui_stream_empty_reads[channel] += 1
+                            if self._ui_stream_empty_reads[channel] >= 3:
+                                logger.warning(f"🔧 [CH{channel}] UI stream desync detected, resync to end (last={last_length}, current={current_length})")
+                                self._seek_ui_stream_state(raw_data, channel, current_length)
+                                self.last_display_lengths[channel] = current_length
+                                self._ui_stream_empty_reads[channel] = 0
+                                if hasattr(self, '_pending_ui_stream_abs'):
+                                    self._pending_ui_stream_abs[channel] = None
+                    except Exception:
+                        pass
+                    # 本次无有效数据，跳过
+                    continue
+                elif new_data and hasattr(self, '_ui_stream_empty_reads') and 0 <= channel < len(self._ui_stream_empty_reads):
+                    self._ui_stream_empty_reads[channel] = 0
                 
                 if new_data and hasattr(self, 'text_edits') and channel < len(self.text_edits):
                     text_edit = self.text_edits[channel]
@@ -8041,6 +8077,15 @@ class RTTMainWindow(QMainWindow):
         rtt_obj = session.rtt2uart if hasattr(session, 'rtt2uart') else None
         session_connected = hasattr(session, 'is_connected') and session.is_connected
         rtt_connected = hasattr(rtt_obj, 'is_connected') and rtt_obj.is_connected if rtt_obj else False
+
+        # 暂停刷新时不做 NO DATA 检测，避免误报
+        try:
+            if rtt_obj and getattr(rtt_obj, 'ui_refresh_paused', False):
+                self.last_data_time = time.time()
+                logger.debug("[AUTO-RECONNECT] Skipping timeout check: UI refresh paused")
+                return
+        except Exception:
+            pass
         
         # 获取超时设置
         try:
@@ -8048,13 +8093,19 @@ class RTTMainWindow(QMainWindow):
         except:
             timeout = 60
         
-        # 检查是否超时
+        # 检查是否超时（以 JLink 入口时间戳为准）
         current_time = time.time()
-        time_since_last_data = current_time - self.last_data_time if self.last_data_time > 0 else 0
+        last_jlink_time = 0.0
+        try:
+            if rtt_obj and hasattr(rtt_obj, 'last_jlink_data_time'):
+                last_jlink_time = float(rtt_obj.last_jlink_data_time or 0.0)
+        except Exception:
+            last_jlink_time = 0.0
+        time_since_last_data = current_time - last_jlink_time if last_jlink_time > 0 else 0
         
         # 增加详细调试日志
         logger.debug(f"[AUTO-RECONNECT] Timeout check: session_connected={session_connected}, "
-                   f"rtt_connected={rtt_connected}, last_data_time={self.last_data_time:.2f}, "
+                   f"rtt_connected={rtt_connected}, last_jlink_time={last_jlink_time:.2f}, "
                    f"current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
         
         # 重连条件：
@@ -8063,7 +8114,7 @@ class RTTMainWindow(QMainWindow):
         should_reconnect = False
         reconnect_reason = ""
         
-        if self.last_data_time > 0 and time_since_last_data > timeout:
+        if last_jlink_time > 0 and time_since_last_data > timeout:
             should_reconnect = True
             reconnect_reason = f"No data received for {timeout} seconds"
         
@@ -8073,7 +8124,11 @@ class RTTMainWindow(QMainWindow):
                 self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
             
             # 重置时间戳，避免重复触发
-            self.last_data_time = current_time
+            try:
+                if rtt_obj and hasattr(rtt_obj, 'last_jlink_data_time'):
+                    rtt_obj.last_jlink_data_time = current_time
+            except Exception:
+                pass
             
             # 执行自动重连
             try:
@@ -14696,19 +14751,15 @@ class Worker(QObject):
                     if session.mdi_window and hasattr(session.mdi_window, 'last_display_lengths'):
                         if buffer_index < len(session.mdi_window.last_display_lengths):
                             old_length = session.mdi_window.last_display_lengths[buffer_index]
-                            # 缓冲区已发生裁剪：流式游标无法安全“平移”到新位置，标记下一次更新先清屏重建显示
+                            # 缓冲区已发生裁剪：前移显示游标，避免重新输出旧内容
+                            new_last = max(0, old_length - trimmed_length)
                             try:
-                                session.mdi_window.last_display_lengths[buffer_index] = 0
+                                session.mdi_window.last_display_lengths[buffer_index] = new_last
                             except Exception:
                                 pass
                             try:
-                                if hasattr(session.mdi_window, '_reset_ui_stream_state'):
-                                    session.mdi_window._reset_ui_stream_state(buffer_index)
-                            except Exception:
-                                pass
-                            try:
-                                if hasattr(session.mdi_window, '_tab_needs_clear_on_next_update'):
-                                    session.mdi_window._tab_needs_clear_on_next_update[buffer_index] = True
+                                if hasattr(session.mdi_window, '_pending_ui_stream_abs'):
+                                    session.mdi_window._pending_ui_stream_abs[buffer_index] = new_last
                             except Exception:
                                 pass
                             try:
@@ -14716,7 +14767,7 @@ class Worker(QObject):
                                     session.mdi_window.last_tab_update_times[buffer_index] = 0.0
                             except Exception:
                                 pass
-                            logger.debug(f"📊 Buffer trimmed: TAB[{buffer_index}] will clear+rebuild on next update (old_display={old_length}, trimmed={trimmed_length})")
+                            logger.debug(f"📊 Buffer trimmed: TAB[{buffer_index}] shift display (old_display={old_length}, trimmed={trimmed_length})")
         except Exception as e:
             logger.error(f"Failed to notify MDI windows of buffer trim: {e}", exc_info=True)
     
