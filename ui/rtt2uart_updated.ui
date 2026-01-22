@@ -58,12 +58,12 @@
    <property name="text">
     <string>Start</string>
    </property>
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="autoRepeat">
-    <bool>true</bool>
-   </property>
+  <property name="checkable">
+    <bool>false</bool>
+  </property>
+  <property name="autoRepeat">
+    <bool>false</bool>
+  </property>
    <property name="autoDefault">
     <bool>true</bool>
    </property>

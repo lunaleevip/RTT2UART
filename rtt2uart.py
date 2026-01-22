@@ -795,15 +795,39 @@ class rtt_to_serial():
                                         del old_jlink
                                         import gc
                                         gc.collect()
-                                        time.sleep(0.5)  # 等待DLL层面释放
+                                        time.sleep(1.0)  # 增加等待时间，确保DLL层面完全释放
                                         
                                         # 创建新的 JLink 对象
                                         self.jlink = pylink.JLink()
                                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink object recreated"))
                                         logger.info("JLink object recreated after failed close")
                                         
-                                        # 再次等待，确保新对象可以安全打开
-                                        time.sleep(0.3)
+                                        # 🔑 关键修复：检查新对象是否也认为已打开（DLL层面可能仍保持状态）
+                                        time.sleep(0.5)  # 等待新对象初始化
+                                        try:
+                                            with self._jlink_lock:
+                                                new_is_opened = self.jlink.opened()
+                                            if new_is_opened:
+                                                logger.warning("New JLink object also reports as opened, attempting to close it...")
+                                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "New JLink object reports as opened, closing it..."))
+                                                try:
+                                                    self._call_jlink_with_timeout("jlink.close()", lambda: self.jlink.close(), 5.0)
+                                                    time.sleep(1.0)  # 等待关闭完成
+                                                    # 再次验证
+                                                    with self._jlink_lock:
+                                                        still_opened_after_new_close = self.jlink.opened()
+                                                    if still_opened_after_new_close:
+                                                        logger.error("JLink still reports as opened after closing new object - DLL may be locked by another process")
+                                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Warning: JLink DLL may be locked by another process"))
+                                                    else:
+                                                        logger.info("Successfully closed new JLink object")
+                                                except Exception as new_close_e:
+                                                    logger.warning(f"Failed to close new JLink object: {new_close_e}")
+                                        except Exception as check_new_e:
+                                            logger.debug(f"Cannot check new JLink object status: {check_new_e}")
+                                        
+                                        # 再次等待，确保可以安全打开
+                                        time.sleep(0.5)
                                     except Exception as recreate_e:
                                         logger.error(f"Failed to recreate JLink object: {recreate_e}")
                                         raise Exception(f"Failed to recreate JLink object: {recreate_e}")
@@ -853,10 +877,17 @@ class rtt_to_serial():
                                 except Exception as info_e:
                                     logger.debug(f"Failed to get JLink info after retry: {info_e}")
                             except Exception as retry_e:
-                                error_msg = f"Failed to reopen JLink: {retry_e}"
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to reopen JLink: %s") % str(retry_e))
-                                logger.error(error_msg, exc_info=True)
-                                raise Exception(error_msg)
+                                error_msg = str(retry_e)
+                                # 如果是 "already open" 错误，提供更详细的提示
+                                if "already open" in error_msg.lower() or "is open" in error_msg.lower():
+                                    detailed_msg = QCoreApplication.translate("rtt2uart", "Failed to reopen JLink: J-Link is already open.\n\nPossible causes:\n1. Another process is using JLink (check Task Manager)\n2. Previous session did not close properly\n3. JLink DLL is locked\n\nPlease:\n- Close all other applications using JLink\n- Wait a few seconds and try again\n- Restart the application if problem persists")
+                                    self._log_to_gui(detailed_msg)
+                                    logger.error(f"Failed to reopen JLink after retry: {error_msg}", exc_info=True)
+                                    raise Exception(f"Failed to reopen JLink: {error_msg}. Please check if another process is using JLink.")
+                                else:
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to reopen JLink: %s") % str(retry_e))
+                                    logger.error(f"Failed to reopen JLink: {error_msg}", exc_info=True)
+                                    raise Exception(f"Failed to reopen JLink: {error_msg}")
                         else:
                             error_msg = f"Failed to open JLink: {e}"
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to open JLink: %s") % str(e))
