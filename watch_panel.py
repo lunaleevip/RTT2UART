@@ -1815,8 +1815,15 @@ class WatchDock(QDockWidget):
         while it.parent():
             it = it.parent()
         key = it.data(0, Qt.UserRole)
-        if isinstance(key, str) and key in self._watch_items:
-            del self._watch_items[key]
+        expr = None
+        if isinstance(key, dict) and key.get("kind") == "root":
+            expr = key.get("name")
+        elif isinstance(key, str):
+            expr = key
+        if not expr:
+            expr = it.text(0)
+        if expr and expr in self._watch_items:
+            del self._watch_items[expr]
         idx = self.tree_watch.indexOfTopLevelItem(it)
         if idx >= 0:
             self.tree_watch.takeTopLevelItem(idx)

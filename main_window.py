@@ -3748,8 +3748,12 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                                 content_bytes = (content + '\n').encode('utf-8', errors='ignore')
                                 
                                 # 按照 Worker.process_bytes 期望的格式组装数据
-                                # 格式：通道号字节（ASCII字符'0'-'F'） + 内容字节 + 0xFF分隔符
-                                data_chunk = channel_byte + content_bytes + b'\xFF'
+                                # 格式：0xFF + 通道号字节（ASCII字符'1'-'F'） + 内容字节
+                                # 通道0不带0xFF标记
+                                if channel_num == 0:
+                                    data_chunk = content_bytes
+                                else:
+                                    data_chunk = b'\xFF' + channel_byte + content_bytes
                                 
                                 # 添加到缓冲区
                                 line_buffer.append(data_chunk)
@@ -3773,7 +3777,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                             # 无法解析的行，发送到通道0
                             try:
                                 content_bytes = (line + '\n').encode('utf-8', errors='ignore')
-                                data_chunk = b'0' + content_bytes + b'\xFF'
+                                data_chunk = content_bytes
                                 line_buffer.append(data_chunk)
                                 buffer_size += len(data_chunk)
                                 
@@ -6347,6 +6351,33 @@ class RTTMainWindow(QMainWindow):
             
         except Exception as e:
             logger.error(f"Error updating RTT block combo for session: {e}", exc_info=True)
+
+    def _re_search_rtt_blocks(self, session, reason: str = ""):
+        """重新搜索RTT块并更新UI"""
+        try:
+            if not session:
+                return
+            session.rtt_block_list.clear()
+            session.current_rtt_block = None
+            if hasattr(self, 'append_jlink_log'):
+                msg = QCoreApplication.translate("main_window", "Re-searching RTT blocks")
+                if reason:
+                    msg = f"{msg} ({reason})"
+                self.append_jlink_log(msg)
+            if hasattr(self.ui, 'rtt_block_combo'):
+                self._update_rtt_block_combo_for_session(session)
+
+            dialog = session.connection_dialog or self.connection_dialog
+            if not dialog:
+                return
+            try:
+                rtt_cb_mode = dialog.config.get_rtt_control_block_mode()
+                if rtt_cb_mode == 'auto':
+                    QTimer.singleShot(200, lambda: dialog._start_background_rtt_block_search(session))
+            except Exception as e:
+                logger.debug(f"Failed to start RTT block search: {e}")
+        except Exception as e:
+            logger.error(f"Failed to re-search RTT blocks: {e}", exc_info=True)
     
     def _on_rtt_block_combo_changed(self, index):
         """RTT块选择框变更处理"""
@@ -7722,9 +7753,58 @@ class RTTMainWindow(QMainWindow):
         
         # MDI 架构：使用当前活动设备的 session
         session = self._get_active_device_session()
+        bytes_written = 0
+
+        try:
+            import pylink
+            jlink_exceptions = (pylink.errors.JLinkRTTException, pylink.errors.JLinkException)
+        except Exception:
+            jlink_exceptions = (Exception,)
+
+        def _trigger_auto_reset():
+            try:
+                import threading
+
+                def _run():
+                    try:
+                        if session and session.rtt2uart:
+                            try:
+                                session.rtt2uart._force_release_jlink("write exception")
+                            except Exception as force_e:
+                                logger.debug(f"Force release failed: {force_e}")
+                            session.rtt2uart._auto_reset_jlink_connection()
+                    except Exception as ex:
+                        logger.error(f"Auto reset JLink failed: {ex}")
+
+                threading.Thread(target=_run, daemon=True).start()
+            except Exception as ex:
+                logger.error(f"Failed to start auto reset thread: {ex}")
+
         if session and session.rtt2uart and session.rtt2uart.jlink:
-            bytes_written = session.rtt2uart.jlink.rtt_write(0, out_bytes)
-            session.rtt2uart.write_bytes0 = bytes_written
+            try:
+                try:
+                    if hasattr(session.rtt2uart.jlink, 'connected'):
+                        if not session.rtt2uart.jlink.connected():
+                            logger.warning("JLink not connected, triggering auto reset")
+                            _trigger_auto_reset()
+                            bytes_written = 0
+                        else:
+                            bytes_written = session.rtt2uart.jlink.rtt_write(0, out_bytes)
+                    else:
+                        bytes_written = session.rtt2uart.jlink.rtt_write(0, out_bytes)
+                except jlink_exceptions as e:
+                    logger.error(f"JLink write failed: {e}")
+                    _trigger_auto_reset()
+                    bytes_written = 0
+                except Exception as e:
+                    logger.error(f"Command send failed: {e}")
+                    _trigger_auto_reset()
+                    bytes_written = 0
+                session.rtt2uart.write_bytes0 = bytes_written
+            except Exception as e:
+                bytes_written = 0
+                logger.error(f"Command send failed (outer): {e}")
+                _trigger_auto_reset()
         else:
             bytes_written = 0
             logger.warning("No active device session for sending command")
@@ -8093,19 +8173,21 @@ class RTTMainWindow(QMainWindow):
         except:
             timeout = 60
         
-        # 检查是否超时（以 JLink 入口时间戳为准）
+        # 检查是否超时（以 RTT Control Block 可用性为准）
         current_time = time.time()
-        last_jlink_time = 0.0
+        last_rtt_cb_time = 0.0
         try:
-            if rtt_obj and hasattr(rtt_obj, 'last_jlink_data_time'):
-                last_jlink_time = float(rtt_obj.last_jlink_data_time or 0.0)
+            if rtt_obj and hasattr(rtt_obj, '_update_rtt_control_block_state'):
+                rtt_obj._update_rtt_control_block_state()
+            if rtt_obj and hasattr(rtt_obj, 'last_rtt_cb_time'):
+                last_rtt_cb_time = float(rtt_obj.last_rtt_cb_time or 0.0)
         except Exception:
-            last_jlink_time = 0.0
-        time_since_last_data = current_time - last_jlink_time if last_jlink_time > 0 else 0
+            last_rtt_cb_time = 0.0
+        time_since_last_data = current_time - last_rtt_cb_time if last_rtt_cb_time > 0 else 0
         
         # 增加详细调试日志
         logger.debug(f"[AUTO-RECONNECT] Timeout check: session_connected={session_connected}, "
-                   f"rtt_connected={rtt_connected}, last_jlink_time={last_jlink_time:.2f}, "
+                   f"rtt_connected={rtt_connected}, last_rtt_cb_time={last_rtt_cb_time:.2f}, "
                    f"current={current_time:.2f}, elapsed={time_since_last_data:.2f}s, timeout={timeout}s")
         
         # 重连条件：
@@ -8114,19 +8196,19 @@ class RTTMainWindow(QMainWindow):
         should_reconnect = False
         reconnect_reason = ""
         
-        if last_jlink_time > 0 and time_since_last_data > timeout:
+        if last_rtt_cb_time > 0 and time_since_last_data > timeout:
             should_reconnect = True
-            reconnect_reason = f"No data received for {timeout} seconds"
+            reconnect_reason = f"RTT Control Block unavailable for {timeout} seconds"
         
         if should_reconnect:
             logger.warning(f"[AUTO-RECONNECT] {reconnect_reason}, auto reconnecting...")
             if hasattr(self, 'append_jlink_log'):
-                self.append_jlink_log(QCoreApplication.translate("main_window", "No data timeout, automatically reconnecting..."))
+                self.append_jlink_log(QCoreApplication.translate("main_window", "RTT block timeout, automatically reconnecting..."))
             
             # 重置时间戳，避免重复触发
             try:
-                if rtt_obj and hasattr(rtt_obj, 'last_jlink_data_time'):
-                    rtt_obj.last_jlink_data_time = current_time
+                if rtt_obj and hasattr(rtt_obj, 'last_rtt_cb_time'):
+                    rtt_obj.last_rtt_cb_time = current_time
             except Exception:
                 pass
             
@@ -8219,6 +8301,9 @@ class RTTMainWindow(QMainWindow):
                 logger.info("[AUTO-RECONNECT] Auto-reconnection completed successfully")
                 if hasattr(self, 'append_jlink_log'):
                     self.append_jlink_log(QCoreApplication.translate("main_window", "Auto reconnect completed successfully"))
+
+                # 自动重连成功后重新搜索RTT块
+                QTimer.singleShot(300, lambda: self._re_search_rtt_blocks(session, "auto reconnect"))
                     
             except Exception as start_error:
                 logger.error(f"[AUTO-RECONNECT] Failed to start RTT connection: {start_error}", exc_info=True)
@@ -10490,6 +10575,7 @@ class RTTMainWindow(QMainWindow):
                 
                 # 已连接状态不断开JLink，保持RTT连接
                 logger.info("Device restarted, RTT connection maintained")
+                QTimer.singleShot(1000, lambda: self._re_search_rtt_blocks(session, "F9 restart"))
                 
             except Exception as e:
                 logger.error(f"Restart failed: {e}", exc_info=True)
@@ -14204,6 +14290,7 @@ class Worker(QObject):
     
     # 通道前缀正则表达式
     _channel_prefix_regex = re.compile(r'^(\d{1,2})[>\s]|^\[(\d{1,2})\]\s|^\[(0x[0-9A-Fa-f]{1,2})\]\s')
+    _channel_prefix_regex_bytes = re.compile(br'^(\d{1,2})[>\s]|^\[(\d{1,2})\]\s|^\[(0x[0-9A-Fa-f]{1,2})\]\s')
     
     # 通道标识正则表达式，支持多种格式
     _channel_identifier_regex = re.compile(r'\[(0x[0-9A-Fa-f]+)\]|\[(\d+)\]')
@@ -14612,6 +14699,26 @@ class Worker(QObject):
             'capacity_utilization': (total_size + colored_size) / (sum(self.buffer_capacities) + sum(self.colored_buffer_capacities)) * 100 if sum(self.buffer_capacities) > 0 else 0
         }
         
+    def _has_channel_marker(self, data: bytearray) -> bool:
+        """检测是否存在 0xFF + [0-9A-F] 的通道标记（只在行首生效）"""
+        if not data:
+            return False
+        marker = 0xFF
+        valid = b'0123456789ABCDEFabcdef'
+        data_len = len(data)
+        for i in range(data_len - 1):
+            if data[i] == marker and data[i + 1] in valid:
+                if i == 0 or data[i - 1] in (0x0A, 0x0D):
+                    return True
+        return False
+
+    def _process_chunk_with_channel(self, channel_idx: int, data_content: bytes):
+        """使用指定通道处理数据块"""
+        if not data_content:
+            return
+        self.channel_idx = channel_idx
+        self.addToBuffer(channel_idx, data_content)
+
     def process_bytes(self, data):
         """处理原始字节数据，严格按照正常连接的数据格式和处理流程
         
@@ -14634,51 +14741,109 @@ class Worker(QObject):
                 self.remaining_data.extend(bytes(data))
 
             # Auto-detect stream format:
-            # - New format: <channel nibble + payload> + 0xFF separator
-            # - Old format (legacy): no 0xFF; treat '\n' as record separator
-            # This enables parsing old realtime rtt_log.raw that lacks 0xFF separators.
+            # - Channel format: 0xFF + <channel nibble 1-9/A-F> + payload
+            # - No 0xFF: treat all data as channel 0
             if not hasattr(self, "_use_ff_separator"):
                 self._use_ff_separator = None  # None/True/False
 
             if self._use_ff_separator is None:
-                if b"\xFF" in self.remaining_data:
+                if self._has_channel_marker(self.remaining_data):
                     self._use_ff_separator = True
-                elif b"\n" in self.remaining_data:
-                    # If we saw line breaks before any 0xFF, assume legacy newline framing
-                    self._use_ff_separator = False
                 elif len(self.remaining_data) > 4096:
-                    # Avoid unbounded buffering if legacy stream has no 0xFF and no early '\n'
+                    # Avoid unbounded buffering if stream has no channel markers
                     self._use_ff_separator = False
 
             if self._use_ff_separator:
-                # New format: split by 0xFF
-                while self.remaining_data:
-                    sep = self.remaining_data.find(0xFF)
-                    if sep < 0:
-                        break
-                    chunk = bytes(self.remaining_data[:sep])
-                    del self.remaining_data[: sep + 1]
-                    if chunk:
-                        self._process_chunk(chunk)
-            else:
-                # Legacy format: split by newline; keep '\n' in payload for correct rendering
-                while True:
-                    nl = self.remaining_data.find(b"\n")
-                    if nl < 0:
-                        break
-                    line = bytes(self.remaining_data[: nl + 1])
-                    del self.remaining_data[: nl + 1]
-                    if line:
-                        self._process_chunk(line)
+                # Channel format: 0xFF + channel + payload (until next marker)
+                # 仅在行首识别通道标记，且要求后面跟 '[' 以避免误判为负载数据
+                valid = b'0123456789ABCDEFabcdef'
+                data = bytes(self.remaining_data)
+                original_len = len(data)
+                current_channel = getattr(self, "_ff_current_channel", None)
+                prev_byte = getattr(self, "_ff_prev_byte", None)
+                line_start = prev_byte is None or prev_byte in (0x0A, 0x0D)
+                last_emit_index = 0
+                i = 0
+                data_len = len(data)
+                last_stream_byte = data[-1] if data_len > 0 else prev_byte
+                while i + 1 < data_len:
+                    if data[i] == 0xFF and data[i + 1] in valid:
+                        if not (line_start if i == 0 else data[i - 1] in (0x0A, 0x0D)):
+                            i += 1
+                            continue
+                        # 要求通道标记后紧跟 '['，否则视为负载中的 0xFF
+                        if i + 2 >= data_len or data[i + 2] != 0x5B:
+                            i += 1
+                            continue
+                        payload = bytes(data[last_emit_index:i])
+                        if payload:
+                            if current_channel is None:
+                                self._process_chunk_with_channel(0, payload)
+                            else:
+                                self._process_chunk_with_channel(current_channel, payload)
+                        # 二次校验，避免并发修改导致非法字符
+                        if data[i + 1] in valid:
+                            current_channel = int(bytes([data[i + 1]]), 16)
+                        else:
+                            i += 1
+                            continue
+                        i += 2
+                        last_emit_index = i
+                        continue
+                    i += 1
 
-                # Safety: if no newline ever arrives, cap buffer to avoid memory blowup
-                if len(self.remaining_data) > 1024 * 1024:
-                    chunk = bytes(self.remaining_data)
-                    self.remaining_data.clear()
-                    if chunk:
+                # 保留未完成的尾部数据（等待下一次补全）
+                tail = data[last_emit_index:]
+                try:
+                    extra = b""
+                    if len(self.remaining_data) > original_len:
+                        extra = bytes(self.remaining_data[original_len:])
+                    self.remaining_data = bytearray(tail)
+                    if extra:
+                        self.remaining_data.extend(extra)
+                except Exception:
+                    self.remaining_data = bytearray(tail)
+                self._ff_current_channel = current_channel
+                if len(self.remaining_data) > 0:
+                    self._ff_prev_byte = self.remaining_data[-1]
+                else:
+                    self._ff_prev_byte = last_stream_byte
+            else:
+                # No 0xFF: all data goes to channel 0
+                if self._has_channel_marker(self.remaining_data):
+                    self._use_ff_separator = True
+                    return self.process_bytes(b"")
+                if not self.remaining_data:
+                    return
+                # 按行处理，移除类似 "00>" 前缀，避免通道标记被直接打印
+                if b"\n" in self.remaining_data:
+                    parts = self.remaining_data.split(b"\n")
+                    for line in parts[:-1]:
+                        if line:
+                            self._process_chunk(line + b"\n")
+                        else:
+                            # 保留空行
+                            self._process_chunk(b"\n")
+                    self.remaining_data = bytearray(parts[-1])
+                else:
+                    # 没有换行时，直接按块处理
+                    if len(self.remaining_data) > 4096:
+                        chunk = bytes(self.remaining_data)
+                        self.remaining_data.clear()
                         self._process_chunk(chunk)
         except Exception as e:
             logger.error(f"Error processing bytes: {e}", exc_info=True)
+
+    def reset_rtt_parser_state(self):
+        """重置RTT解析状态，避免重连后通道解析污染"""
+        try:
+            self.remaining_data = bytearray()
+            self._use_ff_separator = None
+            self.channel_idx = 0
+            self._ff_current_channel = None
+            self._ff_prev_byte = None
+        except Exception:
+            pass
     
     def _process_chunk(self, chunk):
         """处理单个数据段
@@ -14689,14 +14854,41 @@ class Worker(QObject):
         if len(chunk) < 2:
             return
         
-        # 第一个字节是通道号
-        # 将字符 '0'-'F' 解析为 0x0-0xF 的十六进制数字
-        if chunk[0:1] in b'0123456789ABCDEF':
-            self.channel_idx = int(chunk[0:1],16)
-            # 剩余部分是数据
-            data_content = chunk[1:]
+        channel_idx = None
+        data_content = chunk
+        prefix_matched = False
+
+        # Legacy newline framing: try parse channel prefix like "02>" or "[02]"
+        if getattr(self, "_use_ff_separator", True) is False:
+            try:
+                match = self._channel_prefix_regex_bytes.match(chunk)
+                if match:
+                    channel_raw = match.group(1) or match.group(2) or match.group(3)
+                    if channel_raw:
+                        if channel_raw.lower().startswith(b'0x'):
+                            parsed = int(channel_raw, 16)
+                        else:
+                            parsed = int(channel_raw, 10)
+                        if 0 <= parsed <= 15:
+                            channel_idx = parsed
+                            data_content = chunk[match.end():]
+                            prefix_matched = True
+            except Exception:
+                channel_idx = None
+
+        # New format: first byte is hex channel nibble ('0'..'F')
+        if channel_idx is None:
+            if chunk[0:1] in b'0123456789ABCDEF':
+                self.channel_idx = int(chunk[0:1], 16)
+                data_content = chunk[1:]
+            else:
+                data_content = chunk
         else:
-            data_content = chunk
+            self.channel_idx = channel_idx
+
+        # 通道前缀匹配后，去掉一个可选的空格，避免多余空格进入正文
+        if prefix_matched and data_content.startswith(b" "):
+            data_content = data_content[1:]
 
         # 转换通道标识并添加到缓冲区 - 所有文本处理都在这里完成
         self.addToBuffer(self.channel_idx, data_content)
