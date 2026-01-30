@@ -2700,6 +2700,17 @@ class DeviceMdiWindow(QWidget):
         """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
         try:
             logger.debug(f"_update_from_worker: Starting UI update check")
+            now_ts = time.time()
+            if not hasattr(self, '_ui_diag_last_heartbeat'):
+                self._ui_diag_last_heartbeat = 0.0
+            if not hasattr(self, '_ui_diag_last_no_session_warn'):
+                self._ui_diag_last_no_session_warn = 0.0
+            if not hasattr(self, '_ui_diag_last_no_dialog_warn'):
+                self._ui_diag_last_no_dialog_warn = 0.0
+            if not hasattr(self, '_ui_diag_last_no_worker_warn'):
+                self._ui_diag_last_no_worker_warn = 0.0
+            if not hasattr(self, '_ui_diag_last_missing_buffer_warn'):
+                self._ui_diag_last_missing_buffer_warn = 0.0
             
             # 检查是否是回放模式
             is_playback = hasattr(self, 'playback_file_path') and self.playback_file_path
@@ -2743,25 +2754,67 @@ class DeviceMdiWindow(QWidget):
             
             # 非回放模式的原有逻辑
             if not hasattr(self, 'device_session'):
-                logger.warning("_update_from_worker: device_session not found")
+                if now_ts - self._ui_diag_last_no_session_warn > 30.0:
+                    logger.warning("_update_from_worker: device_session not found")
+                    self._ui_diag_last_no_session_warn = now_ts
                 return
                 
             if not self.device_session.connection_dialog:
-                logger.debug(f"[UPDATE] No connection_dialog for session {getattr(self.device_session, 'session_id', 'unknown')}")
+                if now_ts - self._ui_diag_last_no_dialog_warn > 30.0:
+                    logger.warning(f"[UPDATE] No connection_dialog for session {getattr(self.device_session, 'session_id', 'unknown')}")
+                    self._ui_diag_last_no_dialog_warn = now_ts
                 return
             
             worker = getattr(self.device_session.connection_dialog, 'worker', None)
             if not worker:
-                logger.debug(f"[UPDATE] No work for session {getattr(self.device_session, 'session_id', 'unknown')}")
+                if now_ts - self._ui_diag_last_no_worker_warn > 30.0:
+                    logger.warning(f"[UPDATE] No worker for session {getattr(self.device_session, 'session_id', 'unknown')}")
+                    self._ui_diag_last_no_worker_warn = now_ts
                 return
             
             # 验证worker对象是否有正确的属性
             if not hasattr(worker, 'colored_buffers'):
-                logger.warning(f"Worker missing colored_buffers attribute")
+                if now_ts - self._ui_diag_last_missing_buffer_warn > 30.0:
+                    logger.warning("Worker missing colored_buffers attribute")
+                    self._ui_diag_last_missing_buffer_warn = now_ts
                 return
             if not hasattr(worker, 'colored_buffer_lengths'):
-                logger.warning(f"Worker missing colored_buffer_lengths attribute")
+                if now_ts - self._ui_diag_last_missing_buffer_warn > 30.0:
+                    logger.warning("Worker missing colored_buffer_lengths attribute")
+                    self._ui_diag_last_missing_buffer_warn = now_ts
                 return
+
+            # 诊断心跳：定期输出ALL通道与刷新状态
+            if now_ts - self._ui_diag_last_heartbeat > 30.0:
+                try:
+                    active_tab = self.tab_widget.currentIndex()
+                except Exception:
+                    active_tab = -1
+                try:
+                    timer_active = bool(self.update_timer.isActive())
+                except Exception:
+                    timer_active = False
+                try:
+                    rtt = getattr(self.device_session, 'rtt2uart', None)
+                    paused = bool(getattr(rtt, 'ui_refresh_paused', False)) if rtt else False
+                    pause_reason = getattr(rtt, 'ui_refresh_pause_reason', None) if rtt else None
+                except Exception:
+                    paused = False
+                    pause_reason = None
+                try:
+                    all_buf = int(worker.colored_buffer_lengths[0]) if worker.colored_buffer_lengths else 0
+                except Exception:
+                    all_buf = -1
+                try:
+                    all_last = int(self.last_display_lengths[0]) if self.last_display_lengths else 0
+                except Exception:
+                    all_last = -1
+                backlog = all_buf - all_last if all_buf >= 0 and all_last >= 0 else -1
+                logger.info(
+                    f"[UI-HB] tab={active_tab} timer={timer_active} paused={paused} reason={pause_reason} "
+                    f"ALL buf={all_buf} last={all_last} backlog={backlog}"
+                )
+                self._ui_diag_last_heartbeat = now_ts
             
             # 处理非回放模式的UI更新
             self._process_ui_update(worker.colored_buffers, worker.colored_buffer_lengths)
@@ -2792,6 +2845,31 @@ class DeviceMdiWindow(QWidget):
         # 获取当前激活的TAB索引
         current_tab = self.tab_widget.currentIndex()
         current_time = time.time()
+        # ALL 卡住检测（通道0）
+        try:
+            if not hasattr(self, '_ui_diag_all_last_display'):
+                self._ui_diag_all_last_display = 0
+                self._ui_diag_all_last_move_time = current_time
+                self._ui_diag_all_last_warn_time = 0.0
+                self._ui_diag_all_last_buffer = 0
+            all_buf_len = int(colored_buffer_lengths[0]) if colored_buffer_lengths else 0
+            all_last_len = int(self.last_display_lengths[0]) if self.last_display_lengths else 0
+            if all_last_len != self._ui_diag_all_last_display:
+                self._ui_diag_all_last_display = all_last_len
+                self._ui_diag_all_last_move_time = current_time
+            elif all_buf_len > all_last_len:
+                # 有积压但显示位置未前进，记录一次警告（节流）
+                stuck_secs = current_time - self._ui_diag_all_last_move_time
+                if stuck_secs > 10.0 and current_time - self._ui_diag_all_last_warn_time > 30.0:
+                    backlog = all_buf_len - all_last_len
+                    logger.warning(
+                        f"[UI-STUCK] ALL stalled {stuck_secs:.1f}s tab={current_tab} "
+                        f"buf={all_buf_len} last={all_last_len} backlog={backlog}"
+                    )
+                    self._ui_diag_all_last_warn_time = current_time
+            self._ui_diag_all_last_buffer = all_buf_len
+        except Exception:
+            pass
 
         # 性能降级标志（不丢缓存/不丢文件，仅降低UI追赶压力）
         worker = None
@@ -2808,48 +2886,8 @@ class DeviceMdiWindow(QWidget):
             current_length = colored_buffer_lengths[channel]
             last_length = self.last_display_lengths[channel]
 
-            # 🔧 修复：对于非激活TAB，降低更新频率（1秒一次）
+            # 后台TAB也要即时刷新：有数据就更新，不做频率节流
             is_active_tab = (channel == current_tab)
-            if not is_active_tab:
-                # 检查是否需要更新（距离上次更新超过1秒）
-                if hasattr(self, 'last_tab_update_times') and hasattr(self, 'inactive_tab_update_interval'):
-                    time_since_last_update = current_time - self.last_tab_update_times[channel]
-                    try:
-                        interval = float(self._inactive_tab_next_interval[channel]) if hasattr(self, '_inactive_tab_next_interval') else float(self.inactive_tab_update_interval)
-                    except Exception:
-                        interval = float(self.inactive_tab_update_interval)
-                    if time_since_last_update < interval:
-                        # 仍需检查缓冲区裁剪（这是关键问题，必须立即处理）
-                        if current_length < last_length:
-                            trimmed_length = last_length - current_length
-                            logger.warning(f"🔧 [CH{channel}] Inactive TAB buffer trimmed: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, shifting cursor")
-                            # trim 后前移显示游标，避免重新输出旧内容
-                            new_last = max(0, last_length - trimmed_length)
-                            self.last_display_lengths[channel] = new_last
-                            try:
-                                self._pending_ui_stream_abs[channel] = new_last
-                            except Exception:
-                                pass
-                            # 让该 TAB 下一次 tick 立刻执行清屏+重建（避免被 inactive interval 卡住）
-                            try:
-                                if hasattr(self, 'last_tab_update_times'):
-                                    self.last_tab_update_times[channel] = 0
-                            except Exception:
-                                pass
-                            last_length = new_last
-                        
-                        # 如果后台TAB没有新数据，按频控跳过
-                        if current_length <= last_length:
-                            continue
-                        # 否则允许小步追赶，避免长期不更新
-
-                        # ⚠️ 注意：非激活TAB如果长时间不更新，会出现“积压”。
-                        # 这不是丢数据，禁止在这里触发 _force_refresh_tab()（会 clear()+last_display_lengths=0 导致切换TAB时观感为“重刷/重复输出”）。
-                    # 更新非激活TAB的时间戳
-                    self.last_tab_update_times[channel] = current_time
-                    # 正常更新时也重置数据丢失检测时间戳
-                    if hasattr(self, 'last_inactive_gap_check_times'):
-                        self.last_inactive_gap_check_times[channel] = current_time
             
             # 🔧 修复：如果current < last，说明缓冲区被裁剪了，需要调整last_display_lengths
             if current_length < last_length:
@@ -14591,14 +14629,6 @@ class Worker(QObject):
                 self.buffers[index] = []
                 self.buffer_lengths[index] = 0
             
-            # 🔧 连续重复检查：只检查最后一条记录，防止完全相同的连续数据被重复添加
-            # 注意：不检查最近N条，因为周期性日志（如状态报告）可能在不同时间重复，但应该被保留
-            if len(self.buffers[index]) > 0:
-                last_data = self.buffers[index][-1]
-                if data == last_data:
-                    # 检测到连续重复数据，跳过添加
-                    #logger.debug(f"检测到连续重复数据，跳过添加到buffer[{index}]: {data[:50]}...")
-                    return
             current_length = self.buffer_lengths[index]
             new_length = current_length + len(data)
             
@@ -14636,13 +14666,6 @@ class Worker(QObject):
                 self.colored_buffers[index] = []
                 self.colored_buffer_lengths[index] = 0
             
-            # 🔧 连续重复检查：只检查最后一条记录，防止完全相同的连续数据被重复添加
-            # 注意：不检查最近N条，因为周期性日志（如状态报告）可能在不同时间重复，但应该被保留
-            if len(self.colored_buffers[index]) > 0:
-                last_data = self.colored_buffers[index][-1]
-                if data == last_data:
-                    # 检测到连续重复数据，跳过添加
-                    return
             current_length = self.colored_buffer_lengths[index]
             new_length = current_length + len(data)
             
@@ -14700,7 +14723,7 @@ class Worker(QObject):
         }
         
     def _has_channel_marker(self, data: bytearray) -> bool:
-        """检测是否存在 0xFF + [0-9A-F] 的通道标记（只在行首生效）"""
+        """检测是否存在 0xFF + [0-9A-F] 的通道标记"""
         if not data:
             return False
         marker = 0xFF
@@ -14708,8 +14731,7 @@ class Worker(QObject):
         data_len = len(data)
         for i in range(data_len - 1):
             if data[i] == marker and data[i + 1] in valid:
-                if i == 0 or data[i - 1] in (0x0A, 0x0D):
-                    return True
+                return True
         return False
 
     def _process_chunk_with_channel(self, channel_idx: int, data_content: bytes):
@@ -14755,26 +14777,18 @@ class Worker(QObject):
 
             if self._use_ff_separator:
                 # Channel format: 0xFF + channel + payload (until next marker)
-                # 仅在行首识别通道标记，且要求后面跟 '[' 以避免误判为负载数据
+                # 只要出现 0xFF + 通道 即识别
                 valid = b'0123456789ABCDEFabcdef'
                 data = bytes(self.remaining_data)
                 original_len = len(data)
                 current_channel = getattr(self, "_ff_current_channel", None)
                 prev_byte = getattr(self, "_ff_prev_byte", None)
-                line_start = prev_byte is None or prev_byte in (0x0A, 0x0D)
                 last_emit_index = 0
                 i = 0
                 data_len = len(data)
                 last_stream_byte = data[-1] if data_len > 0 else prev_byte
                 while i + 1 < data_len:
                     if data[i] == 0xFF and data[i + 1] in valid:
-                        if not (line_start if i == 0 else data[i - 1] in (0x0A, 0x0D)):
-                            i += 1
-                            continue
-                        # 要求通道标记后紧跟 '['，否则视为负载中的 0xFF
-                        if i + 2 >= data_len or data[i + 2] != 0x5B:
-                            i += 1
-                            continue
                         payload = bytes(data[last_emit_index:i])
                         if payload:
                             if current_channel is None:
