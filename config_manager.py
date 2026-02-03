@@ -148,7 +148,7 @@ class ConfigManager:
         self.config['Logging'] = {
             'auto_save': 'true',
             'log_format': 'txt',
-            'max_log_size': '10000',  # KB
+            'max_lines': '10000',  # UI最大行数
             'auto_delete_empty': 'true',
             'log_split': 'true',  # 日志拆分，默认开启
             'last_log_directory': ''  # 上次使用的日志目录
@@ -198,6 +198,16 @@ class ConfigManager:
             try:
                 self.config.read(self.config_file, encoding='utf-8')
                 logger.debug(f"配置文件加载成功: {self.config_file}")
+                # 兼容旧配置：max_log_size -> max_lines
+                try:
+                    if self.config.has_section('Logging'):
+                        if (not self.config.has_option('Logging', 'max_lines') 
+                            and self.config.has_option('Logging', 'max_log_size')):
+                            old_value = self.config.get('Logging', 'max_log_size', fallback='10000')
+                            self.config.set('Logging', 'max_lines', str(old_value))
+                            logger.info(f"迁移配置: Logging.max_log_size -> max_lines = {old_value}")
+                except Exception as e:
+                    logger.debug(f"配置迁移失败: {e}")
             except Exception as e:
                 logger.debug(f"配置文件加载失败: {e}")
                 # 使用默认设置
@@ -1066,11 +1076,14 @@ class ConfigManager:
     
     def get_max_log_size(self) -> int:
         """获取最大日志行数"""
+        # 优先读取新键 max_lines，兼容旧键 max_log_size
+        if self.config.has_option('Logging', 'max_lines'):
+            return self._safe_getint('Logging', 'max_lines', 10000)
         return self._safe_getint('Logging', 'max_log_size', 10000)
     
     def set_max_log_size(self, max_lines: int):
         """设置最大日志行数"""
-        self.config.set('Logging', 'max_log_size', str(max_lines))
+        self.config.set('Logging', 'max_lines', str(max_lines))
     
     def get_log_split(self) -> bool:
         """获取日志拆分设置"""

@@ -37,6 +37,16 @@ class FastAnsiTextEdit(QTextEdit):
         # 是否禁用内容限制（用于回放窗口）
         self.disable_content_limit = disable_content_limit
         
+        # 行数上限：始终保留最后N行（由配置控制）
+        if (not self.disable_content_limit) and self.config_manager:
+            try:
+                max_lines = int(self.config_manager.get_max_log_size())
+                if max_lines > 0:
+                    self.document().setMaximumBlockCount(max_lines)
+                    logger.info(f"[UI] MaximumBlockCount set to {max_lines} lines")
+            except Exception as e:
+                logger.debug(f"[UI] Failed to set MaximumBlockCount: {e}")
+        
         # 性能优化设置
         self.setUndoRedoEnabled(False)
         self.document().setUndoRedoEnabled(False)
@@ -425,40 +435,42 @@ class FastAnsiTextEdit(QTextEdit):
         # 对于回放窗口，不进行内容限制检查
         # 只有非回放窗口才需要检查行数限制
         if not self.disable_content_limit and self.config_manager:
-            # 获取最大日志行数限制
-            max_lines = self.config_manager.get_max_log_size()
-            if max_lines > 0:
-                # 检查当前行数
-                block = doc.firstBlock()
-                line_count = 0
-                while block.isValid():
-                    line_count += block.lineCount()
-                    block = block.next()
-                
-                # 如果超过限制，只保留最后max_lines行
-                if line_count > max_lines:
-                    # 计算需要删除的行数
-                    lines_to_remove = line_count - max_lines
-                    
-                    # 删除多余的行
-                    cursor = self.textCursor()
-                    cursor.movePosition(QTextCursor.Start)
-                    
-                    # 移动到需要保留的第一行
-                    current_line = 0
+            # 如果文档已设置最大行数，由 Qt 自动裁剪
+            if doc.maximumBlockCount() <= 0:
+                # 获取最大日志行数限制
+                max_lines = self.config_manager.get_max_log_size()
+                if max_lines > 0:
+                    # 检查当前行数
                     block = doc.firstBlock()
-                    while block.isValid() and current_line < lines_to_remove:
-                        current_line += block.lineCount()
-                        if current_line < lines_to_remove:
-                            block = block.next()
-                        else:
-                            break
+                    line_count = 0
+                    while block.isValid():
+                        line_count += block.lineCount()
+                        block = block.next()
                     
-                    if block.isValid():
-                        # 从文档开始选择到要保留的第一行
-                        cursor.setPosition(block.position())
-                        cursor.movePosition(QTextCursor.Start, QTextCursor.KeepAnchor)
-                        cursor.removeSelectedText()
+                    # 如果超过限制，只保留最后max_lines行
+                    if line_count > max_lines:
+                        # 计算需要删除的行数
+                        lines_to_remove = line_count - max_lines
+                        
+                        # 删除多余的行
+                        cursor = self.textCursor()
+                        cursor.movePosition(QTextCursor.Start)
+                        
+                        # 移动到需要保留的第一行
+                        current_line = 0
+                        block = doc.firstBlock()
+                        while block.isValid() and current_line < lines_to_remove:
+                            current_line += block.lineCount()
+                            if current_line < lines_to_remove:
+                                block = block.next()
+                            else:
+                                break
+                        
+                        if block.isValid():
+                            # 从文档开始选择到要保留的第一行
+                            cursor.setPosition(block.position())
+                            cursor.movePosition(QTextCursor.Start, QTextCursor.KeepAnchor)
+                            cursor.removeSelectedText()
     
     def clear_format_cache(self):
         """清除格式缓存，确保新字体设置能够应用到所有新添加的文本"""

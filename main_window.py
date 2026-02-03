@@ -2124,6 +2124,9 @@ class DeviceMdiWindow(QWidget):
         ]
         # UI 流式读取异常保护：连续空读计数（用于检测游标不同步导致的“卡住”）
         self._ui_stream_empty_reads = [0] * MAX_TAB_SIZE
+        # UI 调试日志节流（避免刷屏）
+        self._ui_debug_last_log = [0.0] * MAX_TAB_SIZE
+        self._ui_debug_log_interval = 2.0
         # 当缓冲区发生裁剪(trim)时，记录目标abs位置，下一次更新时对齐游标，避免重复输出
         self._pending_ui_stream_abs = [None] * MAX_TAB_SIZE
         # 每次 UI tick 允许追加的最大字符数（按字符计数，通常与字节近似）
@@ -2277,6 +2280,21 @@ class DeviceMdiWindow(QWidget):
         except Exception as e:
             logger.debug(f"Auto-resume handler error: {e}")
 
+    def _ui_debug_log(self, channel: int, message: str, level: str = "warning"):
+        """UI调试日志（按通道节流）"""
+        try:
+            now = time.time()
+            if 0 <= channel < len(self._ui_debug_last_log):
+                if (now - self._ui_debug_last_log[channel]) < self._ui_debug_log_interval:
+                    return
+                self._ui_debug_last_log[channel] = now
+            if level == "info":
+                logger.info(message)
+            else:
+                logger.warning(message)
+        except Exception:
+            pass
+
     def _reset_ui_stream_state(self, channel: int):
         """重置 UI 流式读取游标（当缓冲区裁剪/重置时调用）"""
         if 0 <= channel < len(self._ui_stream_state):
@@ -2360,9 +2378,17 @@ class DeviceMdiWindow(QWidget):
         start_abs = self.last_display_lengths[channel] if 0 <= channel < len(self.last_display_lengths) else 0
         st = self._ui_stream_state[channel]
         if st.get("abs", 0) != start_abs:
-            # UI位置与游标不一致（可能发生过裁剪/重置/强制刷新），直接重置游标
-            self._reset_ui_stream_state(channel)
+            # UI位置与游标不一致（可能发生过裁剪/重置/强制刷新），对齐到当前显示位置，避免从头重读
+            try:
+                raw_len = len(raw_data) if isinstance(raw_data, list) else (len(raw_data) if raw_data is not None else 0)
+            except Exception:
+                raw_len = -1
+            logger.warning(
+                f"[UI-RESYNC] CH{channel} abs={st.get('abs', 0)} start={start_abs} raw_len={raw_len}"
+            )
+            self._seek_ui_stream_state(raw_data, channel, start_abs)
             st = self._ui_stream_state[channel]
+            logger.info(f"[UI-RESYNC] CH{channel} aligned abs={st.get('abs', 0)}")
 
         parts = []
         remaining = max_chars
@@ -2893,11 +2919,38 @@ class DeviceMdiWindow(QWidget):
             if current_length < last_length:
                 # 计算被裁剪的长度
                 trimmed_length = last_length - current_length
-                logger.warning(f"🔧 [CH{channel}] Buffer trimmed detected: last_display={last_length}, current={current_length}, trimmed={trimmed_length} bytes, shifting cursor")
+                self._ui_debug_log(
+                    channel,
+                    f"🔧 [UI] CH{channel} display rewind: last_display={last_length}, current={current_length}, trimmed={trimmed_length}",
+                    level="warning",
+                )
                 new_last = max(0, last_length - trimmed_length)
                 self.last_display_lengths[channel] = new_last
                 try:
                     self._pending_ui_stream_abs[channel] = new_last
+                except Exception:
+                    pass
+                # 🔧 根因修复：缓冲区裁剪后，清空UI避免旧数据“回放”
+                try:
+                    if hasattr(self, 'text_edits') and channel < len(self.text_edits):
+                        text_edit = self.text_edits[channel]
+                        if hasattr(text_edit, 'clear_content'):
+                            text_edit.clear_content()
+                        else:
+                            text_edit.clear()
+                        # 对齐流式游标到当前末尾
+                        raw_data = colored_buffers[channel] if colored_buffers and channel < len(colored_buffers) else None
+                        self._seek_ui_stream_state(raw_data, channel, new_last)
+                        if hasattr(self, '_pending_ui_stream_abs'):
+                            self._pending_ui_stream_abs[channel] = None
+                        self._ui_debug_log(
+                            channel,
+                            f"🔧 [UI] CH{channel} trimmed -> UI cleared, aligned abs={new_last}",
+                            level="warning",
+                        )
+                        last_length = new_last
+                        # 裁剪后本次不再追加，避免旧数据重复显示
+                        continue
                 except Exception:
                     pass
                 # 让下一次 tick 不受 inactive interval 限制，尽快清屏并恢复追赶
@@ -2917,6 +2970,11 @@ class DeviceMdiWindow(QWidget):
                 try:
                     pending_abs = self._pending_ui_stream_abs[channel] if hasattr(self, '_pending_ui_stream_abs') else None
                     if pending_abs is not None:
+                        self._ui_debug_log(
+                            channel,
+                            f"🔧 [UI] CH{channel} applying pending_abs={pending_abs} (current={current_length}, last={last_length})",
+                            level="info",
+                        )
                         self._seek_ui_stream_state(raw_data, channel, pending_abs)
                         self._pending_ui_stream_abs[channel] = None
                 except Exception:
@@ -2945,7 +3003,11 @@ class DeviceMdiWindow(QWidget):
                         if hasattr(self, '_ui_stream_empty_reads') and 0 <= channel < len(self._ui_stream_empty_reads):
                             self._ui_stream_empty_reads[channel] += 1
                             if self._ui_stream_empty_reads[channel] >= 3:
-                                logger.warning(f"🔧 [CH{channel}] UI stream desync detected, resync to end (last={last_length}, current={current_length})")
+                                self._ui_debug_log(
+                                    channel,
+                                    f"🔧 [UI] CH{channel} stream desync, resync to end (last={last_length}, current={current_length})",
+                                    level="warning",
+                                )
                                 self._seek_ui_stream_state(raw_data, channel, current_length)
                                 self.last_display_lengths[channel] = current_length
                                 self._ui_stream_empty_reads[channel] = 0
@@ -2962,6 +3024,35 @@ class DeviceMdiWindow(QWidget):
                     text_edit = self.text_edits[channel]
                 else:
                     continue
+
+                # 处理清屏指令：清空UI并将显示游标前移到清屏之后，避免旧数据被重新渲染
+                clear_seq = '\x1B[2J'
+                if (1 <= channel <= 16) and (clear_seq in new_data):
+                    try:
+                        idx = new_data.rfind(clear_seq)
+                        abs_after_clear = last_length + idx + len(clear_seq)
+                        self._ui_debug_log(
+                            channel,
+                            f"🔧 [UI] CH{channel} ANSI clear detected, abs_after_clear={abs_after_clear}",
+                            level="info",
+                        )
+                        # 清屏（只影响UI显示）
+                        if hasattr(text_edit, 'clear_content'):
+                            text_edit.clear_content()
+                        else:
+                            text_edit.clear()
+                        # 对齐流式游标到清屏后位置
+                        self.last_display_lengths[channel] = abs_after_clear
+                        self._seek_ui_stream_state(raw_data, channel, abs_after_clear)
+                        if hasattr(self, '_pending_ui_stream_abs'):
+                            self._pending_ui_stream_abs[channel] = None
+                        # 丢弃清屏前的内容，仅显示清屏后的数据
+                        new_data = new_data[idx + len(clear_seq):]
+                        last_length = abs_after_clear
+                        if not new_data:
+                            continue
+                    except Exception:
+                        pass
                 
                 # 获取滚动条
                 v_scrollbar = text_edit.verticalScrollBar()
@@ -7810,7 +7901,10 @@ class RTTMainWindow(QMainWindow):
                                 session.rtt2uart._force_release_jlink("write exception")
                             except Exception as force_e:
                                 logger.debug(f"Force release failed: {force_e}")
-                            session.rtt2uart._auto_reset_jlink_connection()
+                            if hasattr(session.rtt2uart, "_try_auto_reset_connection"):
+                                session.rtt2uart._try_auto_reset_connection("write_exception")
+                            else:
+                                session.rtt2uart._auto_reset_jlink_connection()
                     except Exception as ex:
                         logger.error(f"Auto reset JLink failed: {ex}")
 
@@ -8026,6 +8120,20 @@ class RTTMainWindow(QMainWindow):
                                     existing_session.mdi_window.last_display_lengths[ch] = old_worker.colored_buffer_lengths[ch]
                                 logger.info(f"✅ Reset UI display offsets to current buffer lengths: {existing_session.mdi_window.last_display_lengths[:3]}")
                                 self.append_jlink_log(QCoreApplication.translate("main_window", "Reset UI display offsets"))
+                                # 同步 UI 流式游标，避免重连后前几秒更新很慢
+                                if hasattr(existing_session.mdi_window, '_seek_ui_stream_state'):
+                                    for ch in range(len(existing_session.mdi_window.last_display_lengths)):
+                                        try:
+                                            raw_data = None
+                                            if hasattr(old_worker, 'colored_buffers') and ch < len(old_worker.colored_buffers):
+                                                raw_data = old_worker.colored_buffers[ch]
+                                            existing_session.mdi_window._seek_ui_stream_state(
+                                                raw_data, ch, old_worker.colored_buffer_lengths[ch]
+                                            )
+                                            if hasattr(existing_session.mdi_window, '_pending_ui_stream_abs') and ch < len(existing_session.mdi_window._pending_ui_stream_abs):
+                                                existing_session.mdi_window._pending_ui_stream_abs[ch] = None
+                                        except Exception as _sync_e:
+                                            logger.debug(f"UI stream state sync failed for CH{ch}: {_sync_e}")
                         
                         # 启动RTT数据读取
                         try:
@@ -14693,7 +14801,10 @@ class Worker(QObject):
                     if trimmed_length > 0 and hasattr(self.parent, 'main_window') and self.parent.main_window:
                         self._notify_mdi_windows_buffer_trimmed(index, trimmed_length)
                     
-                    logger.info(f"[TRIM] Colored buffer {index} trimmed {trimmed_length//1024}KB, now {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)")
+                    logger.warning(
+                        f"[TRIM] Colored buffer {index} trimmed {trimmed_length//1024}KB, "
+                        f"now {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)"
+                    )
             
             # 分块追加
             self.colored_buffers[index].append(data)
