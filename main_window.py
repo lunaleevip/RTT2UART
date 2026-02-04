@@ -8345,6 +8345,18 @@ class RTTMainWindow(QMainWindow):
         if last_rtt_cb_time > 0 and time_since_last_data > timeout:
             should_reconnect = True
             reconnect_reason = f"RTT Control Block unavailable for {timeout} seconds"
+
+        # 如果一段时间无数据，尝试后台搜索RTT块（避免因跳转造成块变化）
+        try:
+            if time_since_last_data > min(5.0, max(1.0, timeout / 2.0)):
+                if session and session.connection_dialog:
+                    dialog = session.connection_dialog
+                    rtt_cb_mode = dialog.config.get_rtt_control_block_mode() if hasattr(dialog, 'config') else 'auto'
+                    if rtt_cb_mode == 'auto':
+                        if not session.rtt_block_search_thread or not session.rtt_block_search_thread.isRunning():
+                            dialog._start_background_rtt_block_search(session, force=True, reason="no_data_rescan")
+        except Exception as e:
+            logger.debug(f"[AUTO-RECONNECT] RTT block rescan skipped: {e}")
         
         if should_reconnect:
             logger.warning(f"[AUTO-RECONNECT] {reconnect_reason}, auto reconnecting...")
@@ -12930,7 +12942,7 @@ class ConnectionDialog(QDialog):
         except Exception as e:
             logger.error(f"Failed to start background RTT block search after connect: {e}", exc_info=True)
     
-    def _start_background_rtt_block_search(self, session):
+    def _start_background_rtt_block_search(self, session, force: bool = False, reason: str = ""):
         """启动后台RTT块搜索线程
         
         Args:
@@ -12940,13 +12952,18 @@ class ConnectionDialog(QDialog):
             if not session or not session.rtt2uart or not session.rtt2uart.jlink:
                 return
             
+            # 已有RTT块则默认不搜索（避免占用JLink导致卡顿）
+            if (not force) and (session.current_rtt_block is not None or len(session.rtt_block_list) > 0):
+                logger.info("Skip background RTT block search: RTT block already available")
+                return
+            
             # 停止之前的搜索线程（如果存在）
             if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
                 session.rtt_block_search_thread.stop()
                 session.rtt_block_search_thread.wait()
             
             # 创建后台搜索线程
-            search_thread = RTTBlockSearchThread(session, self.main_window)
+            search_thread = RTTBlockSearchThread(session, self.main_window, max_duration_sec=2.0, data_quiet_sec=0.3)
             session.rtt_block_search_thread = search_thread
             
             # 连接信号
@@ -12954,7 +12971,7 @@ class ConnectionDialog(QDialog):
             
             # 启动线程
             search_thread.start()
-            logger.info(f"Started background RTT block search for session {session.session_id}")
+            logger.info(f"Started background RTT block search for session {session.session_id} reason={reason or 'auto'}")
             
         except Exception as e:
             logger.error(f"Failed to start background RTT block search: {e}", exc_info=True)
@@ -12983,6 +13000,13 @@ class ConnectionDialog(QDialog):
             if session.current_rtt_block is None:
                 session.current_rtt_block = rtt_block_addr
                 logger.info(f"Set first RTT block as current: 0x{rtt_block_addr:08X}")
+                # 找到首个RTT块后停止后台搜索，避免占用JLink导致UI卡顿
+                try:
+                    if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
+                        session.rtt_block_search_thread.stop()
+                        logger.info("Stopped background RTT block search after first block found")
+                except Exception as e:
+                    logger.debug(f"Failed to stop RTT block search thread: {e}")
             
             # 更新UI（在主线程中执行）
             if self.main_window:
@@ -13981,11 +14005,13 @@ class RTTBlockSearchThread(QThread):
     """后台RTT块搜索线程"""
     rtt_block_found = Signal(int)  # 找到RTT块时发出信号，参数为块地址
     
-    def __init__(self, session, main_window):
+    def __init__(self, session, main_window, max_duration_sec: float = 2.0, data_quiet_sec: float = 0.3):
         super().__init__()
         self.session = session
         self.main_window = main_window
         self._stop_flag = False
+        self.max_duration_sec = max_duration_sec
+        self.data_quiet_sec = data_quiet_sec
         
     def stop(self):
         """停止搜索"""
@@ -13998,6 +14024,8 @@ class RTTBlockSearchThread(QThread):
                 return
             
             jlink = self.session.rtt2uart.jlink
+            jlink_lock = getattr(self.session.rtt2uart, '_jlink_lock', None)
+            start_ts = time.time()
             
             # 获取设备RAM信息
             ram_start, ram_size = self.main_window._get_device_ram_info(self.session)
@@ -14016,6 +14044,26 @@ class RTTBlockSearchThread(QThread):
             for offset in range(0, ram_size, search_chunk):
                 if self._stop_flag:
                     break
+                
+                # 控制搜索时长，避免长期占用JLink
+                if self.max_duration_sec and (time.time() - start_ts) > self.max_duration_sec:
+                    break
+                
+                # 数据活跃时不抢占JLink，避免UI卡顿
+                try:
+                    last_data_ts = float(getattr(self.session.rtt2uart, 'last_jlink_data_time', 0.0) or 0.0)
+                    if last_data_ts > 0 and (time.time() - last_data_ts) < self.data_quiet_sec:
+                        time.sleep(0.01)
+                        continue
+                except Exception:
+                    pass
+                
+                # 尝试获取JLink锁，失败则稍后再试
+                if jlink_lock:
+                    acquired = jlink_lock.acquire(timeout=0.02)
+                    if not acquired:
+                        time.sleep(0.01)
+                        continue
                 
                 try:
                     addr = ram_start + offset
@@ -14045,6 +14093,12 @@ class RTTBlockSearchThread(QThread):
                     # 某些内存区域可能不可读，跳过
                     logger.debug(f"Failed to read memory at 0x{addr:08X}: {e}")
                     continue
+                finally:
+                    if jlink_lock:
+                        try:
+                            jlink_lock.release()
+                        except Exception:
+                            pass
             
             logger.info(f"Background RTT block search completed, found {len(found_blocks)} blocks")
             
