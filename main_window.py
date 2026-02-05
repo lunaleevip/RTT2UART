@@ -2566,6 +2566,15 @@ class DeviceMdiWindow(QWidget):
                     f"🔒 Channel {channel_idx} scroll lock changed: "
                     f"LOCKED={text_edit._v_scroll_locked} (at_bottom={at_bottom}, value={value}, max={scrollbar.maximum()})"
                 )
+                # 如果从锁定恢复，尝试恢复刷新（MAXLINE 暂停）
+                if old_state and not text_edit._v_scroll_locked:
+                    try:
+                        if hasattr(self, 'main_window') and self.main_window:
+                            session = self.main_window._get_active_device_session()
+                            if session:
+                                self.main_window._resume_refresh_for_session(session, 'maxline')
+                    except Exception:
+                        pass
             return
             
         except Exception as e:
@@ -2789,6 +2798,23 @@ class DeviceMdiWindow(QWidget):
             if tab_index < 0 or tab_index >= len(self.text_edits):
                 return
             text_edit = self.text_edits[tab_index]
+            # 如果已锁定滚动且达到MAXLINE，冻结显示（不刷新UI）
+            try:
+                if bool(getattr(text_edit, '_v_scroll_locked', False)):
+                    doc = text_edit.document()
+                    max_blocks = int(doc.maximumBlockCount()) if doc else 0
+                    if max_blocks > 0 and doc.blockCount() >= max_blocks:
+                        # 使用“暂停刷新”逻辑并显示原因
+                        try:
+                            if hasattr(self, 'main_window') and self.main_window:
+                                session = self.main_window._get_active_device_session()
+                                if session:
+                                    self.main_window._pause_refresh_for_session(session, 'maxline')
+                        except Exception:
+                            pass
+                        return
+            except Exception:
+                pass
             v_scrollbar = text_edit.verticalScrollBar()
             h_scrollbar = text_edit.horizontalScrollBar()
             saved_v = getattr(text_edit, '_saved_v_pos', v_scrollbar.value())
@@ -5629,6 +5655,11 @@ class RTTMainWindow(QMainWindow):
                     )
                 else:
                     self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused (Selection)"))
+                return
+
+            if reason == 'maxline':
+                self._refresh_status_deadline = 0.0
+                self.refresh_status_label.setText(QCoreApplication.translate("main_window", "Refresh: Paused (Max Lines)"))
                 return
 
             # Unknown pause reason
@@ -8917,6 +8948,47 @@ class RTTMainWindow(QMainWindow):
                 pass
         except Exception as e:
             logger.debug(f"[AUTO-RESUME] Failed: {e}")
+
+    def _pause_refresh_for_session(self, session, reason: str):
+        """通用暂停（用于MAXLINE等原因）"""
+        try:
+            if not session or not session.rtt2uart:
+                return
+            rtt = session.rtt2uart
+            # 手动暂停不覆盖
+            if getattr(rtt, 'ui_refresh_pause_reason', None) == 'manual':
+                return
+            rtt.ui_refresh_paused = True
+            try:
+                rtt.ui_refresh_pause_reason = reason
+            except Exception:
+                pass
+            self._refresh_status_deadline = 0.0
+            self._update_refresh_status_label()
+        except Exception:
+            pass
+
+    def _resume_refresh_for_session(self, session, reason: str):
+        """通用恢复（仅恢复指定原因）"""
+        try:
+            if not session or not session.rtt2uart:
+                return
+            rtt = session.rtt2uart
+            if getattr(rtt, 'ui_refresh_pause_reason', None) != reason:
+                return
+            rtt.ui_refresh_paused = False
+            try:
+                rtt.ui_refresh_pause_reason = None
+            except Exception:
+                pass
+            if not self._is_closing:
+                rtt.flush_paused_data()
+            else:
+                rtt.clear_paused_data()
+            self._refresh_status_deadline = 0.0
+            self._update_refresh_status_label()
+        except Exception:
+            pass
     
     def on_clear_clicked(self):
         """F4清空当前TAB - 操作当前激活的MDI设备窗口"""
