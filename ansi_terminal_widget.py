@@ -400,21 +400,8 @@ class FastAnsiTextEdit(QTextEdit):
                 
         self.setTextCursor(cursor)
         
-        # 达到MAXLINE时清理前1/3行（仅UI）
-        try:
-            doc = self.document()
-            max_blocks = int(doc.maximumBlockCount()) if doc else 0
-            if max_blocks > 0 and doc.blockCount() >= max_blocks:
-                lines_to_remove = max(1, max_blocks // 3)
-                trim_cursor = self.textCursor()
-                trim_cursor.beginEditBlock()
-                trim_cursor.movePosition(QTextCursor.Start)
-                for _ in range(lines_to_remove):
-                    trim_cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
-                trim_cursor.removeSelectedText()
-                trim_cursor.endEditBlock()
-        except Exception:
-            pass
+        # 达到MAXLINE时清理前1/3行（仅UI；若锁定则延后）
+        self._maybe_trim_max_lines()
         
         # 性能监控
         elapsed = (time.time() - start_time) * 1000
@@ -444,6 +431,60 @@ class FastAnsiTextEdit(QTextEdit):
         # 清理部分缓存以释放内存
         # if len(self._format_cache) > 100:
         #     self._format_cache.clear()
+
+    def _maybe_trim_max_lines(self):
+        """达到MAXLINE时清理前1/3行（锁定时延后）"""
+        try:
+            doc = self.document()
+            max_blocks = int(doc.maximumBlockCount()) if doc else 0
+            if max_blocks <= 0:
+                return
+            if doc.blockCount() < max_blocks:
+                return
+            if bool(getattr(self, '_v_scroll_locked', False)):
+                self._pending_maxline_trim = True
+                try:
+                    logger.warning(f"[MAXLINE] Defer trim while scroll locked (blocks={doc.blockCount()}, max={max_blocks})")
+                except Exception:
+                    pass
+                return
+            self._trim_max_lines_ui(max_blocks)
+        except Exception:
+            pass
+
+    def _trim_max_lines_ui(self, max_blocks: int):
+        """实际执行清理（仅UI）"""
+        try:
+            lines_to_remove = max(1, int(max_blocks) // 3)
+            trim_cursor = self.textCursor()
+            trim_cursor.beginEditBlock()
+            trim_cursor.movePosition(QTextCursor.Start)
+            for _ in range(lines_to_remove):
+                trim_cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
+            trim_cursor.removeSelectedText()
+            trim_cursor.endEditBlock()
+            self._pending_maxline_trim = False
+            try:
+                logger.warning(f"[MAXLINE] Trimmed top {lines_to_remove} lines (max={max_blocks})")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def apply_pending_maxline_trim(self):
+        """解除锁定后执行延后的MAXLINE清理"""
+        try:
+            if not getattr(self, '_pending_maxline_trim', False):
+                return
+            if bool(getattr(self, '_v_scroll_locked', False)):
+                return
+            doc = self.document()
+            max_blocks = int(doc.maximumBlockCount()) if doc else 0
+            if max_blocks <= 0:
+                return
+            self._trim_max_lines_ui(max_blocks)
+        except Exception:
+            pass
     
     def append_text(self, text):
         """添加文本的安全方法，支持禁用内容限制"""

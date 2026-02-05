@@ -2573,6 +2573,8 @@ class DeviceMdiWindow(QWidget):
                             session = self.main_window._get_active_device_session()
                             if session:
                                 self.main_window._resume_refresh_for_session(session, 'maxline')
+                        if hasattr(text_edit, 'apply_pending_maxline_trim'):
+                            text_edit.apply_pending_maxline_trim()
                     except Exception:
                         pass
             return
@@ -2839,6 +2841,8 @@ class DeviceMdiWindow(QWidget):
             else:
                 text_edit.append(text)
                 _apply_scroll()
+            if hasattr(text_edit, 'apply_pending_maxline_trim'):
+                text_edit.apply_pending_maxline_trim()
         except Exception as e:
             logger.error(f"Error appending text to UI: {e}", exc_info=True)
 
