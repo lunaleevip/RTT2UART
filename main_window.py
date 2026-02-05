@@ -3661,6 +3661,17 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 self.worker.parent = self.device_session.connection_dialog
             else:
                 self.worker.parent = self
+        
+        # 回放模式：禁用缓冲区裁剪（仅回放实例生效）
+        try:
+            if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                if hasattr(self.device_session.connection_dialog, 'worker') and self.device_session.connection_dialog.worker:
+                    self.device_session.connection_dialog.worker.disable_trim = True
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.disable_trim = True
+            logger.info("[PLAYBACK] Buffer trim disabled for playback worker")
+        except Exception:
+            pass
     
     def _detect_file_format(self, file_path):
         """检测文件格式
@@ -14805,16 +14816,26 @@ class Worker(QObject):
                     logger.info(f"[EXPAND] Buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB, "
                                f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.buffer_capacities[index] >= self.max_capacity:
-                    # 已达最大容量，清理旧数据
-                    trim_size = self.max_capacity // 2  # 保留3.2MB
-                    # 从头部移除旧块直到长度不超过目标
-                    while self.buffer_lengths[index] > trim_size and self.buffers[index]:
-                        removed = self.buffers[index].pop(0)
-                        rem_len = len(removed)
-                        self.buffer_lengths[index] -= rem_len
-                        # 调整对应显示偏移，避免因头部裁剪导致显示滞后
-                        self.display_lengths[index] = max(0, self.display_lengths[index] - rem_len)
-                    logger.info(f"[TRIM] Buffer {index} trimmed to {self.buffer_lengths[index]//1024}KB (max capacity reached)")
+                    if getattr(self, 'disable_trim', False):
+                        # 回放模式：允许缓冲区继续增长，不裁剪
+                        if not hasattr(self, '_trim_disabled_logged'):
+                            self._trim_disabled_logged = set()
+                        key = ("buffer", index)
+                        if key not in self._trim_disabled_logged:
+                            logger.warning(f"[TRIM-DISABLED] Buffer {index} exceeded max capacity in playback mode")
+                            self._trim_disabled_logged.add(key)
+                        self.buffer_capacities[index] = max(self.buffer_capacities[index], new_length)
+                    else:
+                        # 已达最大容量，清理旧数据
+                        trim_size = self.max_capacity // 2  # 保留3.2MB
+                        # 从头部移除旧块直到长度不超过目标
+                        while self.buffer_lengths[index] > trim_size and self.buffers[index]:
+                            removed = self.buffers[index].pop(0)
+                            rem_len = len(removed)
+                            self.buffer_lengths[index] -= rem_len
+                            # 调整对应显示偏移，避免因头部裁剪导致显示滞后
+                            self.display_lengths[index] = max(0, self.display_lengths[index] - rem_len)
+                        logger.info(f"[TRIM] Buffer {index} trimmed to {self.buffer_lengths[index]//1024}KB (max capacity reached)")
             
             # 分块追加，避免大字符串反复拷贝
             self.buffers[index].append(data)
@@ -14842,23 +14863,33 @@ class Worker(QObject):
                     logger.info(f"[EXPAND] Colored buffer {index} expanded: {old_capacity//1024}KB -> {new_capacity//1024}KB, "
                                f"总内存: {memory_info['total_memory_mb']:.1f}MB, 利用率: {memory_info['capacity_utilization']:.1f}%")
                 elif self.colored_buffer_capacities[index] >= self.max_capacity:
-                    # 已达最大容量，清理旧数据
-                    trim_size = self.max_capacity // 2  # 保留3.2MB
-                    trimmed_length = 0
-                    while self.colored_buffer_lengths[index] > trim_size and self.colored_buffers[index]:
-                        removed = self.colored_buffers[index].pop(0)
-                        removed_len = len(removed)
-                        self.colored_buffer_lengths[index] -= removed_len
-                        trimmed_length += removed_len
-                    
-                    # 🔧 修复：通知所有MDI窗口更新last_display_lengths，避免数据丢失
-                    if trimmed_length > 0 and hasattr(self.parent, 'main_window') and self.parent.main_window:
-                        self._notify_mdi_windows_buffer_trimmed(index, trimmed_length)
-                    
-                    logger.warning(
-                        f"[TRIM] Colored buffer {index} trimmed {trimmed_length//1024}KB, "
-                        f"now {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)"
-                    )
+                    if getattr(self, 'disable_trim', False):
+                        # 回放模式：允许缓冲区继续增长，不裁剪
+                        if not hasattr(self, '_trim_disabled_logged'):
+                            self._trim_disabled_logged = set()
+                        key = ("colored", index)
+                        if key not in self._trim_disabled_logged:
+                            logger.warning(f"[TRIM-DISABLED] Colored buffer {index} exceeded max capacity in playback mode")
+                            self._trim_disabled_logged.add(key)
+                        self.colored_buffer_capacities[index] = max(self.colored_buffer_capacities[index], new_length)
+                    else:
+                        # 已达最大容量，清理旧数据
+                        trim_size = self.max_capacity // 2  # 保留3.2MB
+                        trimmed_length = 0
+                        while self.colored_buffer_lengths[index] > trim_size and self.colored_buffers[index]:
+                            removed = self.colored_buffers[index].pop(0)
+                            removed_len = len(removed)
+                            self.colored_buffer_lengths[index] -= removed_len
+                            trimmed_length += removed_len
+                        
+                        # 🔧 修复：通知所有MDI窗口更新last_display_lengths，避免数据丢失
+                        if trimmed_length > 0 and hasattr(self.parent, 'main_window') and self.parent.main_window:
+                            self._notify_mdi_windows_buffer_trimmed(index, trimmed_length)
+                        
+                        logger.warning(
+                            f"[TRIM] Colored buffer {index} trimmed {trimmed_length//1024}KB, "
+                            f"now {self.colored_buffer_lengths[index]//1024}KB (max capacity reached)"
+                        )
             
             # 分块追加
             self.colored_buffers[index].append(data)
