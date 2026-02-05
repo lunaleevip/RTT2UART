@@ -53,12 +53,13 @@ def extract_version_from_filename(filename: str) -> str:
     支持格式:
         XexunRTT_v2.4.exe → 2.4
         XexunRTT_v2.5.1.exe → 2.5.1
+        XexunRTT_v3.3.4.1.exe → 3.3.4.1
         XexunRTT_2.4.exe → 2.4
     """
     patterns = [
-        r'[vV](\d+\.\d+(?:\.\d+)?)',  # v2.4 或 v2.5.1
-        r'_(\d+\.\d+(?:\.\d+)?)',      # _2.4
-        r'(\d+\.\d+(?:\.\d+)?)',       # 2.4
+        r'[vV](\d+\.\d+(?:\.\d+){0,2})',  # v2.4 / v2.5.1 / v3.3.4.1
+        r'_(\d+\.\d+(?:\.\d+){0,2})',      # _2.4 / _2.5.1 / _3.3.4.1
+        r'(\d+\.\d+(?:\.\d+){0,2})',       # 2.4 / 2.5.1 / 3.3.4.1
     ]
     
     for pattern in patterns:
