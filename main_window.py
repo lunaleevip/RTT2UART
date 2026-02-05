@@ -20,6 +20,7 @@ import ctypes.util as ctypes_util
 import xml.etree.ElementTree as ET
 from contextlib import redirect_stdout
 from pathlib import Path
+from collections import deque
 
 # ==================== 配置日志（必须在所有其他导入之前） ====================
 # 创建日志目录
@@ -2120,6 +2121,13 @@ class DeviceMdiWindow(QWidget):
         self._worker_rtt_attached = False
         self._attach_worker_rtt_signal()
 
+        # GUI线程节流：批量处理实时RTT数据
+        self._gui_data_queue = deque()
+        self._gui_data_timer = QTimer(self)
+        self._gui_data_timer.setSingleShot(True)
+        self._gui_data_timer.setInterval(30)
+        self._gui_data_timer.timeout.connect(self._flush_gui_data)
+
         # 🚀 UI 分片追赶：避免每次 UI 更新都对超大缓冲区做 ''.join() 全量拼接
         # 不影响缓冲区/文件记录完整性，只降低 UI 更新负载（显示追赶会有延迟）
         self._ui_stream_state = [
@@ -2734,14 +2742,79 @@ class DeviceMdiWindow(QWidget):
             worker = None
             if self.device_session and hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
                 worker = getattr(self.device_session.connection_dialog, 'worker', None)
-            if worker and hasattr(worker, 'rtt_data_ready'):
+            if worker and getattr(worker, 'use_gui_processing', False) and hasattr(worker, 'rtt_data_ready'):
                 from PySide6.QtCore import Qt
                 self.worker = worker
-                worker.rtt_data_ready.connect(self._process_incoming_data, Qt.QueuedConnection)
+                worker.rtt_data_ready.connect(self._on_rtt_data_ready, Qt.QueuedConnection)
+                if hasattr(worker, 'ui_append_ready'):
+                    worker.ui_append_ready.connect(self._on_ui_append_ready, Qt.QueuedConnection)
                 self._worker_rtt_attached = True
                 logger.info("[RTT] Worker signal attached for GUI-thread processing")
         except Exception as e:
             logger.warning(f"[RTT] Failed to attach worker signal: {e}")
+
+    def _on_rtt_data_ready(self, data_chunk: bytearray):
+        """GUI线程节流：缓存并批量处理实时RTT数据"""
+        try:
+            if not data_chunk:
+                return
+            self._gui_data_queue.append(data_chunk)
+            if not self._gui_data_timer.isActive():
+                self._gui_data_timer.start()
+        except Exception as e:
+            logger.error(f"Error queueing RTT data: {e}", exc_info=True)
+
+    def _flush_gui_data(self):
+        """批量处理RTT数据，降低GUI线程调用频率"""
+        try:
+            if not self._gui_data_queue:
+                return
+            max_batch = 256 * 1024  # 每次最多处理256KB，避免长时间占用GUI线程
+            combined = bytearray()
+            while self._gui_data_queue and len(combined) < max_batch:
+                combined.extend(self._gui_data_queue.popleft())
+            if combined:
+                self._process_incoming_data(combined, ensure_filters=False, force_ui_update=False)
+            # 还有剩余数据，尽快继续处理
+            if self._gui_data_queue:
+                self._gui_data_timer.start(0)
+        except Exception as e:
+            logger.error(f"Error flushing RTT data: {e}", exc_info=True)
+
+    def _on_ui_append_ready(self, tab_index: int, text: str):
+        """直接追加文本到UI（绕过缓存）"""
+        try:
+            if not hasattr(self, 'text_edits'):
+                return
+            if tab_index < 0 or tab_index >= len(self.text_edits):
+                return
+            text_edit = self.text_edits[tab_index]
+            v_scrollbar = text_edit.verticalScrollBar()
+            h_scrollbar = text_edit.horizontalScrollBar()
+            saved_v = getattr(text_edit, '_saved_v_pos', v_scrollbar.value())
+            saved_h = getattr(text_edit, '_saved_h_pos', h_scrollbar.value())
+            was_at_bottom = (v_scrollbar.value() >= v_scrollbar.maximum() - 2)
+            is_locked = bool(getattr(text_edit, '_v_scroll_locked', False))
+
+            def _apply_scroll():
+                try:
+                    text_edit._programmatic_scroll = True
+                    if was_at_bottom or not is_locked:
+                        v_scrollbar.setValue(v_scrollbar.maximum())
+                        text_edit._v_scroll_locked = False
+                    else:
+                        v_scrollbar.setValue(saved_v)
+                    h_scrollbar.setValue(saved_h)
+                finally:
+                    text_edit._programmatic_scroll = False
+
+            if hasattr(text_edit, 'append_ansi_text'):
+                text_edit.append_ansi_text(text, on_complete=_apply_scroll)
+            else:
+                text_edit.append(text)
+                _apply_scroll()
+        except Exception as e:
+            logger.error(f"Error appending text to UI: {e}", exc_info=True)
 
     def _process_incoming_data(self, data_chunk: bytearray, ensure_filters: bool = False, force_ui_update: bool = False):
         """在主线程中处理RTT/回放数据，统一处理路径"""
@@ -2808,6 +2881,15 @@ class DeviceMdiWindow(QWidget):
             logger.debug(f"_update_from_worker: Starting UI update check")
             # 延迟绑定worker信号（避免初始化顺序问题）
             self._attach_worker_rtt_signal()
+            # 直接UI模式：无需走缓存刷新
+            try:
+                w = None
+                if hasattr(self, 'device_session') and self.device_session and hasattr(self.device_session, 'connection_dialog'):
+                    w = getattr(self.device_session.connection_dialog, 'worker', None)
+                if w and getattr(w, 'direct_ui_mode', False):
+                    return
+            except Exception:
+                pass
             now_ts = time.time()
             if not hasattr(self, '_ui_diag_last_heartbeat'):
                 self._ui_diag_last_heartbeat = 0.0
@@ -3709,6 +3791,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             self.device_session.connection_dialog.worker.use_channel_tags = True
             self.device_session.connection_dialog.worker.support_filtering = True
             self.device_session.connection_dialog.worker.ansi_processing_enabled = True
+            self.device_session.connection_dialog.worker.use_gui_processing = True
             self.device_session.connection_dialog.worker.byte_buffer_temp = bytearray()
             self.device_session.connection_dialog.worker.remaining_data = bytearray()
             self.device_session.connection_dialog.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
@@ -3731,6 +3814,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             self.worker.use_channel_tags = True
             self.worker.support_filtering = True
             self.worker.ansi_processing_enabled = True
+            self.worker.use_gui_processing = True
             self.worker.byte_buffer_temp = bytearray()
             self.worker.remaining_data = bytearray()
             self.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
@@ -3743,6 +3827,16 @@ class PlaybackMdiWindow(DeviceMdiWindow):
                 self.worker.parent = self.device_session.connection_dialog
             else:
                 self.worker.parent = self
+        
+        # 回放模式：确保GUI线程处理数据
+        try:
+            if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                if hasattr(self.device_session.connection_dialog, 'worker') and self.device_session.connection_dialog.worker:
+                    self.device_session.connection_dialog.worker.use_gui_processing = True
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.use_gui_processing = True
+        except Exception:
+            pass
         
         # 回放模式：禁用缓冲区裁剪（仅回放实例生效）
         try:
@@ -4347,6 +4441,9 @@ class RTTMainWindow(QMainWindow):
         self.action4 = QAction(self)
         self.action4.setShortcut(QKeySequence("F4"))
 
+        self.action4_all = QAction(self)
+        self.action4_all.setShortcut(QKeySequence("Ctrl+F4"))
+
         # F5和F6快捷键已移除（滚动条锁定改为智能自动控制）
         # self.action5 = QAction(self)
         # self.action5.setShortcut(QKeySequence("F5"))
@@ -4381,6 +4478,7 @@ class RTTMainWindow(QMainWindow):
         self.addAction(self.action2)
         self.addAction(self.action3)
         self.addAction(self.action4)
+        self.addAction(self.action4_all)
         # self.addAction(self.action5)  # F5已移除
         # self.addAction(self.action6)  # F6已移除
         self.addAction(self.action7)
@@ -4395,6 +4493,7 @@ class RTTMainWindow(QMainWindow):
         self.action2.triggered.connect(self.on_re_connect_clicked)
         self.action3.triggered.connect(self.on_dis_connect_clicked)
         self.action4.triggered.connect(self.on_clear_clicked)
+        self.action4_all.triggered.connect(self.on_clear_all_clicked)
         # self.action5.triggered.connect(self.toggle_lock_v_checkbox)  # F5已移除，现在用于暂停/恢复刷新
         # self.action6.triggered.connect(self.toggle_lock_h_checkbox)  # F6已移除
         self.action7.triggered.connect(self.toggle_style_checkbox)
@@ -8822,7 +8921,10 @@ class RTTMainWindow(QMainWindow):
             # 1. 清空UI显示
             if current_index < len(mdi_window.text_edits):
                 text_edit = mdi_window.text_edits[current_index]
-                text_edit.clear()
+                if hasattr(text_edit, 'clear_content'):
+                    text_edit.clear_content()
+                else:
+                    text_edit.clear()
                 logger.debug(f"Cleared TAB {current_index} UI display")
             else:
                 logger.warning(f"TAB {current_index} text editor not found")
@@ -8859,6 +8961,13 @@ class RTTMainWindow(QMainWindow):
                     # 重置MDI窗口的显示长度
                     if hasattr(mdi_window, 'last_display_lengths') and current_index < len(mdi_window.last_display_lengths):
                         mdi_window.last_display_lengths[current_index] = 0
+                    # 重置UI流式状态
+                    if hasattr(mdi_window, '_ui_stream_state') and current_index < len(mdi_window._ui_stream_state):
+                        mdi_window._ui_stream_state[current_index] = {"outer": 0, "inner": 0, "offset": 0, "abs": 0}
+                    if hasattr(mdi_window, '_pending_ui_stream_abs') and current_index < len(mdi_window._pending_ui_stream_abs):
+                        mdi_window._pending_ui_stream_abs[current_index] = None
+                    if hasattr(mdi_window, '_ui_stream_empty_reads') and current_index < len(mdi_window._ui_stream_empty_reads):
+                        mdi_window._ui_stream_empty_reads[current_index] = 0
                         
                     logger.debug(f"Cleared TAB {current_index} data buffer")
                     
@@ -8871,6 +8980,110 @@ class RTTMainWindow(QMainWindow):
             
         except Exception as e:
             logger.error(f"Failed to clear TAB: {e}", exc_info=True)
+
+    def on_clear_all_clicked(self):
+        """Ctrl+F4清空整个Worker的页面和缓冲"""
+        try:
+            session = self._get_active_device_session()
+            if not session or not session.mdi_window:
+                logger.warning("No active device session to clear all")
+                return
+            
+            mdi_window = session.mdi_window
+            # 清空所有UI显示
+            if hasattr(mdi_window, 'text_edits'):
+                for text_edit in mdi_window.text_edits:
+                    if hasattr(text_edit, 'clear_content'):
+                        text_edit.clear_content()
+                    else:
+                        text_edit.clear()
+            
+            # 清空Worker缓冲
+            if session.connection_dialog and hasattr(session.connection_dialog, 'worker') and session.connection_dialog.worker:
+                worker = session.connection_dialog.worker
+                try:
+                    for i in range(MAX_TAB_SIZE):
+                        if i < len(worker.buffers):
+                            worker.buffers[i].clear() if hasattr(worker.buffers[i], 'clear') else None
+                            worker.buffers[i] = [] if not hasattr(worker.buffers[i], 'clear') else worker.buffers[i]
+                        if i < len(worker.buffer_lengths):
+                            worker.buffer_lengths[i] = 0
+                        if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
+                            worker.colored_buffers[i].clear() if hasattr(worker.colored_buffers[i], 'clear') else None
+                            worker.colored_buffers[i] = [] if not hasattr(worker.colored_buffers[i], 'clear') else worker.colored_buffers[i]
+                        if hasattr(worker, 'colored_buffer_lengths') and i < len(worker.colored_buffer_lengths):
+                            worker.colored_buffer_lengths[i] = 0
+                        if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
+                            worker.display_lengths[i] = 0
+                        if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
+                            worker.byte_buffer[i].clear()
+                        if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
+                            worker.batch_buffers[i].clear()
+                    if hasattr(worker, 'byte_buffer_temp'):
+                        worker.byte_buffer_temp = bytearray()
+                    if hasattr(worker, 'remaining_data'):
+                        worker.remaining_data = bytearray()
+                except Exception as e:
+                    logger.error(f"Failed to clear worker buffers: {e}")
+            
+            # 重置UI流式状态
+            try:
+                if hasattr(mdi_window, 'last_display_lengths'):
+                    mdi_window.last_display_lengths = [0] * MAX_TAB_SIZE
+                if hasattr(mdi_window, '_ui_stream_state'):
+                    mdi_window._ui_stream_state = [{"outer": 0, "inner": 0, "offset": 0, "abs": 0} for _ in range(MAX_TAB_SIZE)]
+                if hasattr(mdi_window, '_pending_ui_stream_abs'):
+                    mdi_window._pending_ui_stream_abs = [None] * MAX_TAB_SIZE
+                if hasattr(mdi_window, '_ui_stream_empty_reads'):
+                    mdi_window._ui_stream_empty_reads = [0] * MAX_TAB_SIZE
+            except Exception:
+                pass
+            
+            logger.info(f"All tabs and buffers cleared for device {session.get_display_name()}")
+        except Exception as e:
+            logger.error(f"Failed to clear all tabs: {e}", exc_info=True)
+
+    def _clear_worker_buffers_only(self, session):
+        """重新连接时只清缓冲，不清UI显示"""
+        try:
+            if not session or not session.connection_dialog or not session.connection_dialog.worker:
+                return
+            worker = session.connection_dialog.worker
+            for i in range(MAX_TAB_SIZE):
+                if i < len(worker.buffers):
+                    worker.buffers[i].clear() if hasattr(worker.buffers[i], 'clear') else None
+                    worker.buffers[i] = [] if not hasattr(worker.buffers[i], 'clear') else worker.buffers[i]
+                if i < len(worker.buffer_lengths):
+                    worker.buffer_lengths[i] = 0
+                if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
+                    worker.colored_buffers[i].clear() if hasattr(worker.colored_buffers[i], 'clear') else None
+                    worker.colored_buffers[i] = [] if not hasattr(worker.colored_buffers[i], 'clear') else worker.colored_buffers[i]
+                if hasattr(worker, 'colored_buffer_lengths') and i < len(worker.colored_buffer_lengths):
+                    worker.colored_buffer_lengths[i] = 0
+                if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
+                    worker.display_lengths[i] = 0
+                if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
+                    worker.byte_buffer[i].clear()
+                if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
+                    worker.batch_buffers[i].clear()
+            if hasattr(worker, 'byte_buffer_temp'):
+                worker.byte_buffer_temp = bytearray()
+            if hasattr(worker, 'remaining_data'):
+                worker.remaining_data = bytearray()
+            
+            # 重置UI流式状态，但不清UI内容
+            mdi_window = getattr(session, 'mdi_window', None)
+            if mdi_window:
+                if hasattr(mdi_window, 'last_display_lengths'):
+                    mdi_window.last_display_lengths = [0] * MAX_TAB_SIZE
+                if hasattr(mdi_window, '_ui_stream_state'):
+                    mdi_window._ui_stream_state = [{"outer": 0, "inner": 0, "offset": 0, "abs": 0} for _ in range(MAX_TAB_SIZE)]
+                if hasattr(mdi_window, '_pending_ui_stream_abs'):
+                    mdi_window._pending_ui_stream_abs = [None] * MAX_TAB_SIZE
+                if hasattr(mdi_window, '_ui_stream_empty_reads'):
+                    mdi_window._ui_stream_empty_reads = [0] * MAX_TAB_SIZE
+        except Exception as e:
+            logger.error(f"Failed to clear worker buffers only: {e}", exc_info=True)
 
     def on_openfolder_clicked(self):
         """打开日志文件夹 - 复用同一个窗口跳转到新文件夹 - MDI架构：打开活动设备的日志目录"""
@@ -11639,6 +11852,8 @@ class ConnectionDialog(QDialog):
         
         self.worker = Worker(self)
         self.worker.moveToThread(QApplication.instance().thread())  # 将Worker对象移动到GUI线程
+        # 实时RTT也使用GUI线程信号处理（节流后批量处理）
+        self.worker.use_gui_processing = True
 
         # 连接信号和槽
         # 关键修复：将finished信号连接到main_window的handleBufferUpdate方法，而不是当前对话框
@@ -12506,6 +12721,18 @@ class ConnectionDialog(QDialog):
                 
                 # 检查是否需要跳过RTT块识别（用于F9重启）
                 skip_rtt_block_detection = getattr(self, '_skip_rtt_block_detection', False)
+                
+                # 重新连接时只清缓冲，不清UI显示
+                try:
+                    session = None
+                    if hasattr(self.main_window, '_get_active_device_session'):
+                        session = self.main_window._get_active_device_session()
+                    if session is None and hasattr(self.main_window, 'current_session'):
+                        session = self.main_window.current_session
+                    if session and hasattr(self.main_window, '_clear_worker_buffers_only'):
+                        self.main_window._clear_worker_buffers_only(session)
+                except Exception as e:
+                    logger.debug(f"[RECONNECT] Failed to clear worker buffers: {e}")
                 
                 self.rtt2uart = rtt_to_serial(
                     self.worker, 
@@ -14145,10 +14372,17 @@ class RTTBlockSearchThread(QThread):
 class Worker(QObject):
     finished = Signal()
     rtt_data_ready = Signal(bytearray)
+    ui_append_ready = Signal(int, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
+        # RTT数据是否走GUI线程处理（回放=True，实时=False）
+        self.use_gui_processing = False
+        # 全局禁用TRIM（A方案）
+        self.disable_trim = True
+        # 直接UI输出：不缓存显示数据
+        self.direct_ui_mode = True
         self.byte_buffer = [bytearray() for _ in range(16)]  # 创建MAX_TAB_SIZE个缓冲区
         
         # 🚀 高性能分块缓冲：避免字符串 O(n^2) 级累加
@@ -14725,26 +14959,46 @@ class Worker(QObject):
             if clean_data.endswith('\n\n'):
                 clean_data = clean_data.rstrip('\n') + '\n'
             
-            # 批量缓冲区追加：避免重复调用
-            self._append_to_buffer(index+1, clean_data)
+            # 批量缓冲区追加：避免重复调用（直接UI模式则不缓存）
+            if not getattr(self, 'direct_ui_mode', False):
+                self._append_to_buffer(index+1, clean_data)
+            else:
+                if index + 1 < len(self.buffer_lengths):
+                    self.buffer_lengths[index+1] += len(clean_data)
             
             # 对于ALL页面，应用通道颜色处理
             all_data = prefix + clean_data
             processed_all_data = self._process_text_with_channel_colors(index, all_data, is_all_tab=True)
-            self._append_to_buffer(0, processed_all_data)
+            if not getattr(self, 'direct_ui_mode', False):
+                self._append_to_buffer(0, processed_all_data)
+            else:
+                if 0 < len(self.buffer_lengths):
+                    self.buffer_lengths[0] += len(processed_all_data)
             
             # 对于非ALL页面，我们需要确保原始ANSI颜色能被正确处理
             # 但在这个方法中，我们只处理文本缓冲区，彩色缓冲区会处理ANSI
             
             # 为彩色显示保留原始ANSI文本
             if hasattr(self, 'colored_buffers'):
-                # 非ALL页面：直接使用包含ANSI控制符的原始数据，让text_edit._parse_ansi_fast处理颜色
-                self._append_to_colored_buffer(index+1, data)
-                
                 # 对于ALL页面的彩色显示，先去除原始ANSI颜色，再应用通道配色
                 colored_all_data = prefix + clean_data  # 使用去除了ANSI控制符的clean_data
                 processed_colored_all_data = self._process_text_with_channel_colors(index, colored_all_data, is_all_tab=True)
-                self._append_to_colored_buffer(0, processed_colored_all_data)
+                if not getattr(self, 'direct_ui_mode', False):
+                    # 非ALL页面：直接使用包含ANSI控制符的原始数据，让text_edit._parse_ansi_fast处理颜色
+                    self._append_to_colored_buffer(index+1, data)
+                    self._append_to_colored_buffer(0, processed_colored_all_data)
+                else:
+                    # 直接写UI（不缓存）
+                    try:
+                        if hasattr(self, 'ui_append_ready'):
+                            self.ui_append_ready.emit(index+1, data)
+                            self.ui_append_ready.emit(0, processed_colored_all_data)
+                    except Exception:
+                        pass
+                    if index + 1 < len(self.colored_buffer_lengths):
+                        self.colored_buffer_lengths[index+1] += len(data)
+                    if 0 < len(self.colored_buffer_lengths):
+                        self.colored_buffer_lengths[0] += len(processed_colored_all_data)
                     
         except Exception as e:
             # 错误处理：使用更简单的回退机制
@@ -14822,6 +15076,20 @@ class Worker(QObject):
     
     def _append_to_buffer(self, index, data):
         """🚀 智能缓冲区追加：预分配 + 成倍扩容机制 + 连续重复检查"""
+        # 直接UI模式：筛选TAB(17+)使用最小缓存并直接输出
+        if getattr(self, 'direct_ui_mode', False) and index >= 17:
+            if index < len(self.buffers):
+                if not isinstance(self.buffers[index], list):
+                    self.buffers[index] = []
+                self.buffers[index].append(data)
+                if index < len(self.buffer_lengths):
+                    self.buffer_lengths[index] += len(data)
+                # 最小缓存4KB
+                max_cache = 4 * 1024
+                while self.buffer_lengths[index] > max_cache and self.buffers[index]:
+                    removed = self.buffers[index].pop(0)
+                    self.buffer_lengths[index] -= len(removed)
+            return
         if index < len(self.buffers):
             # 防御：如果被外部代码误置为字符串，立即恢复为分块列表
             if not isinstance(self.buffers[index], list):
@@ -14869,6 +15137,25 @@ class Worker(QObject):
     
     def _append_to_colored_buffer(self, index, data):
         """🎨 智能彩色缓冲区追加：预分配 + 成倍扩容机制 + 连续重复检查"""
+        # 直接UI模式：筛选TAB(17+)使用最小缓存并直接输出
+        if getattr(self, 'direct_ui_mode', False) and index >= 17:
+            try:
+                if hasattr(self, 'ui_append_ready'):
+                    self.ui_append_ready.emit(index, data)
+            except Exception:
+                pass
+            if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
+                if not isinstance(self.colored_buffers[index], list):
+                    self.colored_buffers[index] = []
+                self.colored_buffers[index].append(data)
+                if index < len(self.colored_buffer_lengths):
+                    self.colored_buffer_lengths[index] += len(data)
+                # 最小缓存4KB
+                max_cache = 4 * 1024
+                while self.colored_buffer_lengths[index] > max_cache and self.colored_buffers[index]:
+                    removed = self.colored_buffers[index].pop(0)
+                    self.colored_buffer_lengths[index] -= len(removed)
+            return
         if hasattr(self, 'colored_buffers') and index < len(self.colored_buffers):
             # 防御：如果被误置为字符串，恢复为分块列表
             if not isinstance(self.colored_buffers[index], list):

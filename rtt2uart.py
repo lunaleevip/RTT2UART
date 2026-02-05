@@ -1257,6 +1257,26 @@ class rtt_to_serial():
                                         lambda: self.jlink.rtt_start(address),
                                         5.0,
                                     )
+                                    # 记录并更新RTT块下拉框
+                                    try:
+                                        if hasattr(self.worker, 'parent') and hasattr(self.worker.parent, 'main_window'):
+                                            session = self.worker.parent.main_window._get_active_device_session()
+                                            if session:
+                                                if address not in session.rtt_block_list:
+                                                    session.rtt_block_list.append(address)
+                                                if session.current_rtt_block is None:
+                                                    session.current_rtt_block = address
+                                                from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+                                                mw = self.worker.parent.main_window
+                                                if hasattr(mw, "_update_rtt_block_combo_for_session"):
+                                                    QMetaObject.invokeMethod(
+                                                        mw,
+                                                        "_update_rtt_block_combo_for_session",
+                                                        Qt.QueuedConnection,
+                                                        Q_ARG(object, session),
+                                                    )
+                                    except Exception as e:
+                                        logger.debug(f"Failed to update RTT block combo (address mode): {e}")
                                 else:
                                     error_msg = QCoreApplication.translate("rtt2uart", "No RTT Control Block found at specified address: 0x%08X") % address
                                     self._log_to_gui(error_msg)
@@ -1324,6 +1344,26 @@ class rtt_to_serial():
                                     lambda: self.jlink.rtt_start(block_address=cb_addr),
                                     5.0,
                                 )
+                                # 记录并更新RTT块下拉框
+                                try:
+                                    if hasattr(self.worker, 'parent') and hasattr(self.worker.parent, 'main_window'):
+                                        session = self.worker.parent.main_window._get_active_device_session()
+                                        if session:
+                                            if cb_addr not in session.rtt_block_list:
+                                                session.rtt_block_list.append(cb_addr)
+                                            if session.current_rtt_block is None:
+                                                session.current_rtt_block = cb_addr
+                                            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+                                            mw = self.worker.parent.main_window
+                                            if hasattr(mw, "_update_rtt_block_combo_for_session"):
+                                                QMetaObject.invokeMethod(
+                                                    mw,
+                                                    "_update_rtt_block_combo_for_session",
+                                                    Qt.QueuedConnection,
+                                                    Q_ARG(object, session),
+                                                )
+                                except Exception as e:
+                                    logger.debug(f"Failed to update RTT block combo (range mode): {e}")
                             else:
                                 error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in specified range")
                                 self._log_to_gui(error_msg)
@@ -1403,6 +1443,19 @@ class rtt_to_serial():
                                                             session.rtt_block_list.append(cb_addr)
                                                         if session.current_rtt_block is None:
                                                             session.current_rtt_block = cb_addr
+                                                        # 更新主窗口的RTT块下拉框（主线程）
+                                                        try:
+                                                            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+                                                            mw = self.worker.parent.main_window
+                                                            if hasattr(mw, "_update_rtt_block_combo_for_session"):
+                                                                QMetaObject.invokeMethod(
+                                                                    mw,
+                                                                    "_update_rtt_block_combo_for_session",
+                                                                    Qt.QueuedConnection,
+                                                                    Q_ARG(object, session),
+                                                                )
+                                                        except Exception as e:
+                                                            logger.debug(f"Failed to update RTT block combo: {e}")
                                                 except Exception as e:
                                                     logger.debug(f"Failed to update session RTT block list: {e}")
                                             
