@@ -2747,19 +2747,36 @@ class DeviceMdiWindow(QWidget):
     
     def _attach_worker_rtt_signal(self):
         """将RTT数据处理切换到GUI线程（与回放路径一致）"""
-        if self._worker_rtt_attached:
-            return
         try:
             worker = None
             if self.device_session and hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
                 worker = getattr(self.device_session.connection_dialog, 'worker', None)
-            if worker and getattr(worker, 'use_gui_processing', False) and hasattr(worker, 'rtt_data_ready'):
+            if not worker:
+                return
+            # 如果已连接到旧worker，先断开
+            old_worker = getattr(self, '_worker_rtt_attached_ref', None)
+            if old_worker is not None and old_worker is not worker:
+                try:
+                    if hasattr(old_worker, 'rtt_data_ready'):
+                        old_worker.rtt_data_ready.disconnect(self._on_rtt_data_ready)
+                    if hasattr(old_worker, 'ui_append_ready'):
+                        old_worker.ui_append_ready.disconnect(self._on_ui_append_ready)
+                except Exception:
+                    pass
+                self._worker_rtt_attached = False
+                self._worker_rtt_attached_ref = None
+
+            if self._worker_rtt_attached and old_worker is worker:
+                return
+
+            if getattr(worker, 'use_gui_processing', False) and hasattr(worker, 'rtt_data_ready'):
                 from PySide6.QtCore import Qt
                 self.worker = worker
                 worker.rtt_data_ready.connect(self._on_rtt_data_ready, Qt.QueuedConnection)
                 if hasattr(worker, 'ui_append_ready'):
                     worker.ui_append_ready.connect(self._on_ui_append_ready, Qt.QueuedConnection)
                 self._worker_rtt_attached = True
+                self._worker_rtt_attached_ref = worker
                 logger.info("[RTT] Worker signal attached for GUI-thread processing")
         except Exception as e:
             logger.warning(f"[RTT] Failed to attach worker signal: {e}")
@@ -8292,6 +8309,15 @@ class RTTMainWindow(QMainWindow):
                         # 不清空buffer,保持累计
                         logger.info(f"✅ Keeping existing buffers for device {device_serial}")
                         self.append_jlink_log(QCoreApplication.translate("main_window", "Reconnecting without clearing data"))
+
+                        # 重新绑定worker信号，确保UI刷新
+                        if existing_session.mdi_window:
+                            try:
+                                existing_session.mdi_window._worker_rtt_attached = False
+                                existing_session.mdi_window._worker_rtt_attached_ref = None
+                                existing_session.mdi_window._attach_worker_rtt_signal()
+                            except Exception as _e:
+                                logger.debug(f"Failed to reattach worker signals: {_e}")
                         
                         # 重置UI显示偏移量,确保新数据立即显示
                         if existing_session.mdi_window:
@@ -9131,48 +9157,6 @@ class RTTMainWindow(QMainWindow):
             logger.info(f"All tabs and buffers cleared for device {session.get_display_name()}")
         except Exception as e:
             logger.error(f"Failed to clear all tabs: {e}", exc_info=True)
-
-    def _clear_worker_buffers_only(self, session):
-        """重新连接时只清缓冲，不清UI显示"""
-        try:
-            if not session or not session.connection_dialog or not session.connection_dialog.worker:
-                return
-            worker = session.connection_dialog.worker
-            for i in range(MAX_TAB_SIZE):
-                if i < len(worker.buffers):
-                    worker.buffers[i].clear() if hasattr(worker.buffers[i], 'clear') else None
-                    worker.buffers[i] = [] if not hasattr(worker.buffers[i], 'clear') else worker.buffers[i]
-                if i < len(worker.buffer_lengths):
-                    worker.buffer_lengths[i] = 0
-                if hasattr(worker, 'colored_buffers') and i < len(worker.colored_buffers):
-                    worker.colored_buffers[i].clear() if hasattr(worker.colored_buffers[i], 'clear') else None
-                    worker.colored_buffers[i] = [] if not hasattr(worker.colored_buffers[i], 'clear') else worker.colored_buffers[i]
-                if hasattr(worker, 'colored_buffer_lengths') and i < len(worker.colored_buffer_lengths):
-                    worker.colored_buffer_lengths[i] = 0
-                if hasattr(worker, 'display_lengths') and i < len(worker.display_lengths):
-                    worker.display_lengths[i] = 0
-                if hasattr(worker, 'byte_buffer') and i < len(worker.byte_buffer):
-                    worker.byte_buffer[i].clear()
-                if hasattr(worker, 'batch_buffers') and i < len(worker.batch_buffers):
-                    worker.batch_buffers[i].clear()
-            if hasattr(worker, 'byte_buffer_temp'):
-                worker.byte_buffer_temp = bytearray()
-            if hasattr(worker, 'remaining_data'):
-                worker.remaining_data = bytearray()
-            
-            # 重置UI流式状态，但不清UI内容
-            mdi_window = getattr(session, 'mdi_window', None)
-            if mdi_window:
-                if hasattr(mdi_window, 'last_display_lengths'):
-                    mdi_window.last_display_lengths = [0] * MAX_TAB_SIZE
-                if hasattr(mdi_window, '_ui_stream_state'):
-                    mdi_window._ui_stream_state = [{"outer": 0, "inner": 0, "offset": 0, "abs": 0} for _ in range(MAX_TAB_SIZE)]
-                if hasattr(mdi_window, '_pending_ui_stream_abs'):
-                    mdi_window._pending_ui_stream_abs = [None] * MAX_TAB_SIZE
-                if hasattr(mdi_window, '_ui_stream_empty_reads'):
-                    mdi_window._ui_stream_empty_reads = [0] * MAX_TAB_SIZE
-        except Exception as e:
-            logger.error(f"Failed to clear worker buffers only: {e}", exc_info=True)
 
     def on_openfolder_clicked(self):
         """打开日志文件夹 - 复用同一个窗口跳转到新文件夹 - MDI架构：打开活动设备的日志目录"""
@@ -12810,18 +12794,6 @@ class ConnectionDialog(QDialog):
                 
                 # 检查是否需要跳过RTT块识别（用于F9重启）
                 skip_rtt_block_detection = getattr(self, '_skip_rtt_block_detection', False)
-                
-                # 重新连接时只清缓冲，不清UI显示
-                try:
-                    session = None
-                    if hasattr(self.main_window, '_get_active_device_session'):
-                        session = self.main_window._get_active_device_session()
-                    if session is None and hasattr(self.main_window, 'current_session'):
-                        session = self.main_window.current_session
-                    if session and hasattr(self.main_window, '_clear_worker_buffers_only'):
-                        self.main_window._clear_worker_buffers_only(session)
-                except Exception as e:
-                    logger.debug(f"[RECONNECT] Failed to clear worker buffers: {e}")
                 
                 self.rtt2uart = rtt_to_serial(
                     self.worker, 
