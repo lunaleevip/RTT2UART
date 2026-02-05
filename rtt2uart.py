@@ -1985,7 +1985,9 @@ class rtt_to_serial():
                         log_file.write(rtt_recv_log)
                         log_file.flush()
                         # 使用主窗口的worker实例处理数据
-                        if hasattr(self.worker, 'process_bytes'):
+                        if hasattr(self.worker, 'rtt_data_ready'):
+                            self.worker.rtt_data_ready.emit(bytearray(rtt_recv_log))
+                        elif hasattr(self.worker, 'process_bytes'):
                             self.worker.process_bytes(rtt_recv_log)
                     
                     # 根据是否有数据调整休眠策略

@@ -2115,6 +2115,10 @@ class DeviceMdiWindow(QWidget):
         
         # 记录上次显示的长度，用于增量更新
         self.last_display_lengths = [0] * MAX_TAB_SIZE
+        
+        # 连接Worker的RTT数据到主线程处理（与回放路径一致）
+        self._worker_rtt_attached = False
+        self._attach_worker_rtt_signal()
 
         # 🚀 UI 分片追赶：避免每次 UI 更新都对超大缓冲区做 ''.join() 全量拼接
         # 不影响缓冲区/文件记录完整性，只降低 UI 更新负载（显示追赶会有延迟）
@@ -2722,10 +2726,88 @@ class DeviceMdiWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to force refresh tab {channel}: {e}", exc_info=True)
     
+    def _attach_worker_rtt_signal(self):
+        """将RTT数据处理切换到GUI线程（与回放路径一致）"""
+        if self._worker_rtt_attached:
+            return
+        try:
+            worker = None
+            if self.device_session and hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                worker = getattr(self.device_session.connection_dialog, 'worker', None)
+            if worker and hasattr(worker, 'rtt_data_ready'):
+                from PySide6.QtCore import Qt
+                self.worker = worker
+                worker.rtt_data_ready.connect(self._process_incoming_data, Qt.QueuedConnection)
+                self._worker_rtt_attached = True
+                logger.info("[RTT] Worker signal attached for GUI-thread processing")
+        except Exception as e:
+            logger.warning(f"[RTT] Failed to attach worker signal: {e}")
+
+    def _process_incoming_data(self, data_chunk: bytearray, ensure_filters: bool = False, force_ui_update: bool = False):
+        """在主线程中处理RTT/回放数据，统一处理路径"""
+        try:
+            if not data_chunk:
+                return
+            if self.worker and hasattr(self.worker, 'process_bytes'):
+                # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
+                if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
+                    self.worker.parent = self.device_session.connection_dialog
+                else:
+                    self.worker.parent = self
+                
+                # 回放模式下才需要强制保证筛选配置
+                if ensure_filters and hasattr(self, '_ensure_filter_config'):
+                    self._ensure_filter_config()
+                
+                # 确保colored_buffers和buffer_lengths属性存在并已正确初始化
+                if not hasattr(self.worker, 'colored_buffers') or self.worker.colored_buffers is None:
+                    self.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                if not hasattr(self.worker, 'buffer_lengths') or self.worker.buffer_lengths is None:
+                    self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
+                if not hasattr(self.worker, 'buffers') or self.worker.buffers is None:
+                    self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
+                # 确保colored_buffer_lengths已初始化
+                if not hasattr(self.worker, 'colored_buffer_lengths') or self.worker.colored_buffer_lengths is None:
+                    self.worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
+                
+                # 确保worker支持筛选功能
+                self.worker.support_filtering = True
+                
+                # 标记筛选已加载
+                if ensure_filters and hasattr(self, '_filters_loaded') and not self._filters_loaded:
+                    self._filters_loaded = True
+                    if hasattr(self, 'load_filters_config'):
+                        try:
+                            self.load_filters_config()
+                        except Exception as e:
+                            logger.error(f"Error loading filters config: {e}")
+                
+                # 处理数据
+                self.worker.process_bytes(data_chunk)
+                
+                # 确保所有批量数据都被立即处理（回放批量）
+                if ensure_filters and hasattr(self.worker, '_process_batch_buffer'):
+                    if hasattr(self.worker, 'batch_buffers'):
+                        for i in range(16):
+                            if i < len(self.worker.batch_buffers) and self.worker.batch_buffers[i]:
+                                self.worker._process_batch_buffer(i)
+                
+                # 回放需要强制更新筛选TAB
+                if ensure_filters and hasattr(self, 'update_filter_tab_display'):
+                    self.update_filter_tab_display()
+                
+                # 需要时立即更新UI
+                if force_ui_update and hasattr(self, '_update_from_worker'):
+                    self._update_from_worker()
+        except Exception as e:
+            logger.error(f"Error processing incoming data: {e}", exc_info=True)
+
     def _update_from_worker(self):
         """从Worker缓冲区更新UI - 使用ANSI文本显示，智能滚动条控制"""
         try:
             logger.debug(f"_update_from_worker: Starting UI update check")
+            # 延迟绑定worker信号（避免初始化顺序问题）
+            self._attach_worker_rtt_signal()
             now_ts = time.time()
             if not hasattr(self, '_ui_diag_last_heartbeat'):
                 self._ui_diag_last_heartbeat = 0.0
@@ -3984,64 +4066,7 @@ class PlaybackMdiWindow(DeviceMdiWindow):
             data_chunk: 从文件中读取的数据块
         """
         try:
-            # 确保在主线程中处理数据
-            if self.worker and hasattr(self.worker, 'process_bytes'):
-                # 确保worker有正确的parent引用（指向connection_dialog，因为它有config属性）
-                if hasattr(self.device_session, 'connection_dialog') and self.device_session.connection_dialog:
-                    self.worker.parent = self.device_session.connection_dialog
-                else:
-                    self.worker.parent = self
-                
-                # 确保筛选配置正确
-                self._ensure_filter_config()
-                
-                # 确保colored_buffers和buffer_lengths属性存在并已正确初始化
-                if not hasattr(self.worker, 'colored_buffers') or self.worker.colored_buffers is None:
-                    self.worker.colored_buffers = [[] for _ in range(MAX_TAB_SIZE)]
-                if not hasattr(self.worker, 'buffer_lengths') or self.worker.buffer_lengths is None:
-                    self.worker.buffer_lengths = [0] * MAX_TAB_SIZE
-                if not hasattr(self.worker, 'buffers') or self.worker.buffers is None:
-                    self.worker.buffers = [[] for _ in range(MAX_TAB_SIZE)]
-                # 确保colored_buffer_lengths已初始化
-                if not hasattr(self.worker, 'colored_buffer_lengths') or self.worker.colored_buffer_lengths is None:
-                    self.worker.colored_buffer_lengths = [0] * MAX_TAB_SIZE
-                
-                # 确保worker支持筛选功能
-                self.worker.support_filtering = True
-                
-                # 标记筛选已加载
-                if not self._filters_loaded:
-                    self._filters_loaded = True
-                    # 加载筛选配置
-                    if hasattr(self, 'load_filters_config'):
-                        try:
-                            self.load_filters_config()
-                        except Exception as e:
-                            logger.error(f"Error loading filters config: {e}")
-                
-                # 处理数据
-                self.worker.process_bytes(data_chunk)
-                
-                # 关键修复：确保所有批量数据都被立即处理
-                if hasattr(self.worker, '_process_batch_buffer'):
-                    # 检查是否有未处理的批量数据并立即处理
-                    if hasattr(self.worker, 'batch_buffers'):
-                        for i in range(16):  # 遍历所有通道
-                            if hasattr(self.worker, 'batch_buffers') and i < len(self.worker.batch_buffers) and self.worker.batch_buffers[i]:
-                                self.worker._process_batch_buffer(i)
-                                logger.debug(f"Processed pending batch buffer for channel {i}")
-                
-                # 确保筛选功能正常工作
-                if hasattr(self, 'update_filter_tab_display'):
-                    # 通知筛选标签更新
-                    self.update_filter_tab_display()
-                
-                # 确保数据被正确显示在UI中
-                if hasattr(self, '_update_from_worker'):
-                    try:
-                        self._update_from_worker()
-                    except Exception as e:
-                        logger.error(f"Error updating UI from worker: {e}")
+            self._process_incoming_data(data_chunk, ensure_filters=True, force_ui_update=True)
         except Exception as e:
             logger.error(f"Error processing playback data in main thread: {e}", exc_info=True)
             
@@ -14119,6 +14144,7 @@ class RTTBlockSearchThread(QThread):
 
 class Worker(QObject):
     finished = Signal()
+    rtt_data_ready = Signal(bytearray)
 
     def __init__(self, parent=None):
         super().__init__(parent)
