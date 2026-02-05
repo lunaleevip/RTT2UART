@@ -53,6 +53,8 @@ class rtt_to_serial():
         self._rtt_address = rtt_address
         self._rtt_search_range = rtt_search_range
         self._skip_rtt_block_detection = skip_rtt_block_detection  # 跳过RTT块识别（用于F9重启）
+        # 最近一次识别到的 RTT 控制块地址（用于连接后 UI 显示）
+        self._last_found_rtt_block_addr = None
         
         self.worker = worker
         
@@ -1252,6 +1254,7 @@ class rtt_to_serial():
                                 if data_bytes.startswith(rtt_id):
                                     logger.info(f"Verified RTT Control Block at 0x{address:08X}")
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Verified RTT Control Block at address: 0x%08X") % address)
+                                    self._last_found_rtt_block_addr = address
                                     self._call_jlink_with_timeout(
                                         "jlink.rtt_start(address)",
                                         lambda: self.jlink.rtt_start(address),
@@ -1338,6 +1341,7 @@ class rtt_to_serial():
                                         logger.warning(f"Invalid range format: {range_str}")
                             
                             if cb_addr:
+                                self._last_found_rtt_block_addr = cb_addr
                                 self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
                                 self._call_jlink_with_timeout(
                                     "jlink.rtt_start(block_address=...)",
@@ -1432,6 +1436,7 @@ class rtt_to_serial():
                                         if pos >= 0:
                                             cb_addr = addr + pos
                                             logger.info(f"Found first RTT Control Block at 0x{cb_addr:08X}")
+                                            self._last_found_rtt_block_addr = cb_addr
                                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found RTT Control Block at address: 0x%08X") % cb_addr)
                                             
                                             # 如果session存在，添加到RTT块列表

@@ -6540,6 +6540,19 @@ class RTTMainWindow(QMainWindow):
             self.current_session = session
             session_manager.set_active_session(session)
         
+        # 连接建立后同步 RTT 控制块到 UI
+        try:
+            cached_addr = getattr(rtt, "_last_found_rtt_block_addr", None)
+            if cached_addr is not None and session:
+                if cached_addr not in session.rtt_block_list:
+                    session.rtt_block_list.append(cached_addr)
+                if session.current_rtt_block is None:
+                    session.current_rtt_block = cached_addr
+                if hasattr(self.ui, 'rtt_block_combo'):
+                    self._update_rtt_block_combo_for_session(session)
+        except Exception as e:
+            logger.debug(f"Failed to sync RTT block from connection: {e}")
+        
         # 应用保存的设置
         self._apply_saved_settings()
         
