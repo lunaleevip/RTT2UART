@@ -368,33 +368,64 @@ class FastAnsiTextEdit(QTextEdit):
         # 解析ANSI颜色代码并应用格式
         cursor = self.textCursor()
         cursor.movePosition(QTextCursor.End)
+        cursor.beginEditBlock()
         
-        # 解析ANSI颜色代码
-        segments = self._parse_ansi_fast(combined_text)
+        # 无ANSI快速路径
+        if '\x1B[' not in combined_text:
+            cursor.setCharFormat(QTextCharFormat())
+            cursor.insertText(combined_text)
+        else:
+            # 解析ANSI颜色代码
+            segments = self._parse_ansi_fast(combined_text)
+            
+            # 应用每个分段的格式和文本（减少重复setCharFormat）
+            last_format = None
+            for segment in segments:
+                text = segment['text']
+                format_obj = segment['format']
+                
+                if format_obj is not None:
+                    if format_obj is not last_format:
+                        cursor.setCharFormat(format_obj)
+                        last_format = format_obj
+                else:
+                    if last_format is not None:
+                        cursor.setCharFormat(QTextCharFormat())
+                        last_format = None
+                
+                # 插入文本
+                cursor.insertText(text)
         
-        # 应用每个分段的格式和文本
-        for segment in segments:
-            text = segment['text']
-            format_obj = segment['format']
-            
-            if format_obj:
-                # 应用格式
-                cursor.setCharFormat(format_obj)
-            else:
-                # 重置为默认格式
-                cursor.setCharFormat(QTextCharFormat())
-            
-            # 插入文本
-            cursor.insertText(text)
+        cursor.endEditBlock()
                 
         self.setTextCursor(cursor)
+        
+        # 达到MAXLINE时清理前1/3行（仅UI）
+        try:
+            doc = self.document()
+            max_blocks = int(doc.maximumBlockCount()) if doc else 0
+            if max_blocks > 0 and doc.blockCount() >= max_blocks:
+                lines_to_remove = max(1, max_blocks // 3)
+                trim_cursor = self.textCursor()
+                trim_cursor.beginEditBlock()
+                trim_cursor.movePosition(QTextCursor.Start)
+                for _ in range(lines_to_remove):
+                    trim_cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
+                trim_cursor.removeSelectedText()
+                trim_cursor.endEditBlock()
+        except Exception:
+            pass
         
         # 性能监控
         elapsed = (time.time() - start_time) * 1000
         self._update_count += 1
         
         if elapsed > 20:  # 超过20ms记录警告
-            print(f"[ANSI] 批处理耗时: {elapsed:.1f}ms, 数据量: {len(combined_text)}字节")
+            now_ts = time.time()
+            last_ts = getattr(self, '_ansi_warn_last_ts', 0.0)
+            if (now_ts - last_ts) > 2.0:
+                print(f"[ANSI] 批处理耗时: {elapsed:.1f}ms, 数据量: {len(combined_text)}字节")
+                self._ansi_warn_last_ts = now_ts
         
         # 调用所有待处理的回调函数
         if hasattr(self, '_pending_callbacks') and self._pending_callbacks:
