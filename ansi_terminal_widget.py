@@ -428,6 +428,12 @@ class FastAnsiTextEdit(QTextEdit):
         # 对于回放窗口，只有在明确调用时才清空内容
         # 但不阻止显式的清空操作
         self.clear()
+        # 清理MAXLINE状态，避免清空后立即触发裁剪循环
+        try:
+            self._pending_maxline_trim = False
+            self._last_maxline_trim_ts = 0.0
+        except Exception:
+            pass
         # 清理部分缓存以释放内存
         # if len(self._format_cache) > 100:
         #     self._format_cache.clear()
@@ -440,6 +446,11 @@ class FastAnsiTextEdit(QTextEdit):
             if max_blocks <= 0:
                 return
             if doc.blockCount() < max_blocks:
+                return
+            # 冷却：避免连续触发导致卡顿
+            now_ts = time.time()
+            last_ts = float(getattr(self, '_last_maxline_trim_ts', 0.0) or 0.0)
+            if (now_ts - last_ts) < 2.0:
                 return
             if bool(getattr(self, '_v_scroll_locked', False)):
                 self._pending_maxline_trim = True
@@ -464,6 +475,7 @@ class FastAnsiTextEdit(QTextEdit):
             trim_cursor.removeSelectedText()
             trim_cursor.endEditBlock()
             self._pending_maxline_trim = False
+            self._last_maxline_trim_ts = time.time()
             try:
                 logger.warning(f"[MAXLINE] Trimmed top {lines_to_remove} lines (max={max_blocks})")
             except Exception:
