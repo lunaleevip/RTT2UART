@@ -250,6 +250,14 @@ class rtt_to_serial():
         if result["exc"] is not None:
             raise result["exc"]
         return result["value"]
+
+    def _call_jlink_direct(self, desc: str, fn):
+        """Run a JLink call on current thread with lock (no helper thread)."""
+        try:
+            with self._jlink_lock:
+                return fn()
+        except Exception as e:
+            raise e
     
     def _force_disconnect_after_timeout(self, desc: str, timeout_sec: float):
         """JLink 调用超时后的强制断开处理"""
@@ -1986,10 +1994,9 @@ class rtt_to_serial():
                     max_read_attempts = 5
                     for _ in range(max_read_attempts):
                         try:
-                            recv_log = self._call_jlink_with_timeout(
+                            recv_log = self._call_jlink_direct(
                                 "jlink.rtt_read(0)",
                                 lambda: self.jlink.rtt_read(0, 4096),
-                                5.0,
                             )
                             if not recv_log:
                                 break
@@ -2092,10 +2099,9 @@ class rtt_to_serial():
                 for attempt in range(max_clear_attempts):
                     try:
                         # 读取并丢弃垃圾数据
-                        garbage_data = self._call_jlink_with_timeout(
+                        garbage_data = self._call_jlink_direct(
                             "jlink.rtt_read(garbage)",
                             lambda: self.jlink.rtt_read(channel, 4096),
-                            5.0,
                         )
                         if not garbage_data or len(garbage_data) == 0:
                             break  # 缓冲区已空
@@ -2219,10 +2225,9 @@ class rtt_to_serial():
                         continue
                     
                     try:
-                        rtt_recv_data = self._call_jlink_with_timeout(
+                        rtt_recv_data = self._call_jlink_direct(
                             "jlink.rtt_read(1)",
                             lambda: self.jlink.rtt_read(1, _RTT_READ_BUFFER_SIZE),
-                            5.0,
                         )
                         if len(rtt_recv_data) > 0:
                             self.last_jlink_data_time = time.time()
