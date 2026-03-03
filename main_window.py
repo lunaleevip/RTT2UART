@@ -6608,12 +6608,6 @@ class RTTMainWindow(QMainWindow):
         # 应用保存的设置
         self._apply_saved_settings()
         
-        # 启动后台RTT块搜索（如果是自动检测模式）
-        if self.connection_dialog:
-            rtt_cb_mode = self.connection_dialog.config.get_rtt_control_block_mode()
-            if rtt_cb_mode == 'auto':
-                QTimer.singleShot(200, lambda: self.connection_dialog._start_background_rtt_block_search(session))
-        
         # 更新状态显示（MDI架构：会自动显示活动设备的状态）
         self.update_status_bar()
         
@@ -13276,26 +13270,26 @@ class ConnectionDialog(QDialog):
             if not session or not session.rtt2uart or not session.rtt2uart.jlink:
                 return
             
-            # 已有RTT块则默认不搜索（避免占用JLink导致卡顿）
-            if (not force) and (session.current_rtt_block is not None or len(session.rtt_block_list) > 0):
-                logger.info("Skip background RTT block search: RTT block already available")
+            # 防抖：同一session若已在搜索，避免重复启动导致 stop/start 抖动
+            if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
+                logger.debug("Skip background RTT block search: already running")
                 return
             
-            # 停止之前的搜索线程（如果存在）
-            if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
-                session.rtt_block_search_thread.stop()
-                session.rtt_block_search_thread.wait()
-            
-            # 创建后台搜索线程
-            search_thread = RTTBlockSearchThread(session, self.main_window, max_duration_sec=2.0, data_quiet_sec=0.3)
+            # 创建后台搜索线程：单次完整扫描RAM，找到全部RTT块后自动结束
+            search_thread = RTTBlockSearchThread(session, self.main_window, max_duration_sec=0.0, data_quiet_sec=0.3)
             session.rtt_block_search_thread = search_thread
             
             # 连接信号
             search_thread.rtt_block_found.connect(lambda addr: self._on_rtt_block_found(session, addr))
+            search_thread.finished.connect(lambda st=search_thread: self._on_rtt_block_search_finished(session, st))
             
             # 启动线程
             search_thread.start()
             logger.info(f"Started background RTT block search for session {session.session_id} reason={reason or 'auto'}")
+            if hasattr(self.main_window, 'append_jlink_log'):
+                self.main_window.append_jlink_log(
+                    QCoreApplication.translate("main_window", "Background RTT block search started (%s)") % (reason or "auto")
+                )
             
         except Exception as e:
             logger.error(f"Failed to start background RTT block search: {e}", exc_info=True)
@@ -13324,13 +13318,6 @@ class ConnectionDialog(QDialog):
             if session.current_rtt_block is None:
                 session.current_rtt_block = rtt_block_addr
                 logger.info(f"Set first RTT block as current: 0x{rtt_block_addr:08X}")
-                # 找到首个RTT块后停止后台搜索，避免占用JLink导致UI卡顿
-                try:
-                    if session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning():
-                        session.rtt_block_search_thread.stop()
-                        logger.info("Stopped background RTT block search after first block found")
-                except Exception as e:
-                    logger.debug(f"Failed to stop RTT block search thread: {e}")
             
             # 更新UI（在主线程中执行）
             if self.main_window:
@@ -13345,6 +13332,43 @@ class ConnectionDialog(QDialog):
                 
         except Exception as e:
             logger.error(f"Error handling RTT block found: {e}", exc_info=True)
+
+    def _on_rtt_block_search_finished(self, session, search_thread=None):
+        """后台RTT块搜索结束后的收尾处理（单次扫描完成即结束）"""
+        try:
+            if not session or not session.is_connected:
+                return
+            dialog = session.connection_dialog or self
+            if not dialog or not hasattr(dialog, 'config'):
+                return
+            if dialog.config.get_rtt_control_block_mode() != 'auto':
+                return
+            if not session.rtt2uart:
+                return
+
+            found_count = -1
+            elapsed_sec = 0.0
+            try:
+                if search_thread is not None:
+                    found_count = int(getattr(search_thread, "found_count", -1))
+                    elapsed_sec = float(getattr(search_thread, "scan_elapsed_sec", 0.0) or 0.0)
+            except Exception:
+                pass
+            logger.info(
+                f"Background RTT block search finished: found={found_count}, elapsed={elapsed_sec:.2f}s, total_list={len(session.rtt_block_list)}"
+            )
+            if hasattr(self.main_window, 'append_jlink_log'):
+                if found_count >= 0:
+                    self.main_window.append_jlink_log(
+                        QCoreApplication.translate("main_window", "RTT block search finished: found %d, elapsed %.1fs")
+                        % (found_count, elapsed_sec)
+                    )
+                else:
+                    self.main_window.append_jlink_log(
+                        QCoreApplication.translate("main_window", "RTT block search finished")
+                    )
+        except Exception as e:
+            logger.debug(f"RTT block search finish handler skipped: {e}")
     
     def _update_rtt_block_combo(self, session):
         """更新RTT块选择框
@@ -14336,6 +14360,8 @@ class RTTBlockSearchThread(QThread):
         self._stop_flag = False
         self.max_duration_sec = max_duration_sec
         self.data_quiet_sec = data_quiet_sec
+        self.found_count = 0
+        self.scan_elapsed_sec = 0.0
         
     def stop(self):
         """停止搜索"""
@@ -14369,9 +14395,7 @@ class RTTBlockSearchThread(QThread):
                 if self._stop_flag:
                     break
                 
-                # 控制搜索时长，避免长期占用JLink
-                if self.max_duration_sec and (time.time() - start_ts) > self.max_duration_sec:
-                    break
+                # 单次完整扫描RAM：不因时间上限提前结束
                 
                 # 数据活跃时不抢占JLink，避免UI卡顿
                 try:
@@ -14407,6 +14431,7 @@ class RTTBlockSearchThread(QThread):
                         # 检查是否已找到过
                         if cb_addr not in found_blocks:
                             found_blocks.add(cb_addr)
+                            self.found_count = len(found_blocks)
                             logger.info(f"Background search found RTT block at 0x{cb_addr:08X}")
                             # 发出信号（在主线程中处理）
                             self.rtt_block_found.emit(cb_addr)
@@ -14424,9 +14449,15 @@ class RTTBlockSearchThread(QThread):
                         except Exception:
                             pass
             
+            self.found_count = len(found_blocks)
+            self.scan_elapsed_sec = max(0.0, time.time() - start_ts)
             logger.info(f"Background RTT block search completed, found {len(found_blocks)} blocks")
             
         except Exception as e:
+            try:
+                self.scan_elapsed_sec = max(0.0, time.time() - start_ts)
+            except Exception:
+                self.scan_elapsed_sec = 0.0
             logger.error(f"Background RTT block search error: {e}", exc_info=True)
    
 
@@ -15460,13 +15491,9 @@ class Worker(QObject):
             except Exception:
                 channel_idx = None
 
-        # New format: first byte is hex channel nibble ('0'..'F')
+        # 无明确通道前缀时，按普通文本处理，避免把"DNS"这类内容误判为通道13并吞首字节
         if channel_idx is None:
-            if chunk[0:1] in b'0123456789ABCDEF':
-                self.channel_idx = int(chunk[0:1], 16)
-                data_content = chunk[1:]
-            else:
-                data_content = chunk
+            data_content = chunk
         else:
             self.channel_idx = channel_idx
 
