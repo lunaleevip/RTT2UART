@@ -258,6 +258,32 @@ class rtt_to_serial():
                 return fn()
         except Exception as e:
             raise e
+
+    def _is_jlink_dll_not_open(self, err) -> bool:
+        """判断是否为 J-Link DLL 未打开错误。"""
+        try:
+            return "dll is not open" in str(err).lower()
+        except Exception:
+            return False
+
+    def _recover_from_dll_not_open(self, context: str = "") -> bool:
+        """在运行中恢复 J-Link DLL 未打开状态（无需重启APP）。"""
+        try:
+            self._log_to_gui(
+                QCoreApplication.translate(
+                    "rtt2uart",
+                    "Detected J-Link DLL not open (%s), trying in-app recovery..."
+                ) % (context or "runtime")
+            )
+            ok = self._try_auto_reset_connection(f"dll_not_open:{context}")
+            if ok:
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "J-Link DLL recovery succeeded"))
+            else:
+                self._log_to_gui(QCoreApplication.translate("rtt2uart", "J-Link DLL recovery failed"))
+            return bool(ok)
+        except Exception as e:
+            logger.warning(f"Recover from dll-not-open failed: {e}")
+            return False
     
     def _force_disconnect_after_timeout(self, desc: str, timeout_sec: float):
         """JLink 调用超时后的强制断开处理"""
@@ -278,25 +304,41 @@ class rtt_to_serial():
             pass
 
     def _request_ui_disconnect(self):
-        """请求主窗口执行一次 F3 断开（主线程）"""
+        """请求当前 ConnectionDialog 清理旧会话，避免 already open 卡死。"""
         try:
             parent = getattr(self.worker, "parent", None)
-            main_window = getattr(parent, "main_window", None) if parent else None
-            if main_window and hasattr(main_window, "on_dis_connect_clicked"):
-                from PySide6.QtCore import QMetaObject, Qt
-                QMetaObject.invokeMethod(
-                    main_window,
-                    "on_dis_connect_clicked",
-                    Qt.QueuedConnection,
-                )
+            if parent and hasattr(parent, "reset_after_jlink_recovery"):
+                from PySide6.QtCore import QMetaObject, Qt, QThread
+                parent_thread = parent.thread() if hasattr(parent, "thread") else None
+                current_thread = QThread.currentThread()
+                if parent_thread is not None and current_thread == parent_thread:
+                    logger.warning("[UI-DISCONNECT] running synchronous cleanup on current dialog")
+                    parent.reset_after_jlink_recovery()
+                else:
+                    QMetaObject.invokeMethod(
+                        parent,
+                        "reset_after_jlink_recovery",
+                        Qt.BlockingQueuedConnection,
+                    )
                 try:
-                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Requesting UI disconnect (F3)"))
+                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Requesting current session cleanup"))
                 except Exception:
                     pass
                 return True
         except Exception as e:
             logger.debug(f"[UI-DISCONNECT] request failed: {e}")
         return False
+
+    def _sync_connection_dialog_references(self):
+        """同步重建后的 JLink/RTT 对象到当前 ConnectionDialog。"""
+        try:
+            parent = getattr(self.worker, "parent", None)
+            if parent is None:
+                return
+            parent.jlink = self.jlink
+            parent.rtt2uart = self
+        except Exception as e:
+            logger.debug(f"[SYNC-DIALOG] failed: {e}")
 
     def _wait_ui_disconnect(self, max_wait_sec: float = 1.5):
         """等待UI断开完成（短等待，避免卡住）"""
@@ -441,6 +483,7 @@ class rtt_to_serial():
                 # 4) 重建对象
                 try:
                     self.jlink = pylink.JLink()
+                    self._sync_connection_dialog_references()
                 except Exception as e:
                     logger.warning(f"[FORCE-RELEASE] recreate failed: {e}")
                     continue
@@ -462,6 +505,7 @@ class rtt_to_serial():
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Force release completed"))
                 except Exception:
                     pass
+                self._sync_connection_dialog_references()
                 return True
             except Exception as e:
                 logger.error(f"[FORCE-RELEASE] attempt failed: {e}")
@@ -1057,82 +1101,63 @@ class rtt_to_serial():
                         # 🔑 检测到"already open"错误时，先关闭再重试
                         # 支持多种错误消息格式
                         if "already open" in error_msg.lower() or "is open" in error_msg.lower():
-                            # 如果已经处于打开状态，直接复用，避免陷入无法恢复
-                            opened_now = False
+                            if getattr(self, "_recovering_already_open", False):
+                                raise Exception("J-Link is already open (recovery in progress)")
+                            self._recovering_already_open = True
                             try:
-                                with self._jlink_lock:
-                                    opened_now = bool(self.jlink.opened())
-                            except Exception as opened_e:
-                                logger.debug(f"Opened() check failed after already open: {opened_e}")
-                                opened_now = False
-                            if opened_now:
-                                logger.info("JLink reports already open, reuse existing connection")
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink already open, reuse connection"))
-                                is_opened = True
-                            else:
-                                if getattr(self, "_recovering_already_open", False):
-                                    raise Exception("JLink is already open (recovery in progress)")
-                                self._recovering_already_open = True
+                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink already open detected, force releasing stale session..."))
+                                parent = getattr(self.worker, "parent", None)
+                                if parent and hasattr(parent, "force_release_matching_sessions"):
+                                    try:
+                                        parent.force_release_matching_sessions(self._connect_para, exclude_dialog=parent)
+                                    except Exception as release_e:
+                                        logger.debug(f"force_release_matching_sessions failed: {release_e}")
                                 try:
-                                    try:
-                                        self._request_ui_disconnect()
-                                    except Exception as disconnect_e:
-                                        logger.debug(f"[UI-DISCONNECT] failed: {disconnect_e}")
-                                    self._wait_ui_disconnect(1.5)
-                                    try:
-                                        self._force_release_jlink("already open")
-                                    except Exception as force_e:
-                                        logger.debug(f"Force release failed in start(): {force_e}")
+                                    self._request_ui_disconnect()
+                                except Exception as disconnect_e:
+                                    logger.debug(f"[UI-DISCONNECT] failed: {disconnect_e}")
+                                self._wait_ui_disconnect(1.5)
+                                try:
+                                    self._force_release_jlink("already open")
+                                except Exception as force_e:
+                                    logger.debug(f"Force release failed in start(): {force_e}")
 
+                                try:
+                                    import time
                                     try:
-                                        import time
-                                        try:
-                                            self.jlink = pylink.JLink()
-                                        except Exception as recreate_e:
-                                            logger.debug(f"JLink recreate failed: {recreate_e}")
-                                        if self._connect_inf == 'USB':
-                                            if self._connect_para:
-                                                self._call_jlink_with_timeout(
-                                                    "jlink.open(serial_no=...)",
-                                                    lambda: self.jlink.open(serial_no=self._connect_para),
-                                                    5.0,
-                                                )
-                                            else:
-                                                self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
-                                        else:
+                                        self.jlink = pylink.JLink()
+                                        self._sync_connection_dialog_references()
+                                    except Exception as recreate_e:
+                                        logger.debug(f"JLink recreate failed: {recreate_e}")
+                                    if self._connect_inf == 'USB':
+                                        if self._connect_para:
                                             self._call_jlink_with_timeout(
-                                                "jlink.open(ip_addr=...)",
-                                                lambda: self.jlink.open(ip_addr=self._connect_para),
+                                                "jlink.open(serial_no=...)",
+                                                lambda: self.jlink.open(serial_no=self._connect_para),
                                                 5.0,
                                             )
-                                        time.sleep(0.1)
-                                        try:
-                                            if hasattr(self.worker, "reset_rtt_parser_state"):
-                                                self.worker.reset_rtt_parser_state()
-                                        except Exception:
-                                            pass
-                                    except Exception as retry_e:
-                                        error_msg = str(retry_e)
-                                        if "already open" in error_msg.lower() or "is open" in error_msg.lower():
-                                            opened_now = False
-                                            try:
-                                                with self._jlink_lock:
-                                                    opened_now = bool(self.jlink.opened())
-                                            except Exception as opened_e:
-                                                logger.debug(f"Opened() check failed after retry already open: {opened_e}")
-                                                opened_now = False
-                                            if opened_now:
-                                                logger.info("Retry open reports already open; reuse connection")
-                                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "JLink already open, reuse connection"))
-                                                is_opened = True
-                                            else:
-                                                logger.error(f"Failed to reopen JLink: {error_msg}", exc_info=True)
-                                                raise Exception(f"Failed to reopen JLink: {error_msg}")
                                         else:
-                                            logger.error(f"Failed to reopen JLink: {error_msg}", exc_info=True)
-                                            raise Exception(f"Failed to reopen JLink: {error_msg}")
-                                finally:
-                                    self._recovering_already_open = False
+                                            self._call_jlink_with_timeout("jlink.open()", lambda: self.jlink.open(), 5.0)
+                                    else:
+                                        self._call_jlink_with_timeout(
+                                            "jlink.open(ip_addr=...)",
+                                            lambda: self.jlink.open(ip_addr=self._connect_para),
+                                            5.0,
+                                        )
+                                    self._sync_connection_dialog_references()
+                                    is_opened = True
+                                    time.sleep(0.1)
+                                    try:
+                                        if hasattr(self.worker, "reset_rtt_parser_state"):
+                                            self.worker.reset_rtt_parser_state()
+                                    except Exception:
+                                        pass
+                                except Exception as retry_e:
+                                    error_msg = str(retry_e)
+                                    logger.error(f"Failed to reopen JLink after force release: {error_msg}", exc_info=True)
+                                    raise Exception(f"Failed to reopen JLink after force release: {error_msg}")
+                            finally:
+                                self._recovering_already_open = False
                         else:
                             error_msg = f"Failed to open JLink: {e}"
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Failed to open JLink: %s") % str(e))
@@ -1430,6 +1455,7 @@ class rtt_to_serial():
                                 rtt_id = b"SEGGER RTT"
                                 
                                 # 搜索第一个RTT块（用于立即启动）
+                                recovered_dll_once = False
                                 for offset in range(0, ram_size, search_chunk):
                                     try:
                                         addr = ram_start + offset
@@ -1474,6 +1500,12 @@ class rtt_to_serial():
                                             
                                             break
                                     except Exception as e:
+                                        # DLL 未打开时，尝试一次应用内恢复后继续扫描
+                                        if self._is_jlink_dll_not_open(e):
+                                            if not recovered_dll_once and self._recover_from_dll_not_open("memory_scan"):
+                                                recovered_dll_once = True
+                                                continue
+                                            raise
                                         # 某些内存区域可能不可读，跳过
                                         pass
                                 
@@ -1487,11 +1519,30 @@ class rtt_to_serial():
                                         logger.info("JLink auto-detection succeeded")
                                         self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started using JLink auto-detection"))
                                     except Exception as auto_e:
-                                        # 自动检测也失败，抛出错误
-                                        error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed: %s") % (ram_start, ram_start + ram_size, str(auto_e))
-                                        self._log_to_gui(error_msg)
-                                        logger.error(f"RTT Control Block not found and auto-detection failed: {auto_e}")
-                                        raise Exception(error_msg)
+                                        # 自动检测失败：若是 DLL 未打开，尝试恢复后重试一次
+                                        if self._is_jlink_dll_not_open(auto_e) and self._recover_from_dll_not_open("rtt_start_auto_detect"):
+                                            try:
+                                                self._call_jlink_with_timeout(
+                                                    "jlink.rtt_start(retry_after_recover)",
+                                                    lambda: self.jlink.rtt_start(),
+                                                    5.0,
+                                                )
+                                                logger.info("JLink auto-detection succeeded after DLL recovery")
+                                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started after J-Link DLL recovery"))
+                                            except Exception as retry_e:
+                                                error_msg = QCoreApplication.translate(
+                                                    "rtt2uart",
+                                                    "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed after recovery: %s"
+                                                ) % (ram_start, ram_start + ram_size, str(retry_e))
+                                                self._log_to_gui(error_msg)
+                                                logger.error(f"RTT auto-detection failed after DLL recovery: {retry_e}")
+                                                raise Exception(error_msg)
+                                        else:
+                                            # 自动检测也失败，抛出错误
+                                            error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed: %s") % (ram_start, ram_start + ram_size, str(auto_e))
+                                            self._log_to_gui(error_msg)
+                                            logger.error(f"RTT Control Block not found and auto-detection failed: {auto_e}")
+                                            raise Exception(error_msg)
                                 else:
                                     # 使用找到的地址启动 RTT
                                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)

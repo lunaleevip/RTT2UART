@@ -8556,6 +8556,48 @@ class RTTMainWindow(QMainWindow):
                     dialog = session.connection_dialog
                     rtt_cb_mode = dialog.config.get_rtt_control_block_mode() if hasattr(dialog, 'config') else 'auto'
                     if rtt_cb_mode == 'auto':
+                        # 检测到可能被占用时，按退避窗口暂停盲扫
+                        now_ts = time.time()
+                        busy_backoff_until = float(getattr(session, "_jlink_busy_backoff_until", 0.0) or 0.0)
+                        if busy_backoff_until > now_ts:
+                            if hasattr(self, 'append_jlink_log'):
+                                last_log_ts = float(getattr(session, "_jlink_busy_wait_log_ts", 0.0) or 0.0)
+                                if now_ts - last_log_ts > 5.0:
+                                    session._jlink_busy_wait_log_ts = now_ts
+                                    self.append_jlink_log(
+                                        QCoreApplication.translate(
+                                            "main_window",
+                                            "Waiting for JLink to be released (%.0fs left)"
+                                        ) % max(1.0, busy_backoff_until - now_ts)
+                                    )
+                            return
+
+                        # 退避结束后，如果之前疑似被占用，先检查冲突是否解除；解除则触发一次恢复
+                        if bool(getattr(session, "_jlink_busy_suspected", False)):
+                            conflict_num = 0
+                            try:
+                                if hasattr(dialog, "detect_jlink_conflicts"):
+                                    conflict_num = len(dialog.detect_jlink_conflicts() or [])
+                            except Exception:
+                                conflict_num = 0
+                            if conflict_num > 0:
+                                session._jlink_busy_backoff_until = now_ts + 10.0
+                                return
+                            session._jlink_busy_suspected = False
+                            session._jlink_busy_backoff_until = 0.0
+                            last_recover_ts = float(getattr(session, "_jlink_busy_recover_ts", 0.0) or 0.0)
+                            if now_ts - last_recover_ts > 15.0:
+                                session._jlink_busy_recover_ts = now_ts
+                                if hasattr(self, 'append_jlink_log'):
+                                    self.append_jlink_log(
+                                        QCoreApplication.translate(
+                                            "main_window",
+                                            "JLink appears released, trying automatic recovery..."
+                                        )
+                                    )
+                                self._perform_auto_reconnect()
+                                return
+
                         if not session.rtt_block_search_thread or not session.rtt_block_search_thread.isRunning():
                             dialog._start_background_rtt_block_search(session, force=True, reason="no_data_rescan")
         except Exception as e:
@@ -12624,6 +12666,107 @@ class ConnectionDialog(QDialog):
             return display_text.split(" - ")[0]
         return display_text
 
+    @Slot()
+    def reset_after_jlink_recovery(self):
+        """强制清理当前对话框/会话状态，允许 already open 后原地重连。"""
+        stale_rtt = self.rtt2uart
+        try:
+            logger.warning("Running ConnectionDialog.reset_after_jlink_recovery")
+            if stale_rtt is not None:
+                try:
+                    stale_rtt.stop()
+                except Exception as stop_e:
+                    logger.warning(f"Forced recovery stop failed: {stop_e}")
+
+            self.rtt2uart = None
+            self.jlink = None
+            self.start_state = False
+
+            if hasattr(self.ui, 'pushButton_Start'):
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+
+            if self.ui.radioButton_existing.isChecked() == False:
+                self.ui.comboBox_Device.setEnabled(True)
+                self.ui.pushButton_Selete_Device.setEnabled(True)
+                self.ui.comboBox_Interface.setEnabled(True)
+                self.ui.comboBox_Speed.setEnabled(True)
+                self.ui.comboBox_Port.setEnabled(True)
+                self.ui.comboBox_baudrate.setEnabled(True)
+                self.ui.pushButton_scan.setEnabled(True)
+
+            if self.main_window and hasattr(self.main_window, 'device_sessions'):
+                for session in self.main_window.device_sessions:
+                    if session.connection_dialog is self or session.rtt2uart is stale_rtt:
+                        session.is_connected = False
+                        if session.rtt2uart is stale_rtt:
+                            session.rtt2uart = None
+
+            self.connection_disconnected.emit()
+        except Exception as e:
+            logger.error(f"reset_after_jlink_recovery failed: {e}", exc_info=True)
+
+    def force_release_matching_sessions(self, device_serial, exclude_dialog=None):
+        """释放同一设备序列号的旧会话/旧对话框，避免旧 JLink 锁残留。"""
+        if not device_serial or not self.main_window or not hasattr(self.main_window, 'device_sessions'):
+            return
+
+        for session in list(self.main_window.device_sessions):
+            try:
+                if session.device_serial != device_serial:
+                    continue
+
+                dialog = getattr(session, 'connection_dialog', None)
+                if exclude_dialog is not None and dialog is exclude_dialog:
+                    continue
+
+                logger.warning(f"Force releasing matching session for device {device_serial}")
+
+                old_rtt = getattr(session, 'rtt2uart', None)
+                if old_rtt is not None:
+                    try:
+                        old_rtt.stop()
+                    except Exception as stop_e:
+                        logger.warning(f"Failed to stop matching session RTT: {stop_e}")
+
+                old_jlink = getattr(dialog, 'jlink', None) if dialog else None
+                if old_jlink is not None:
+                    try:
+                        old_jlink.close()
+                    except Exception as close_e:
+                        logger.debug(f"Failed to close matching session JLink: {close_e}")
+
+                session.rtt2uart = None
+                session.is_connected = False
+
+                if dialog is not None:
+                    try:
+                        dialog.rtt2uart = None
+                    except Exception:
+                        pass
+                    try:
+                        dialog.jlink = None
+                    except Exception:
+                        pass
+                    try:
+                        dialog.start_state = False
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(dialog, 'ui') and hasattr(dialog.ui, 'pushButton_Start'):
+                            dialog.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Start"))
+                    except Exception:
+                        pass
+
+                try:
+                    import gc
+                    if old_jlink is not None:
+                        del old_jlink
+                    gc.collect()
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error(f"force_release_matching_sessions failed for {device_serial}: {e}", exc_info=True)
+
     def start(self):
         if self.start_state == False:
             logger.debug('click start button')
@@ -12761,20 +12904,26 @@ class ConnectionDialog(QDialog):
                             break
                 
                 if existing_session_for_same_device:
-                    # 重连同一设备，重用其 JLink 对象
-                    if existing_session_for_same_device.connection_dialog and hasattr(existing_session_for_same_device.connection_dialog, 'jlink'):
-                        old_jlink = existing_session_for_same_device.connection_dialog.jlink
-                        # 删除临时创建的 JLink 对象
-                        if hasattr(self, 'jlink') and self.jlink != old_jlink:
-                            try:
-                                # 不要调用 close()，因为这个 JLink 对象还没有 open()
-                                del self.jlink
-                            except:
-                                pass
-                        # 使用已存在的 JLink 对象
-                        self.jlink = old_jlink
-                        logger.info(f"✅ Reusing existing JLink object for same device {connect_para}")
-                        self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Reusing existing JLink connection for same device"))
+                    existing_dialog = getattr(existing_session_for_same_device, 'connection_dialog', None)
+                    if existing_dialog is self:
+                        # 仅当当前就是原连接对话框时，才允许原地重用 JLink 对象
+                        if existing_dialog and hasattr(existing_dialog, 'jlink'):
+                            old_jlink = existing_dialog.jlink
+                            if hasattr(self, 'jlink') and self.jlink != old_jlink:
+                                try:
+                                    del self.jlink
+                                except:
+                                    pass
+                            self.jlink = old_jlink
+                            logger.info(f"✅ Reusing existing JLink object for same device {connect_para}")
+                            self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "Reusing existing JLink connection for same device"))
+                    else:
+                        logger.warning(f"Found existing session dialog for device {connect_para}, force releasing stale dialog before reconnect")
+                        self.force_release_matching_sessions(connect_para, exclude_dialog=self)
+                        try:
+                            self.jlink = pylink.JLink()
+                        except Exception as recreate_e:
+                            logger.warning(f"Failed to recreate JLink after releasing matching sessions: {recreate_e}")
                 else:
                     # 连接不同设备，使用新创建的 JLink 对象（在 __init__ 中创建的）
                     # pylink 库支持多个 JLink() 对象同时存在，每个对象连接不同的物理设备
@@ -12789,7 +12938,7 @@ class ConnectionDialog(QDialog):
                 # 检查是否需要跳过RTT块识别（用于F9重启）
                 skip_rtt_block_detection = getattr(self, '_skip_rtt_block_detection', False)
                 
-                self.rtt2uart = rtt_to_serial(
+                rtt_conn = rtt_to_serial(
                     self.worker, 
                     self.jlink, 
                     self.connect_type, 
@@ -12808,10 +12957,9 @@ class ConnectionDialog(QDialog):
                     rtt_search_range,  # RTT搜索范围
                     skip_rtt_block_detection  # 跳过RTT块识别
                 )  # 重置后不再需要在rtt2uart中重置
-
                 # 🔧 在start()之前设置JLink日志回调，确保所有日志都能显示
                 if hasattr(self.main_window, 'append_jlink_log'):
-                    self.rtt2uart.set_jlink_log_callback(self.main_window.append_jlink_log)
+                    rtt_conn.set_jlink_log_callback(self.main_window.append_jlink_log)
                     # 显示连接开始信息
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "开始连接设备: %s") % str(self.target_device))
                     self.main_window.append_jlink_log(QCoreApplication.translate("main_window", "连接类型: %s") % str(self.connect_type))
@@ -12824,7 +12972,11 @@ class ConnectionDialog(QDialog):
                     logger.debug(f"   目标设备: {self.target_device}")
                     logger.debug(f"   连接类型: {self.connect_type}")
 
-                self.rtt2uart.start()
+                rtt_conn.start()
+                self.rtt2uart = rtt_conn
+                self.jlink = rtt_conn.jlink
+                self.start_state = True
+                self.ui.pushButton_Start.setText(QCoreApplication.translate("main_window", "Stop"))
                 
                 # last_log_directory 功能已移除，每次启动使用新的日志文件夹
                 
@@ -12919,6 +13071,7 @@ class ConnectionDialog(QDialog):
                             self.main_window.append_jlink_log(f"{QCoreApplication.translate('main_window', 'Data save error')}: {ex}")
                 
                 self.rtt2uart.stop()
+                self.rtt2uart = None
                 
                 # 发送连接断开信号
                 self.connection_disconnected.emit()
@@ -13277,6 +13430,7 @@ class ConnectionDialog(QDialog):
             
             # 创建后台搜索线程：单次完整扫描RAM，找到全部RTT块后自动结束
             search_thread = RTTBlockSearchThread(session, self.main_window, max_duration_sec=0.0, data_quiet_sec=0.3)
+            search_thread.search_reason = reason or "auto"
             session.rtt_block_search_thread = search_thread
             
             # 连接信号
@@ -13348,14 +13502,16 @@ class ConnectionDialog(QDialog):
 
             found_count = -1
             elapsed_sec = 0.0
+            search_reason = "auto"
             try:
                 if search_thread is not None:
                     found_count = int(getattr(search_thread, "found_count", -1))
                     elapsed_sec = float(getattr(search_thread, "scan_elapsed_sec", 0.0) or 0.0)
+                    search_reason = str(getattr(search_thread, "search_reason", "auto") or "auto")
             except Exception:
                 pass
             logger.info(
-                f"Background RTT block search finished: found={found_count}, elapsed={elapsed_sec:.2f}s, total_list={len(session.rtt_block_list)}"
+                f"Background RTT block search finished: reason={search_reason}, found={found_count}, elapsed={elapsed_sec:.2f}s, total_list={len(session.rtt_block_list)}"
             )
             if hasattr(self.main_window, 'append_jlink_log'):
                 if found_count >= 0:
@@ -13367,6 +13523,59 @@ class ConnectionDialog(QDialog):
                     self.main_window.append_jlink_log(
                         QCoreApplication.translate("main_window", "RTT block search finished")
                     )
+
+            # no_data_rescan失败治理：连续快速失败时判定为“可能被其它JLink程序占用”，进入退避
+            if search_reason == "no_data_rescan":
+                if found_count <= 0:
+                    fail_count = int(getattr(session, "_no_data_rescan_fail_count", 0) or 0) + 1
+                    session._no_data_rescan_fail_count = fail_count
+                    fast_fail = elapsed_sec > 0 and elapsed_sec < 0.5
+                    conflict_num = 0
+                    try:
+                        if hasattr(self, "detect_jlink_conflicts"):
+                            conflict_num = len(self.detect_jlink_conflicts() or [])
+                    except Exception:
+                        conflict_num = 0
+                    # 有冲突进程，或连续快速失败>=3次，进入退避窗口
+                    if conflict_num > 0 or (fast_fail and fail_count >= 3):
+                        now_ts = time.time()
+                        backoff_sec = min(60.0, 10.0 + fail_count * 5.0)
+                        session._jlink_busy_suspected = True
+                        session._jlink_busy_backoff_until = now_ts + backoff_sec
+                        last_log_ts = float(getattr(session, "_jlink_busy_last_log_ts", 0.0) or 0.0)
+                        if now_ts - last_log_ts > 5.0:
+                            session._jlink_busy_last_log_ts = now_ts
+                            if hasattr(self.main_window, 'append_jlink_log'):
+                                self.main_window.append_jlink_log(
+                                    QCoreApplication.translate(
+                                        "main_window",
+                                        "JLink may be occupied by another program, pause no_data_rescan for %.0fs"
+                                    ) % backoff_sec
+                                )
+                else:
+                    # 搜索恢复成功则清零失败计数与占用标记
+                    session._no_data_rescan_fail_count = 0
+                    session._jlink_busy_suspected = False
+                    session._jlink_busy_backoff_until = 0.0
+
+            # no_data_rescan修复：能找到RTT块但仍长期无数据时，主动触发一次自动恢复（带冷却）
+            if search_reason == "no_data_rescan" and session.rtt2uart and found_count > 0:
+                try:
+                    now_ts = time.time()
+                    last_data_ts = float(getattr(session.rtt2uart, 'last_jlink_data_time', 0.0) or 0.0)
+                    no_data_sec = (now_ts - last_data_ts) if last_data_ts > 0 else 9999.0
+                    # 冷却窗口，避免频繁重连
+                    last_recover_ts = float(getattr(session, "_last_no_data_rescan_recover_ts", 0.0) or 0.0)
+                    recover_cooldown_sec = 30.0
+                    if no_data_sec > 5.0 and (now_ts - last_recover_ts) > recover_cooldown_sec:
+                        session._last_no_data_rescan_recover_ts = now_ts
+                        if hasattr(self.main_window, 'append_jlink_log'):
+                            self.main_window.append_jlink_log(
+                                QCoreApplication.translate("main_window", "RTT block found but no data, trying automatic recovery...")
+                            )
+                        QTimer.singleShot(50, lambda: self.main_window._perform_auto_reconnect())
+                except Exception as e:
+                    logger.debug(f"no_data_rescan recovery skipped: {e}")
         except Exception as e:
             logger.debug(f"RTT block search finish handler skipped: {e}")
     
@@ -14362,6 +14571,7 @@ class RTTBlockSearchThread(QThread):
         self.data_quiet_sec = data_quiet_sec
         self.found_count = 0
         self.scan_elapsed_sec = 0.0
+        self.search_reason = "auto"
         
     def stop(self):
         """停止搜索"""
@@ -14373,9 +14583,17 @@ class RTTBlockSearchThread(QThread):
             if not self.session or not self.session.rtt2uart or not self.session.rtt2uart.jlink:
                 return
             
-            jlink = self.session.rtt2uart.jlink
-            jlink_lock = getattr(self.session.rtt2uart, '_jlink_lock', None)
+            rtt_obj = self.session.rtt2uart
+            jlink = rtt_obj.jlink
+            jlink_lock = getattr(rtt_obj, '_jlink_lock', None)
             start_ts = time.time()
+            prev_suspend_reads = bool(getattr(rtt_obj, '_suspend_rtt_reads', False))
+            # 关键优化：扫描期间暂停RTT读线程，避免内存扫描长期抢不到JLink锁导致“0.1s找到0个”
+            try:
+                rtt_obj._suspend_rtt_reads = True
+                time.sleep(0.05)
+            except Exception:
+                pass
             
             # 获取设备RAM信息
             ram_start, ram_size = self.main_window._get_device_ram_info(self.session)
@@ -14459,6 +14677,12 @@ class RTTBlockSearchThread(QThread):
             except Exception:
                 self.scan_elapsed_sec = 0.0
             logger.error(f"Background RTT block search error: {e}", exc_info=True)
+        finally:
+            try:
+                if 'rtt_obj' in locals():
+                    rtt_obj._suspend_rtt_reads = prev_suspend_reads
+            except Exception:
+                pass
    
 
 class Worker(QObject):
