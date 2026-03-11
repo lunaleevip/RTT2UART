@@ -13469,13 +13469,19 @@ class ConnectionDialog(QDialog):
             logger.info(f"Found new RTT block: 0x{rtt_block_addr:08X}, total: {len(session.rtt_block_list)}")
             
             # 如果是第一个块，设置为当前块
+            should_activate_immediately = False
             if session.current_rtt_block is None:
                 session.current_rtt_block = rtt_block_addr
+                should_activate_immediately = True
                 logger.info(f"Set first RTT block as current: 0x{rtt_block_addr:08X}")
             
             # 更新UI（在主线程中执行）
             if self.main_window:
                 QTimer.singleShot(0, lambda: self._update_rtt_block_combo(session))
+
+            # 找到第一个块时立即启用，不必等待整轮扫描结束
+            if should_activate_immediately:
+                self._activate_rtt_block_for_session(session, rtt_block_addr, immediate=True)
             
             # 显示日志
             if hasattr(self.main_window, 'append_jlink_log'):
@@ -13486,6 +13492,60 @@ class ConnectionDialog(QDialog):
                 
         except Exception as e:
             logger.error(f"Error handling RTT block found: {e}", exc_info=True)
+
+    def _activate_rtt_block_for_session(self, session, rtt_block_addr, immediate: bool = False):
+        """为指定会话立即启用某个 RTT 控制块。"""
+        try:
+            if not session or not session.rtt2uart or not session.rtt2uart.jlink:
+                return False
+
+            rtt = session.rtt2uart
+            jlink = rtt.jlink
+            jlink_lock = getattr(rtt, "_jlink_lock", None)
+
+            # 一旦找到首个 RTT 块，立刻恢复读线程并切换到该块。
+            try:
+                rtt._suspend_rtt_reads = False
+            except Exception:
+                pass
+
+            if jlink_lock:
+                with jlink_lock:
+                    try:
+                        jlink.rtt_stop()
+                    except Exception:
+                        pass
+                    jlink.rtt_start(block_address=rtt_block_addr)
+            else:
+                try:
+                    jlink.rtt_stop()
+                except Exception:
+                    pass
+                jlink.rtt_start(block_address=rtt_block_addr)
+
+            session.current_rtt_block = rtt_block_addr
+            try:
+                rtt._last_found_rtt_block_addr = rtt_block_addr
+            except Exception:
+                pass
+
+            if hasattr(self, 'append_jlink_log'):
+                if immediate:
+                    self.append_jlink_log(
+                        QCoreApplication.translate("main_window", "Activated RTT block immediately: 0x%08X") % rtt_block_addr
+                    )
+                else:
+                    self.append_jlink_log(
+                        QCoreApplication.translate("main_window", "Switched to RTT block: 0x%08X") % rtt_block_addr
+                    )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to activate RTT block 0x{rtt_block_addr:08X}: {e}", exc_info=True)
+            if hasattr(self, 'append_jlink_log'):
+                self.append_jlink_log(
+                    QCoreApplication.translate("main_window", "Failed to activate RTT block: %s") % str(e)
+                )
+            return False
 
     def _on_rtt_block_search_finished(self, session, search_thread=None):
         """后台RTT块搜索结束后的收尾处理（单次扫描完成即结束）"""
@@ -14607,6 +14667,7 @@ class RTTBlockSearchThread(QThread):
             rtt_id = b"SEGGER RTT"
             search_chunk = 0x1000  # 每次搜索 4KB
             found_blocks = set()  # 已找到的块地址集合
+            first_block_reported = False
             
             # 搜索整个RAM范围
             for offset in range(0, ram_size, search_chunk):
@@ -14653,6 +14714,12 @@ class RTTBlockSearchThread(QThread):
                             logger.info(f"Background search found RTT block at 0x{cb_addr:08X}")
                             # 发出信号（在主线程中处理）
                             self.rtt_block_found.emit(cb_addr)
+                            if not first_block_reported:
+                                first_block_reported = True
+                                try:
+                                    rtt_obj._suspend_rtt_reads = False
+                                except Exception:
+                                    pass
                         
                         pos += 1
                         

@@ -112,10 +112,99 @@ class FastAnsiTextEdit(QTextEdit):
         # 预编译正则表达式 - 用于ANSI颜色代码检测和提取
         self._ansi_regex = re.compile(r'\x1B\[[0-9;]*[mJ]')
         self._ansi_color_regex = re.compile(r'\x1B\[([0-9;]*)m')
+        # 处理跨批次的VT100半包，避免显示残片（例如 "[H"）
+        self._vt100_tail = ""
         
         # 初始化颜色和格式缓存
         self._color_cache = {}
         self._format_cache = {}
+
+    def _sanitize_vt100_stream(self, text: str):
+        """清理VT100控制序列，保留颜色m码；支持跨批次半包续接。"""
+        if not text:
+            return "", False
+
+        s = (self._vt100_tail or "") + text
+        self._vt100_tail = ""
+        out = []
+        do_clear = False
+        i = 0
+        n = len(s)
+
+        while i < n:
+            ch = s[i]
+            if ch != '\x1B':
+                out.append(ch)
+                i += 1
+                continue
+
+            # ESC 到末尾，留待下批
+            if i + 1 >= n:
+                self._vt100_tail = s[i:]
+                break
+
+            nxt = s[i + 1]
+
+            # CSI: ESC [ ... final(0x40-0x7E)
+            if nxt == '[':
+                j = i + 2
+                while j < n and not ('@' <= s[j] <= '~'):
+                    j += 1
+                if j >= n:
+                    self._vt100_tail = s[i:]
+                    break
+                final = s[j]
+                seq = s[i:j + 1]
+                # 仅保留颜色序列
+                if final == 'm':
+                    out.append(seq)
+                elif final in ('J', 'H', 'f'):
+                    # 2J/H/f 常见于 clear
+                    if seq in ('\x1B[2J', '\x1B[H', '\x1B[f'):
+                        do_clear = True
+                i = j + 1
+                continue
+
+            # OSC: ESC ] ... BEL 或 ESC \
+            if nxt == ']':
+                j = i + 2
+                terminated = False
+                while j < n:
+                    if s[j] == '\x07':
+                        terminated = True
+                        j += 1
+                        break
+                    if s[j] == '\x1B' and (j + 1) < n and s[j + 1] == '\\':
+                        terminated = True
+                        j += 2
+                        break
+                    j += 1
+                if not terminated:
+                    self._vt100_tail = s[i:]
+                    break
+                i = j
+                continue
+
+            # DCS/SOS/PM/APC: ESC P/X/^/_ ... ESC \
+            if nxt in ('P', 'X', '^', '_'):
+                j = i + 2
+                terminated = False
+                while j < n:
+                    if s[j] == '\x1B' and (j + 1) < n and s[j + 1] == '\\':
+                        terminated = True
+                        j += 2
+                        break
+                    j += 1
+                if not terminated:
+                    self._vt100_tail = s[i:]
+                    break
+                i = j
+                continue
+
+            # 其他2字节ESC序列：吞掉
+            i += 2
+
+        return ''.join(out), do_clear
         
     def _get_cached_format(self, fg_color=None, bg_color=None, bold=False):
         """获取缓存的文本格式对象
@@ -168,13 +257,12 @@ class FastAnsiTextEdit(QTextEdit):
         """
         segments = []
 
-        # 检查是否包含清屏命令
-        if '\x1B[2J' in text:
+        # 先清理VT100控制序列（保留颜色m码），并识别clear动作
+        text, do_clear = self._sanitize_vt100_stream(text)
+        if do_clear:
             # 只在 TAB 1-TAB16 执行清屏操作
             if 1 <= self.tab_index <= 16:
                 self.clear_content()
-            # 移除清屏命令
-            text = text.replace('\x1B[2J', '')
 
         # 如果不包含任何ANSI代码，直接返回文本
         if '\x1B[' not in text:
