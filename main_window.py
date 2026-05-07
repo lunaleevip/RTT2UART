@@ -6633,25 +6633,25 @@ class RTTMainWindow(QMainWindow):
     
     def _update_rtt_block_combo_for_session(self, session):
         """更新RTT块选择框（从主窗口调用）
-        
+
         Args:
             session: DeviceSession实例
         """
         try:
             if not session or not hasattr(self.ui, 'rtt_block_combo'):
                 return
-            
+
             combo = self.ui.rtt_block_combo
-            
+
             # 断开信号连接（避免触发切换）
             try:
                 combo.currentIndexChanged.disconnect()
             except:
                 pass
-            
+
             # 清空并重新填充
             combo.clear()
-            
+
             if len(session.rtt_block_list) == 0:
                 combo.addItem(QCoreApplication.translate("main_window", "No RTT blocks"))
                 combo.setEnabled(False)
@@ -6660,7 +6660,11 @@ class RTTMainWindow(QMainWindow):
                 for addr in session.rtt_block_list:
                     addr_text = f"0x{addr:08X}"
                     combo.addItem(addr_text, addr)
-                
+
+                # 扫描触发项（始终在末尾）
+                combo.insertSeparator(combo.count())
+                combo.addItem(QCoreApplication.translate("main_window", "Scan RTT blocks"), -1)
+
                 # 恢复选择（如果存在）
                 if session.current_rtt_block:
                     index = combo.findData(session.current_rtt_block)
@@ -6701,19 +6705,39 @@ class RTTMainWindow(QMainWindow):
                 logger.debug(f"Failed to start RTT block search: {e}")
         except Exception as e:
             logger.error(f"Failed to re-search RTT blocks: {e}", exc_info=True)
-    
+
+    def _restore_rtt_block_combo_current(self, session):
+        """将 RTT 块下拉框恢复到当前选定块"""
+        try:
+            combo = self.ui.rtt_block_combo
+            if session and session.current_rtt_block is not None:
+                idx = combo.findData(session.current_rtt_block)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+        except Exception:
+            pass
+
     def _on_rtt_block_combo_changed(self, index):
         """RTT块选择框变更处理"""
         try:
             session = self._get_active_device_session()
             if not session:
                 return
-            
+
             combo = self.ui.rtt_block_combo
             if index < 0 or index >= combo.count():
                 return
-            
+
             rtt_block_addr = combo.itemData(index)
+
+            # 扫描触发项处理
+            if rtt_block_addr == -1:
+                if not (session.rtt_block_search_thread and session.rtt_block_search_thread.isRunning()):
+                    self._re_search_rtt_blocks(session, reason="user_scan")
+                # 恢复选择到当前块（延迟避免递归）
+                QTimer.singleShot(0, lambda: self._restore_rtt_block_combo_current(session))
+                return
+
             if rtt_block_addr is None:
                 return
             
@@ -13690,26 +13714,26 @@ class ConnectionDialog(QDialog):
     
     def _update_rtt_block_combo(self, session):
         """更新RTT块选择框
-        
+
         Args:
             session: DeviceSession实例
         """
         try:
             if not session or not self.main_window:
                 return
-            
+
             # 获取主窗口的rtt_block_combo
             if not hasattr(self.main_window, 'ui') or not hasattr(self.main_window.ui, 'rtt_block_combo'):
                 return
-            
+
             combo = self.main_window.ui.rtt_block_combo
-            
+
             # 保存当前选择
             current_text = combo.currentText()
-            
+
             # 清空并重新填充
             combo.clear()
-            
+
             if len(session.rtt_block_list) == 0:
                 combo.addItem(QCoreApplication.translate("main_window", "No RTT blocks"))
                 combo.setEnabled(False)
@@ -13718,7 +13742,11 @@ class ConnectionDialog(QDialog):
                 for addr in session.rtt_block_list:
                     addr_text = f"0x{addr:08X}"
                     combo.addItem(addr_text, addr)
-                
+
+                # 扫描触发项（始终在末尾）
+                combo.insertSeparator(combo.count())
+                combo.addItem(QCoreApplication.translate("main_window", "Scan RTT blocks"), -1)
+
                 # 恢复选择（如果存在）
                 if session.current_rtt_block:
                     index = combo.findData(session.current_rtt_block)
