@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 XexunRTT Main Window Module
@@ -6719,7 +6719,6 @@ class RTTMainWindow(QMainWindow):
             
             # 更新当前RTT块
             old_block = session.current_rtt_block
-            session.current_rtt_block = rtt_block_addr
             
             if old_block != rtt_block_addr:
                 logger.info(f"Switched RTT block: 0x{old_block:08X} -> 0x{rtt_block_addr:08X}")
@@ -6727,11 +6726,57 @@ class RTTMainWindow(QMainWindow):
                 # 重新启动RTT连接
                 if session.rtt2uart and session.rtt2uart.jlink:
                     try:
+                        import time
+                        
+                        # 停止RTT线程
+                        session.rtt2uart.thread_switch = False
+                        session.rtt2uart._force_stop_threads(fast=False)
+                        
                         # 停止当前RTT
-                        session.rtt2uart.jlink.rtt_stop()
+                        session.rtt2uart._call_jlink_with_timeout(
+                            "jlink.rtt_stop()",
+                            lambda: session.rtt2uart.jlink.rtt_stop(),
+                            5.0,
+                        )
+                        
+                        # 等待一小段时间确保RTT完全停止
+                        time.sleep(0.3)
+                        
+                        # 更新rtt_to_serial实例中的RTT块地址
+                        session.rtt2uart._rtt_address = rtt_block_addr
+                        session.rtt2uart._rtt_cb_mode = 'address'
+                        session.rtt2uart._last_found_rtt_block_addr = rtt_block_addr
                         
                         # 使用新地址启动RTT
-                        session.rtt2uart.jlink.rtt_start(block_address=rtt_block_addr)
+                        session.rtt2uart._call_jlink_with_timeout(
+                            f"jlink.rtt_start(0x{rtt_block_addr:08X})",
+                            lambda: session.rtt2uart.jlink.rtt_start(rtt_block_addr),
+                            5.0,
+                        )
+                        
+                        # 等待一小段时间确保RTT完全启动
+                        time.sleep(0.3)
+                        
+                        # 初始化RTT缓冲区
+                        session.rtt2uart._initialize_rtt_buffers()
+                        
+                        # 重新启动RTT线程
+                        session.rtt2uart.thread_switch = True
+                        session.rtt2uart.rtt_thread = threading.Thread(target=session.rtt2uart.rtt_thread_exec)
+                        session.rtt2uart.rtt_thread.daemon = True
+                        session.rtt2uart.rtt_thread.name = 'rtt_thread'
+                        session.rtt2uart.rtt_thread.start()
+                        
+                        session.rtt2uart.rtt2uart = threading.Thread(target=session.rtt2uart.rtt2uart_exec)
+                        session.rtt2uart.rtt2uart.daemon = True
+                        session.rtt2uart.rtt2uart.name = 'rtt2uart'
+                        session.rtt2uart.rtt2uart.start()
+                        
+                        # 恢复读取
+                        session.rtt2uart._suspend_rtt_reads = False
+                        
+                        # 更新当前RTT块（成功后再更新）
+                        session.current_rtt_block = rtt_block_addr
                         
                         if hasattr(self, 'append_jlink_log'):
                             self.append_jlink_log(
@@ -6743,6 +6788,10 @@ class RTTMainWindow(QMainWindow):
                             self.append_jlink_log(
                                 QCoreApplication.translate("main_window", "Failed to switch RTT block: %s") % str(e)
                             )
+                        # 恢复原来的RTT块地址
+                        session.current_rtt_block = old_block
+                        # 更新UI
+                        QTimer.singleShot(0, lambda: self._update_rtt_block_combo_for_session(session))
                         
         except Exception as e:
             logger.error(f"Error handling RTT block combo change: {e}", exc_info=True)
@@ -15680,23 +15729,25 @@ class Worker(QObject):
                 data_len = len(data)
                 last_stream_byte = data[-1] if data_len > 0 else prev_byte
                 while i + 1 < data_len:
-                    if data[i] == 0xFF and data[i + 1] in valid:
-                        payload = bytes(data[last_emit_index:i])
-                        if payload:
+                    # Fast-forward to next 0xFF using bytes.find (much faster than byte scan)
+                    ff_pos = data.find(0xFF, i)
+                    if ff_pos == -1:
+                        break
+                    if ff_pos + 1 >= data_len:
+                        i = ff_pos
+                        break
+                    if data[ff_pos + 1] in valid:
+                        # Emit accumulated payload before this channel marker
+                        if ff_pos > last_emit_index:
+                            payload = bytes(data[last_emit_index:ff_pos])
                             if current_channel is None:
                                 self._process_chunk_with_channel(0, payload)
                             else:
                                 self._process_chunk_with_channel(current_channel, payload)
-                        # 二次校验，避免并发修改导致非法字符
-                        if data[i + 1] in valid:
-                            current_channel = int(bytes([data[i + 1]]), 16)
-                        else:
-                            i += 1
-                            continue
-                        i += 2
-                        last_emit_index = i
-                        continue
-                    i += 1
+                        current_channel = int(bytes([data[ff_pos + 1]]), 16)
+                        ff_pos += 2
+                        last_emit_index = ff_pos
+                    i = ff_pos + 1
 
                 # 保留未完成的尾部数据（等待下一次补全）
                 tail = data[last_emit_index:]

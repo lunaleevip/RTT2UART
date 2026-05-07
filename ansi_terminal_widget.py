@@ -555,13 +555,16 @@ class FastAnsiTextEdit(QTextEdit):
         """实际执行清理（仅UI）"""
         try:
             lines_to_remove = max(1, int(max_blocks) // 3)
-            trim_cursor = self.textCursor()
-            trim_cursor.beginEditBlock()
-            trim_cursor.movePosition(QTextCursor.Start)
-            for _ in range(lines_to_remove):
-                trim_cursor.movePosition(QTextCursor.Down, QTextCursor.KeepAnchor)
-            trim_cursor.removeSelectedText()
-            trim_cursor.endEditBlock()
+            # 用 findBlockByNumber 直接定位，避免 O(n) 逐行移动 cursor
+            doc = self.document()
+            target_block = doc.findBlockByNumber(lines_to_remove)
+            if target_block.isValid():
+                cursor = self.textCursor()
+                cursor.beginEditBlock()
+                cursor.movePosition(QTextCursor.Start)
+                cursor.setPosition(target_block.position(), QTextCursor.KeepAnchor)
+                cursor.removeSelectedText()
+                cursor.endEditBlock()
             self._pending_maxline_trim = False
             self._last_maxline_trim_ts = time.time()
             try:

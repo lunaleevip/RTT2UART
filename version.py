@@ -6,13 +6,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 应用版本号
-VERSION = "3.3.4.2"
+VERSION = "3.3.5.1"
 
 # 版本名称
 VERSION_NAME = "XexunRTT"
 
 # 编译时期（由 build.py 自动更新，无需手动修改）
-BUILD_TIME = "2026-02-07 11:17:52"
+BUILD_TIME = "2026-05-07 11:26:30"
 
 # 版本描述
 VERSION_DESC = f"{VERSION_NAME} v{VERSION}"

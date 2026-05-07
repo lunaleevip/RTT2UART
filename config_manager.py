@@ -42,9 +42,14 @@ class ConfigManager:
         # 创建配置解析器
         self.config = configparser.ConfigParser()
         self.config.optionxform = str  # 保持键名大小写
-        
-        # 🔑 用于脏数据检测的快照
-        self._last_saved_snapshot = None
+
+        # 脏标记：任何 config.set() 调用时自动置 True，避免每次 save 都做快照对比
+        self._dirty = False
+        _original_set = self.config.set
+        def _set_with_dirty(section, option, value):
+            self._dirty = True
+            return _original_set(section, option, value)
+        self.config.set = _set_with_dirty
         
         # 设置默认值
         self._set_defaults()
@@ -201,7 +206,7 @@ class ConfigManager:
                 # 兼容旧配置：max_log_size -> max_lines
                 try:
                     if self.config.has_section('Logging'):
-                        if (not self.config.has_option('Logging', 'max_lines') 
+                        if (not self.config.has_option('Logging', 'max_lines')
                             and self.config.has_option('Logging', 'max_log_size')):
                             old_value = self.config.get('Logging', 'max_log_size', fallback='10000')
                             self.config.set('Logging', 'max_lines', str(old_value))
@@ -210,13 +215,10 @@ class ConfigManager:
                     logger.debug(f"配置迁移失败: {e}")
             except Exception as e:
                 logger.debug(f"配置文件加载失败: {e}")
-                # 使用默认设置
-                pass
         else:
             logger.debug(f"配置文件不存在，使用默认设置: {self.config_file}")
-        
-        # 🔑 加载后创建快照，用于脏数据检测
-        self._last_saved_snapshot = self._create_config_snapshot()
+
+        self._dirty = False
     
     def _safe_getint(self, section: str, option: str, fallback: int) -> int:
         """安全地获取整数配置值，如果转换失败则返回默认值并修复配置"""
@@ -245,80 +247,26 @@ class ConfigManager:
             self.config.set(section, option, str(fallback))
             return fallback
     
-    def _create_config_snapshot(self) -> str:
-        """创建当前配置的快照（用于脏数据检测）"""
-        import io
-        snapshot = io.StringIO()
-        self.config.write(snapshot)
-        return snapshot.getvalue()
-    
     def save_config(self, force: bool = False):
         """
         保存配置到INI文件
-        
+
         Args:
             force: 是否强制保存，忽略脏数据检测
-        
+
         Returns:
             True if saved, False if no changes or error
         """
         try:
-            # 🔧 调试日志已禁用 - 筛选器问题已解决
-            # 如需重新启用，将 DEBUG_CONFIG_SAVE 设置为 True
-            DEBUG_CONFIG_SAVE = False
-            
-            if DEBUG_CONFIG_SAVE:
-                import traceback
-                import logging
-                debug_logger = logging.getLogger(__name__)
-                
-                call_stack = traceback.extract_stack()
-                caller_info = []
-                # 获取最近的5个调用层级（排除当前函数）
-                for frame in call_stack[-6:-1]:
-                    caller_info.append(f"{frame.filename}:{frame.lineno} in {frame.name}")
-                
-                debug_logger.info("=" * 40)
-                debug_logger.info("[CONFIG SAVE] save_config() 被调用")
-                debug_logger.info(f"[CONFIG SAVE] 调用栈:")
-                for i, caller in enumerate(caller_info, 1):
-                    debug_logger.info(f"[CONFIG SAVE]   {i}. {caller}")
-                
-                # 打印当前所有筛选值
-                debug_logger.info(f"[CONFIG SAVE] 当前配置中的筛选值:")
-                for i in range(17, 33):
-                    filter_key = f'filter_{i}'
-                    if self.config.has_option('Filters', filter_key):
-                        filter_value = self.config.get('Filters', filter_key)
-                        if filter_value:
-                            debug_logger.info(f"[CONFIG SAVE]   filter_{i} = '{filter_value}'")
-            
-            # 🔑 脏数据检测：只有在配置真正改变时才写入文件
-            if not force:
-                current_snapshot = self._create_config_snapshot()
-                if self._last_saved_snapshot is not None and current_snapshot == self._last_saved_snapshot:
-                    # 配置未改变，跳过保存
-                    if DEBUG_CONFIG_SAVE:
-                        import logging
-                        debug_logger = logging.getLogger(__name__)
-                        debug_logger.info("[CONFIG SAVE] 配置未改变，跳过保存")
-                        debug_logger.info("=" * 40)
-                    return False
-            
-            # 配置已改变或强制保存，写入文件
+            # 脏数据检测：force 或 _dirty 标记时才写入
+            if not force and not self._dirty:
+                return False
+
             os.makedirs(self.config_dir, exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 self.config.write(f)
-            
-            # 更新快照
-            self._last_saved_snapshot = self._create_config_snapshot()
-            
-            if DEBUG_CONFIG_SAVE:
-                import logging
-                debug_logger = logging.getLogger(__name__)
-                debug_logger.info(f"[CONFIG SAVE] 配置保存成功: {self.config_file}")
-                debug_logger.info("=" * 40)
-            
+
+            self._dirty = False
             return True
         except Exception as e:
             logger.error(f"配置保存失败: {e}")
@@ -711,29 +659,30 @@ class ConfigManager:
         """设置字体大小"""
         self.config.set('UI', 'fontsize', str(size))
     
+    # 系统字体缓存，避免每次 get_fontfamily() 都查询 QFontDatabase
+    _system_fonts_cache = None
+
     def get_fontfamily(self) -> str:
         """获取字体名称（优先使用支持CJK的等宽字体）"""
         import sys
-        from PySide6.QtGui import QFontDatabase
-        
-        # 定义优先字体列表：SimSun -> Consolas -> Courier New
+
         if sys.platform == "darwin":
             preferred_fonts = ["SimSun", "Consolas", "Courier New", "Monaco", "Menlo"]
         else:
             preferred_fonts = ["SimSun", "Consolas", "Courier New"]
-        
-        # 检查系统中是否有优先字体
-        font_db = QFontDatabase()
-        system_fonts = set(font_db.families())
-        
+
+        if ConfigManager._system_fonts_cache is None:
+            from PySide6.QtGui import QFontDatabase
+            ConfigManager._system_fonts_cache = set(QFontDatabase().families())
+
+        default_font = None
         for font in preferred_fonts:
-            if font in system_fonts:
+            if font in ConfigManager._system_fonts_cache:
                 default_font = font
                 break
-        else:
-            # 如果没有找到任何优先字体，使用最后的备选
+        if default_font is None:
             default_font = "Courier New" if sys.platform != "darwin" else "Monaco"
-        
+
         return self._safe_get('UI', 'fontfamily', default_font)
     
     def set_fontfamily(self, font: str):
