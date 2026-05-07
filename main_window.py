@@ -13064,9 +13064,9 @@ class ConnectionDialog(QDialog):
                 # 发送连接成功信号（在信号处理中会创建session）
                 self.connection_established.emit()
                 
-                # 启动后台RTT块搜索（如果未跳过RTT块识别且是自动检测模式）
-                # 注意：session在on_connection_established中创建，需要延迟获取
-                if not skip_rtt_block_detection and rtt_cb_mode == 'auto':
+                # 连接成功后立即启动后台RTT块搜索（自动检测模式下延迟获取session）
+                # session在on_connection_established中创建，需要延迟获取
+                if rtt_cb_mode == 'auto':
                     QTimer.singleShot(100, lambda: self._start_background_rtt_block_search_after_connect())
                 
                 # 隐藏连接对话框

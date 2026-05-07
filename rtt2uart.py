@@ -1416,156 +1416,51 @@ class rtt_to_serial():
                             self._log_to_gui(QCoreApplication.translate("rtt2uart", "Memory search failed: %s") % str(e))
                             raise Exception(f"Range search failed: {e}")
                     else:
-                        # 自动检测模式：先搜索内存找到控制块地址
-                        # 如果设置了跳过RTT块识别，直接使用JLink自动检测
-                        if self._skip_rtt_block_detection:
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Skipping RTT block detection, using JLink auto-detection..."))
+                        # 自动检测模式：先用 JLink DLL 自动检测启动，后续由后台扫描补充
+                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with JLink auto-detection..."))
+                        try:
                             self._call_jlink_with_timeout("jlink.rtt_start()", lambda: self.jlink.rtt_start(), 5.0)
-                        else:
-                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Searching for RTT Control Block in memory..."))
-                            
-                            cb_addr = None
-                            try:
-                                # 尝试从设备配置获取RAM信息
-                                ram_start = None
-                                ram_size = None
-                                
-                                # 尝试从worker获取主窗口引用，然后获取RAM信息
-                                if hasattr(self.worker, 'parent') and hasattr(self.worker.parent, 'main_window'):
-                                    try:
-                                        # 获取当前session
-                                        session = None
-                                        if hasattr(self.worker.parent.main_window, '_get_active_device_session'):
-                                            session = self.worker.parent.main_window._get_active_device_session()
-                                        
-                                        if session:
-                                            ram_start, ram_size = self.worker.parent.main_window._get_device_ram_info(session)
-                                    except Exception as e:
-                                        logger.debug(f"Failed to get RAM info from device config: {e}")
-                                
-                                # 如果无法获取RAM信息，使用默认值
-                                if ram_start is None or ram_size is None:
-                                    # 默认RAM范围: 0x20000000 - 0x20040000 (256KB)
-                                    ram_start = 0x20000000
-                                    ram_size = 0x40000  # 256KB
-                                    logger.warning(f"Using default RAM range: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
-                                else:
-                                    logger.info(f"Using device RAM range: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}")
-                                
-                                search_chunk = 0x1000  # 每次搜索 4KB
-                                
-                                # RTT 控制块的标识符 "SEGGER RTT"
-                                rtt_id = b"SEGGER RTT"
-                                
-                                # 搜索第一个RTT块（用于立即启动）
-                                recovered_dll_once = False
-                                for offset in range(0, ram_size, search_chunk):
-                                    try:
-                                        addr = ram_start + offset
-                                        # 读取内存块
-                                        data = self.jlink.memory_read8(addr, min(search_chunk, ram_size - offset))
-                                        
-                                        # 转换为 bytes
-                                        data_bytes = bytes(data)
-                                        
-                                        # 查找标识符
-                                        pos = data_bytes.find(rtt_id)
-                                        if pos >= 0:
-                                            cb_addr = addr + pos
-                                            logger.info(f"Found first RTT Control Block at 0x{cb_addr:08X}")
-                                            self._last_found_rtt_block_addr = cb_addr
-                                            self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found RTT Control Block at address: 0x%08X") % cb_addr)
-                                            
-                                            # 如果session存在，添加到RTT块列表
-                                            if hasattr(self.worker, 'parent') and hasattr(self.worker.parent, 'main_window'):
-                                                try:
-                                                    session = self.worker.parent.main_window._get_active_device_session()
-                                                    if session:
-                                                        if cb_addr not in session.rtt_block_list:
-                                                            session.rtt_block_list.append(cb_addr)
-                                                        if session.current_rtt_block is None:
-                                                            session.current_rtt_block = cb_addr
-                                                        # 更新主窗口的RTT块下拉框（主线程）
-                                                        try:
-                                                            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
-                                                            mw = self.worker.parent.main_window
-                                                            if hasattr(mw, "_update_rtt_block_combo_for_session"):
-                                                                QMetaObject.invokeMethod(
-                                                                    mw,
-                                                                    "_update_rtt_block_combo_for_session",
-                                                                    Qt.QueuedConnection,
-                                                                    Q_ARG(object, session),
-                                                                )
-                                                        except Exception as e:
-                                                            logger.debug(f"Failed to update RTT block combo: {e}")
-                                                except Exception as e:
-                                                    logger.debug(f"Failed to update session RTT block list: {e}")
-                                            
-                                            break
-                                    except Exception as e:
-                                        # DLL 未打开时，尝试一次应用内恢复后继续扫描
-                                        if self._is_jlink_dll_not_open(e):
-                                            if not recovered_dll_once and self._recover_from_dll_not_open("memory_scan"):
-                                                recovered_dll_once = True
-                                                continue
-                                            raise
-                                        # 某些内存区域可能不可读，跳过
-                                        pass
-                                
-                                if not cb_addr:
-                                    # 搜索失败，尝试使用JLink自动检测作为回退
-                                    logger.warning(f"RTT Control Block not found in RAM: 0x{ram_start:08X} - 0x{ram_start + ram_size:08X}, trying JLink auto-detection...")
-                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X), trying JLink auto-detection...") % (ram_start, ram_start + ram_size))
-                                    try:
-                                        # 尝试使用JLink自动检测
-                                        self._call_jlink_with_timeout("jlink.rtt_start()", lambda: self.jlink.rtt_start(), 5.0)
-                                        logger.info("JLink auto-detection succeeded")
-                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started using JLink auto-detection"))
-                                    except Exception as auto_e:
-                                        # 自动检测失败：若是 DLL 未打开，尝试恢复后重试一次
-                                        if self._is_jlink_dll_not_open(auto_e) and self._recover_from_dll_not_open("rtt_start_auto_detect"):
-                                            try:
-                                                self._call_jlink_with_timeout(
-                                                    "jlink.rtt_start(retry_after_recover)",
-                                                    lambda: self.jlink.rtt_start(),
-                                                    5.0,
-                                                )
-                                                logger.info("JLink auto-detection succeeded after DLL recovery")
-                                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started after J-Link DLL recovery"))
-                                            except Exception as retry_e:
-                                                error_msg = QCoreApplication.translate(
-                                                    "rtt2uart",
-                                                    "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed after recovery: %s"
-                                                ) % (ram_start, ram_start + ram_size, str(retry_e))
-                                                self._log_to_gui(error_msg)
-                                                logger.error(f"RTT auto-detection failed after DLL recovery: {retry_e}")
-                                                raise Exception(error_msg)
-                                        else:
-                                            # 自动检测也失败，抛出错误
-                                            error_msg = QCoreApplication.translate("rtt2uart", "RTT Control Block not found in memory (0x%08X - 0x%08X) and JLink auto-detection failed: %s") % (ram_start, ram_start + ram_size, str(auto_e))
-                                            self._log_to_gui(error_msg)
-                                            logger.error(f"RTT Control Block not found and auto-detection failed: {auto_e}")
-                                            raise Exception(error_msg)
-                                else:
-                                    # 使用找到的地址启动 RTT
-                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "Starting RTT with Control Block at 0x%08X") % cb_addr)
+                        except Exception as auto_e:
+                            if self._is_jlink_dll_not_open(auto_e) and self._recover_from_dll_not_open("rtt_start_auto"):
+                                try:
                                     self._call_jlink_with_timeout(
-                                        "jlink.rtt_start(block_address=...)",
-                                        lambda: self.jlink.rtt_start(block_address=cb_addr),
+                                        "jlink.rtt_start(retry_after_recover)",
+                                        lambda: self.jlink.rtt_start(),
                                         5.0,
                                     )
-                                    
-                                    # 后台搜索将继续在ConnectionDialog中启动
-                                    
-                            except Exception as e:
-                                if "not found in memory" in str(e):
-                                    raise  # 重新抛出，不要继续
-                                logger.error(f"Memory search failed: {e}")
-                                self._log_to_gui(QCoreApplication.translate("rtt2uart", "Memory search failed: %s") % str(e))
-                                raise Exception(f"Memory search failed: {e}")
-                    
+                                    self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started after J-Link DLL recovery"))
+                                except Exception as retry_e:
+                                    error_msg = QCoreApplication.translate(
+                                        "rtt2uart",
+                                        "RTT auto-detection failed after recovery: %s"
+                                    ) % str(retry_e)
+                                    self._log_to_gui(error_msg)
+                                    raise Exception(error_msg)
+                            else:
+                                error_msg = QCoreApplication.translate("rtt2uart", "RTT auto-detection failed: %s") % str(auto_e)
+                                self._log_to_gui(error_msg)
+                                raise Exception(error_msg)
+
+                        # 快速探测首个 RTT 控制块地址（用于连接后 UI 显示）
+                        try:
+                            rtt_id = b"SEGGER RTT"
+                            common_ram_starts = [0x20000000, 0x10000000, 0x24000000, 0x40000000]
+                            for ram_start in common_ram_starts:
+                                try:
+                                    data = self.jlink.memory_read8(ram_start, 0x1000)
+                                    data_bytes = bytes(data)
+                                    pos = data_bytes.find(rtt_id)
+                                    if pos >= 0:
+                                        self._last_found_rtt_block_addr = ram_start + pos
+                                        self._log_to_gui(QCoreApplication.translate("rtt2uart", "Found RTT Control Block at 0x%08X") % self._last_found_rtt_block_addr)
+                                        break
+                                except Exception:
+                                    continue
+                        except Exception as probe_e:
+                            logger.debug(f"Quick RTT block probe failed: {probe_e}")
+
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "RTT started successfully"))
-                    
+
                     # 修复首次启动问题：RTT启动后需要清理缓冲区并等待稳定
                     self._log_to_gui(QCoreApplication.translate("rtt2uart", "Initializing RTT buffers..."))
                     self._initialize_rtt_buffers()
